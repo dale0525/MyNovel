@@ -135,7 +135,9 @@ def test_create_db_and_tables_migrates_open_book_blueprint_status_columns(tmp_pa
     assert saved.status == BlueprintStatus.PENDING
 
 
-def test_create_db_and_tables_normalizes_existing_lowercase_blueprint_status(tmp_path: Path) -> None:
+def test_create_db_and_tables_normalizes_existing_lowercase_blueprint_status(
+    tmp_path: Path,
+) -> None:
     db_path = tmp_path / "mynovel.sqlite"
     engine = create_engine_for_path(db_path)
     with engine.begin() as connection:

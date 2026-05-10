@@ -62,8 +62,14 @@ def _migrate_open_book_blueprint(engine: Engine, inspector) -> None:
             """
         )
         if "error_message" not in columns:
-            connection.exec_driver_sql("ALTER TABLE openbookblueprint ADD COLUMN error_message VARCHAR")
+            connection.exec_driver_sql(
+                "ALTER TABLE openbookblueprint ADD COLUMN error_message VARCHAR"
+            )
         if "started_at" not in columns:
-            connection.exec_driver_sql("ALTER TABLE openbookblueprint ADD COLUMN started_at DATETIME")
+            connection.exec_driver_sql(
+                "ALTER TABLE openbookblueprint ADD COLUMN started_at DATETIME"
+            )
         if "finished_at" not in columns:
-            connection.exec_driver_sql("ALTER TABLE openbookblueprint ADD COLUMN finished_at DATETIME")
+            connection.exec_driver_sql(
+                "ALTER TABLE openbookblueprint ADD COLUMN finished_at DATETIME"
+            )

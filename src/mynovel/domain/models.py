@@ -16,6 +16,14 @@ class BookStatus(StrEnum):
     PAUSED = "paused"
 
 
+class ChapterStatus(StrEnum):
+    PLANNED = "planned"
+    RUNNING = "running"
+    AWAITING_REVIEW = "awaiting_review"
+    NEEDS_REVISION = "needs_revision"
+    ACCEPTED = "accepted"
+
+
 class BlueprintStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
@@ -41,6 +49,26 @@ class Canon(SQLModel, table=True):
     version: int = 1
     content: dict = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class Chapter(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    book_id: int = Field(index=True, foreign_key="book.id")
+    number: int = Field(index=True)
+    title: str
+    status: ChapterStatus = ChapterStatus.PLANNED
+    plan: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    context_package: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    draft_text: str = ""
+    revised_text: str = ""
+    final_text: str = ""
+    audit_report: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    state_delta: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    summary: str = ""
+    reviewer_note: str | None = None
+    word_count: int = 0
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 class RunTrace(SQLModel, table=True):

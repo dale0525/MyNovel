@@ -1,6 +1,14 @@
 from sqlmodel import Session, select
 
-from mynovel.domain.models import Book, OpenBookBlueprint, ProviderConfig, utc_now
+from mynovel.domain.models import (
+    Book,
+    Canon,
+    Chapter,
+    OpenBookBlueprint,
+    ProviderConfig,
+    RunTrace,
+    utc_now,
+)
 
 
 def add_book(session: Session, book: Book) -> Book:
@@ -8,6 +16,55 @@ def add_book(session: Session, book: Book) -> Book:
     session.commit()
     session.refresh(book)
     return book
+
+
+def get_book(session: Session, book_id: int) -> Book | None:
+    return session.get(Book, book_id)
+
+
+def add_canon(session: Session, canon: Canon) -> Canon:
+    session.add(canon)
+    session.commit()
+    session.refresh(canon)
+    return canon
+
+
+def get_latest_canon(session: Session, book_id: int) -> Canon | None:
+    statement = (
+        select(Canon)
+        .where(Canon.book_id == book_id)
+        .order_by(Canon.version.desc(), Canon.created_at.desc())
+        .limit(1)
+    )
+    return session.exec(statement).first()
+
+
+def add_chapter(session: Session, chapter: Chapter) -> Chapter:
+    session.add(chapter)
+    session.commit()
+    session.refresh(chapter)
+    return chapter
+
+
+def get_chapter(session: Session, chapter_id: int) -> Chapter | None:
+    return session.get(Chapter, chapter_id)
+
+
+def list_chapters_for_book(session: Session, book_id: int) -> list[Chapter]:
+    statement = select(Chapter).where(Chapter.book_id == book_id).order_by(Chapter.number)
+    return list(session.exec(statement))
+
+
+def add_run_trace(session: Session, trace: RunTrace) -> RunTrace:
+    session.add(trace)
+    session.commit()
+    session.refresh(trace)
+    return trace
+
+
+def list_run_traces_for_book(session: Session, book_id: int) -> list[RunTrace]:
+    statement = select(RunTrace).where(RunTrace.book_id == book_id).order_by(RunTrace.created_at)
+    return list(session.exec(statement))
 
 
 def get_provider_config(session: Session) -> ProviderConfig | None:

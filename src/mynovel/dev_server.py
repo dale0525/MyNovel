@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import html
 import json
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -17,18 +16,27 @@ from sqlmodel import Session, select
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import Book, BlueprintStatus, OpenBookBlueprint, ProviderConfig, utc_now
 from mynovel.domain.repositories import (
+    get_book,
+    get_chapter,
+    get_latest_canon,
     get_open_book_blueprint,
     get_provider_config,
+    list_chapters_for_book,
     list_open_book_blueprints,
+    list_run_traces_for_book,
     save_provider_config,
 )
-from mynovel.dev_views import (
-    blueprint_status_label,
-    render_blueprint_page,
-    render_structured_blueprint,
-)
-from mynovel.i18n import DEFAULT_LOCALE, t
+from mynovel.i18n import t
 from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
+from mynovel.product_views import (
+    is_provider_config_complete,
+    render_book_workspace,
+    render_blueprint_page,
+    render_chapter_review,
+    render_home,
+    render_new_book_page,
+)
+from mynovel.workflows.chapter_pipeline import approve_chapter, run_chapter_pipeline
 from mynovel.workflows.open_book import create_draft_book_from_blueprint
 from mynovel.workflows.open_book_blueprint import (
     build_blueprint_messages,
@@ -51,417 +59,12 @@ def build_health_payload(db_path: Path) -> dict[str, str]:
     return {"status": "ok", "database": str(db_path)}
 
 
-def render_home(
-    db_path: Path,
-    books: list[Book],
-    provider_config: ProviderConfig | None,
-    blueprints: list[OpenBookBlueprint] | None = None,
-    message: str | None = None,
-    locale: str = DEFAULT_LOCALE,
-) -> str:
-    escaped_message = html.escape(message) if message else ""
-    blueprints = blueprints or []
-    blueprint_panel = _render_blueprint_panel(blueprints, locale)
-    db_label = html.escape(str(db_path))
-    configured = is_provider_config_complete(provider_config)
-    config_status = t("status.configured", locale) if configured else t("status.not_configured", locale)
-    open_book_disabled = "" if configured else " disabled"
-    provider_form = _render_provider_form(provider_config, locale)
-
-    return f"""<!doctype html>
-<html lang="{locale}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{t("app.title", locale)}</title>
-  <style>
-    :root {{
-      color-scheme: light;
-      --bg: #eef2ed;
-      --panel: #fbfcf8;
-      --ink: #1e2a24;
-      --muted: #65736b;
-      --line: #d5ddd2;
-      --accent: #356b55;
-      --accent-ink: #ffffff;
-      --warn: #7a5b21;
-    }}
-
-    * {{
-      box-sizing: border-box;
-    }}
-
-    body {{
-      margin: 0;
-      min-height: 100vh;
-      background: var(--bg);
-      color: var(--ink);
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      letter-spacing: 0;
-    }}
-
-    main {{
-      width: min(1120px, calc(100% - 32px));
-      margin: 0 auto;
-      padding: 32px 0;
-    }}
-
-    header {{
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: 24px;
-      margin-bottom: 28px;
-      border-bottom: 1px solid var(--line);
-      padding-bottom: 20px;
-    }}
-
-    h1 {{
-      margin: 0 0 8px;
-      font-size: 34px;
-      line-height: 1.1;
-      font-weight: 720;
-    }}
-
-    p {{
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.6;
-    }}
-
-    .db {{
-      color: var(--muted);
-      font-size: 14px;
-      text-align: right;
-    }}
-
-    .workspace {{
-      display: grid;
-      grid-template-columns: minmax(360px, 460px) 1fr;
-      gap: 24px;
-      align-items: start;
-    }}
-
-    section {{
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 20px;
-    }}
-
-    h2 {{
-      margin: 0 0 16px;
-      font-size: 18px;
-      line-height: 1.3;
-    }}
-
-    form {{
-      display: grid;
-      gap: 14px;
-    }}
-
-    label {{
-      display: grid;
-      gap: 6px;
-      color: var(--muted);
-      font-size: 13px;
-    }}
-
-    input {{
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #ffffff;
-      color: var(--ink);
-      font: inherit;
-      min-height: 42px;
-      padding: 9px 11px;
-    }}
-
-    input[type="checkbox"] {{
-      width: auto;
-      min-height: auto;
-      margin: 0;
-    }}
-
-    textarea {{
-      width: 100%;
-      min-height: 96px;
-      resize: vertical;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #ffffff;
-      color: var(--ink);
-      font: inherit;
-      padding: 9px 11px;
-    }}
-
-    input:disabled,
-    button:disabled,
-    textarea:disabled {{
-      cursor: not-allowed;
-      opacity: 0.55;
-    }}
-
-    input:focus,
-    textarea:focus {{
-      border-color: var(--accent);
-      outline: 3px solid rgba(53, 107, 85, 0.18);
-    }}
-
-    button {{
-      border: 0;
-      border-radius: 6px;
-      background: var(--accent);
-      color: var(--accent-ink);
-      cursor: pointer;
-      font: inherit;
-      font-weight: 650;
-      min-height: 42px;
-      padding: 10px 14px;
-    }}
-
-    button.secondary {{
-      border: 1px solid var(--line);
-      background: #ffffff;
-      color: var(--ink);
-    }}
-
-    .message {{
-      margin-bottom: 16px;
-      color: var(--warn);
-      font-size: 14px;
-    }}
-
-    .status {{
-      display: inline-flex;
-      align-items: center;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      color: var(--muted);
-      font-size: 13px;
-      min-height: 28px;
-      padding: 3px 10px;
-    }}
-
-    .section-intro {{
-      margin-bottom: 16px;
-      font-size: 14px;
-    }}
-
-    .inline-check {{
-      display: flex;
-      grid-template-columns: auto 1fr;
-      align-items: center;
-      gap: 8px;
-      color: var(--ink);
-    }}
-
-    .blueprint {{
-      margin-top: 20px;
-      border-top: 1px solid var(--line);
-      padding-top: 18px;
-    }}
-
-    .blueprint pre {{
-      overflow: auto;
-      max-height: 360px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #f6f8f3;
-      color: var(--ink);
-      font-size: 13px;
-      line-height: 1.55;
-      padding: 14px;
-      white-space: pre-wrap;
-    }}
-
-    table {{
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-    }}
-
-    th,
-    td {{
-      border-bottom: 1px solid var(--line);
-      padding: 12px 8px;
-      text-align: left;
-      vertical-align: top;
-    }}
-
-    th {{
-      color: var(--muted);
-      font-weight: 650;
-    }}
-
-    td.empty {{
-      color: var(--muted);
-    }}
-
-    @media (max-width: 800px) {{
-      main {{
-        width: min(100% - 20px, 720px);
-        padding: 20px 0;
-      }}
-
-      header,
-      .workspace {{
-        display: grid;
-        grid-template-columns: 1fr;
-      }}
-
-      .db {{
-        text-align: left;
-      }}
-    }}
-  </style>
-</head>
-<body>
-  <main>
-    <header>
-      <div>
-        <h1>{t("app.title", locale)}</h1>
-        <p>{t("app.subtitle", locale)}</p>
-      </div>
-      <div class="db">{t("app.sqlite", locale)}<br>{db_label}</div>
-    </header>
-
-    {"<p class='message'>" + escaped_message + "</p>" if escaped_message else ""}
-
-    <div class="workspace">
-      <section>
-        <h2>{t("provider.title", locale)}</h2>
-        <p class="section-intro">{t("provider.description", locale)}</p>
-        {provider_form}
-      </section>
-
-      <section>
-        <h2>{t("book.title", locale)}</h2>
-        <p class="section-intro">{t("book.description", locale)}</p>
-        <p class="status">{config_status}</p>
-        <form method="post" action="/open-book">
-          <label>
-            {t("book.idea", locale)}
-            <input name="idea" required placeholder="{t("book.idea_placeholder", locale)}"
-              {open_book_disabled}>
-          </label>
-          <button type="submit"{open_book_disabled}>{t("book.create", locale)}</button>
-        </form>
-
-        {blueprint_panel}
-      </section>
-    </div>
-  </main>
-</body>
-</html>
-"""
-
-
-def _render_book_rows(books: list[Book]) -> str:
-    if not books:
-        return f'<tr><td class="empty" colspan="4">{t("status.no_books")}</td></tr>'
-
-    rows = []
-    for book in books:
-        rows.append(
-            "<tr>"
-            f"<td>{book.id}</td>"
-            f"<td>{html.escape(book.premise or '')}</td>"
-            f"<td>{html.escape(book.genre)}</td>"
-            f"<td>{html.escape(str(book.status))}</td>"
-            "</tr>"
-        )
-    return "\n".join(rows)
-
-
-def _render_provider_form(provider_config: ProviderConfig | None, locale: str) -> str:
-    config = provider_config or ProviderConfig(
-        llm_base_url="",
-        llm_model="",
-        embedding_use_llm_credentials=True,
-        embedding_base_url="",
-        embedding_model="",
-        rerank_use_llm_credentials=True,
-    )
-    embedding_checked = " checked" if config.embedding_use_llm_credentials else ""
-    rerank_checked = " checked" if config.rerank_use_llm_credentials else ""
-    return f"""
-        <form method="post" action="/provider-config">
-          <label>
-            {t("provider.llm_base_url", locale)}
-            <input name="llm_base_url" required value="{_field(config.llm_base_url)}"
-              placeholder="https://api.openai.com/v1">
-          </label>
-          <label>
-            {t("provider.llm_api_key", locale)}
-            <input name="llm_api_key" type="password" value="{_field(config.llm_api_key)}">
-          </label>
-          <label>
-            {t("provider.llm_model", locale)}
-            <input name="llm_model" required value="{_field(config.llm_model)}"
-              placeholder="gpt-4.1">
-          </label>
-          <label>
-            {t("provider.embedding_base_url", locale)}
-            <input name="embedding_base_url" value="{_field(config.embedding_base_url)}"
-              placeholder="https://api.openai.com/v1">
-          </label>
-          <label>
-            {t("provider.embedding_api_key", locale)}
-            <input name="embedding_api_key" type="password" value="{_field(config.embedding_api_key)}">
-          </label>
-          <label>
-            {t("provider.embedding_model", locale)}
-            <input name="embedding_model" required value="{_field(config.embedding_model)}"
-              placeholder="text-embedding-3-small">
-          </label>
-          <label class="inline-check">
-            <input name="embedding_use_llm_credentials" type="checkbox" value="1"{embedding_checked}>
-            {t("provider.embedding_use_llm", locale)}
-          </label>
-          <label>
-            {t("provider.rerank_base_url", locale)}
-            <input name="rerank_base_url" value="{_field(config.rerank_base_url)}">
-          </label>
-          <label>
-            {t("provider.rerank_api_key", locale)}
-            <input name="rerank_api_key" type="password" value="{_field(config.rerank_api_key)}">
-          </label>
-          <label>
-            {t("provider.rerank_model", locale)}
-            <input name="rerank_model" value="{_field(config.rerank_model)}">
-          </label>
-          <label class="inline-check">
-            <input name="rerank_use_llm_credentials" type="checkbox" value="1"{rerank_checked}>
-            {t("provider.rerank_use_llm", locale)}
-          </label>
-          <button type="submit">{t("provider.save", locale)}</button>
-        </form>
-"""
-
-
-def _field(value: str | None) -> str:
-    return html.escape(value or "", quote=True)
-
-
-def is_provider_config_complete(provider_config: ProviderConfig | None) -> bool:
-    return bool(
-        provider_config
-        and provider_config.llm_base_url.strip()
-        and provider_config.llm_model.strip()
-        and provider_config.resolved_embedding_base_url().strip()
-        and provider_config.embedding_model.strip()
-    )
-
-
 def run_server(host: str, port: int, db_path: Path) -> None:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
 
     state = DevServerState(db_path=db_path)
-    handler = _make_handler(state)
-    server = ThreadingHTTPServer((host, port), handler)
+    server = ThreadingHTTPServer((host, port), _make_handler(state))
     actual_host, actual_port = server.server_address
     print(f"MyNovel dev server running at http://{actual_host}:{actual_port}", flush=True)
     print("Press Ctrl+C to stop.", flush=True)
@@ -475,7 +78,7 @@ def run_server(host: str, port: int, db_path: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Run the local MyNovel debug server.")
+    parser = argparse.ArgumentParser(description="Run the local MyNovel product server.")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
@@ -491,27 +94,28 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if parsed.path == "/health":
                 self._send_json(build_health_payload(state.db_path))
                 return
+            if parsed.path == "/books/new":
+                self._send_html(render_new_book_page(_load_provider_config(state.db_path)))
+                return
+            if parsed.path.startswith("/book/"):
+                self._send_book_page(state.db_path, _parse_numeric_id(parsed.path))
+                return
+            if parsed.path.startswith("/chapter/"):
+                self._send_chapter_page(state.db_path, _parse_numeric_id(parsed.path))
+                return
             if parsed.path.startswith("/blueprint/"):
-                blueprint_id = _parse_blueprint_id(parsed.path)
-                provider_config = _load_provider_config(state.db_path)
-                blueprint = _load_open_book_blueprint(state.db_path, blueprint_id)
-                if blueprint is None:
-                    self.send_error(HTTPStatus.NOT_FOUND)
-                    return
-                self._send_html(render_blueprint_page(state.db_path, provider_config, blueprint))
+                self._send_blueprint_page(state.db_path, _parse_numeric_id(parsed.path))
                 return
             if parsed.path != "/":
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
 
-            params = parse_qs(parsed.query)
-            message = params.get("message", [None])[0]
-            provider_config = _load_provider_config(state.db_path)
+            message = parse_qs(parsed.query).get("message", [None])[0]
             self._send_html(
                 render_home(
                     state.db_path,
                     _load_books(state.db_path),
-                    provider_config,
+                    _load_provider_config(state.db_path),
                     _load_open_book_blueprints(state.db_path),
                     message,
                 )
@@ -520,179 +124,242 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             if parsed.path == "/init":
-                engine = create_engine_for_path(state.db_path)
-                create_db_and_tables(engine)
+                create_db_and_tables(create_engine_for_path(state.db_path))
                 self._redirect_message(t("provider.saved"))
                 return
             if parsed.path == "/provider-config":
-                form = self._read_form()
-                engine = create_engine_for_path(state.db_path)
-                create_db_and_tables(engine)
-                with Session(engine) as session:
-                    save_provider_config(session, _provider_config_from_form(form))
-                self._redirect_message(t("provider.saved"))
+                self._save_provider_config(state.db_path)
                 return
             if parsed.path == "/open-book":
-                form = self._read_form()
-                idea = form.get("idea", "")
-                provider_config = _load_provider_config(state.db_path)
-                if not is_provider_config_complete(provider_config):
-                    self._send_html(
-                        render_home(
-                            state.db_path,
-                            _load_books(state.db_path),
-                            provider_config,
-                            _load_open_book_blueprints(state.db_path),
-                            t("status.not_configured"),
-                        ),
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-                if not idea:
-                    self._send_html(
-                        render_home(
-                            state.db_path,
-                            _load_books(state.db_path),
-                            provider_config,
-                            _load_open_book_blueprints(state.db_path),
-                            t("book.idea_required"),
-                        ),
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-
-                engine = create_engine_for_path(state.db_path)
-                create_db_and_tables(engine)
-                with Session(engine) as session:
-                    blueprint = create_blueprint_job(
-                        session,
-                        idea=idea,
-                        version=1,
-                        instruction=None,
-                        parent_id=None,
-                    )
-                    blueprint_id = blueprint.id
-                if blueprint_id is None:
-                    self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR)
-                    return
-                _start_blueprint_job(state.db_path, blueprint_id, provider_config)
-                self._redirect(f"/blueprint/{blueprint_id}")
+                self._create_blueprint(state.db_path)
                 return
             if parsed.path == "/revise-blueprint":
-                form = self._read_form()
-                revision_notes = form.get("revision_notes", "")
-                provider_config = _load_provider_config(state.db_path)
-                blueprints = _load_open_book_blueprints(state.db_path)
-                if not provider_config or not is_provider_config_complete(provider_config):
-                    self._send_html(
-                        render_home(
-                            state.db_path,
-                            _load_books(state.db_path),
-                            provider_config,
-                            blueprints,
-                            t("status.not_configured"),
-                        ),
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-                if not blueprints:
-                    self._redirect("/")
-                    return
-                if not revision_notes:
-                    self._send_html(
-                        render_home(
-                            state.db_path,
-                            _load_books(state.db_path),
-                            provider_config,
-                            blueprints,
-                            t("blueprint.revision_required"),
-                        ),
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-
-                latest = blueprints[0]
-                engine = create_engine_for_path(state.db_path)
-                create_db_and_tables(engine)
-                with Session(engine) as session:
-                    blueprint = create_blueprint_job(
-                        session,
-                        idea=latest.idea,
-                        version=latest.version + 1,
-                        instruction=revision_notes,
-                        parent_id=latest.id,
-                    )
-                    blueprint_id = blueprint.id
-                if blueprint_id is None:
-                    self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR)
-                    return
-                _start_blueprint_job(state.db_path, blueprint_id, provider_config)
-                self._redirect(f"/blueprint/{blueprint_id}")
+                self._revise_blueprint(state.db_path)
                 return
             if parsed.path == "/retry-blueprint":
-                form = self._read_form()
-                blueprint_id = int(form.get("blueprint_id", "0"))
-                provider_config = _load_provider_config(state.db_path)
-                if not provider_config or not is_provider_config_complete(provider_config):
-                    self.send_error(HTTPStatus.BAD_REQUEST)
-                    return
-                engine = create_engine_for_path(state.db_path)
-                create_db_and_tables(engine)
-                with Session(engine) as session:
-                    blueprint = get_open_book_blueprint(session, blueprint_id)
-                    if blueprint is None:
-                        self.send_error(HTTPStatus.NOT_FOUND)
-                        return
-                    _reset_blueprint_for_retry(session, blueprint)
-                _start_blueprint_job(state.db_path, blueprint_id, provider_config)
-                self._redirect(f"/blueprint/{blueprint_id}")
+                self._retry_blueprint(state.db_path)
                 return
             if parsed.path == "/accept-blueprint":
-                form = self._read_form()
-                blueprint_id = int(form.get("blueprint_id", "0"))
-                selected_title = form.get("selected_title", "")
-                provider_config = _load_provider_config(state.db_path)
-                engine = create_engine_for_path(state.db_path)
-                create_db_and_tables(engine)
-                with Session(engine) as session:
-                    blueprint = get_open_book_blueprint(session, blueprint_id)
-                    if blueprint is None:
-                        self.send_error(HTTPStatus.NOT_FOUND)
-                        return
-                    if blueprint.status != BlueprintStatus.SUCCEEDED:
-                        self.send_error(HTTPStatus.BAD_REQUEST)
-                        return
-                    try:
-                        book = create_draft_book_from_blueprint(
-                            session,
-                            blueprint,
-                            selected_title=selected_title,
-                        )
-                    except ValueError:
-                        self._send_html(
-                            render_blueprint_page(
-                                state.db_path,
-                                provider_config,
-                                blueprint,
-                                t("blueprint.title_required"),
-                            ),
-                            status=HTTPStatus.BAD_REQUEST,
-                        )
-                        return
-
-                self._redirect_message(
-                    t(
-                        "book.created_from_blueprint",
-                        title=book.title,
-                        book_id=book.id,
-                    )
-                )
+                self._accept_blueprint(state.db_path)
                 return
-
+            if parsed.path == "/run-chapter":
+                self._run_chapter(state.db_path)
+                return
+            if parsed.path == "/approve-chapter":
+                self._approve_chapter(state.db_path)
+                return
             self.send_error(HTTPStatus.NOT_FOUND)
 
         def log_message(self, format: str, *args: Any) -> None:
             print(f"{self.address_string()} - {format % args}")
+
+        def _send_book_page(self, db_path: Path, book_id: int) -> None:
+            book = _load_book(db_path, book_id)
+            if book is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self._send_html(
+                render_book_workspace(
+                    book,
+                    _load_chapters_for_book(db_path, book_id),
+                    _load_latest_canon(db_path, book_id),
+                    _load_run_traces_for_book(db_path, book_id),
+                )
+            )
+
+        def _send_chapter_page(self, db_path: Path, chapter_id: int) -> None:
+            chapter = _load_chapter(db_path, chapter_id)
+            if chapter is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            book = _load_book(db_path, chapter.book_id)
+            if book is None or book.id is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self._send_html(
+                render_chapter_review(
+                    book,
+                    _load_chapters_for_book(db_path, book.id),
+                    chapter,
+                    _load_latest_canon(db_path, book.id),
+                )
+            )
+
+        def _send_blueprint_page(self, db_path: Path, blueprint_id: int) -> None:
+            blueprint = _load_open_book_blueprint(db_path, blueprint_id)
+            if blueprint is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self._send_html(
+                render_blueprint_page(db_path, _load_provider_config(db_path), blueprint)
+            )
+
+        def _save_provider_config(self, db_path: Path) -> None:
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                save_provider_config(session, _provider_config_from_form(self._read_form()))
+            self._redirect_message(t("provider.saved"))
+
+        def _create_blueprint(self, db_path: Path) -> None:
+            form = self._read_form()
+            idea = _book_idea_from_form(form)
+            provider_config = _load_provider_config(db_path)
+            if not is_provider_config_complete(provider_config):
+                self._send_html(
+                    render_home(
+                        db_path,
+                        _load_books(db_path),
+                        provider_config,
+                        _load_open_book_blueprints(db_path),
+                        t("status.not_configured"),
+                    ),
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            if not idea:
+                self._send_html(render_new_book_page(provider_config, t("book.idea_required")))
+                return
+
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                blueprint = create_blueprint_job(
+                    session,
+                    idea=idea,
+                    version=1,
+                    instruction=None,
+                    parent_id=None,
+                )
+                blueprint_id = blueprint.id
+            if blueprint_id is None:
+                self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            _start_blueprint_job(db_path, blueprint_id, provider_config)
+            self._redirect(f"/blueprint/{blueprint_id}")
+
+        def _revise_blueprint(self, db_path: Path) -> None:
+            form = self._read_form()
+            revision_notes = form.get("revision_notes", "")
+            provider_config = _load_provider_config(db_path)
+            blueprints = _load_open_book_blueprints(db_path)
+            if not provider_config or not is_provider_config_complete(provider_config):
+                self.send_error(HTTPStatus.BAD_REQUEST)
+                return
+            if not blueprints:
+                self._redirect("/")
+                return
+            if not revision_notes:
+                self._send_html(
+                    render_home(
+                        db_path,
+                        _load_books(db_path),
+                        provider_config,
+                        blueprints,
+                        t("blueprint.revision_required"),
+                    ),
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+
+            latest = blueprints[0]
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                blueprint = create_blueprint_job(
+                    session,
+                    idea=latest.idea,
+                    version=latest.version + 1,
+                    instruction=revision_notes,
+                    parent_id=latest.id,
+                )
+                blueprint_id = blueprint.id
+            if blueprint_id is None:
+                self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            _start_blueprint_job(db_path, blueprint_id, provider_config)
+            self._redirect(f"/blueprint/{blueprint_id}")
+
+        def _retry_blueprint(self, db_path: Path) -> None:
+            form = self._read_form()
+            blueprint_id = int(form.get("blueprint_id", "0"))
+            provider_config = _load_provider_config(db_path)
+            if not provider_config or not is_provider_config_complete(provider_config):
+                self.send_error(HTTPStatus.BAD_REQUEST)
+                return
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                blueprint = get_open_book_blueprint(session, blueprint_id)
+                if blueprint is None:
+                    self.send_error(HTTPStatus.NOT_FOUND)
+                    return
+                _reset_blueprint_for_retry(session, blueprint)
+            _start_blueprint_job(db_path, blueprint_id, provider_config)
+            self._redirect(f"/blueprint/{blueprint_id}")
+
+        def _accept_blueprint(self, db_path: Path) -> None:
+            form = self._read_form()
+            blueprint_id = int(form.get("blueprint_id", "0"))
+            selected_title = form.get("selected_title", "")
+            provider_config = _load_provider_config(db_path)
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                blueprint = get_open_book_blueprint(session, blueprint_id)
+                if blueprint is None:
+                    self.send_error(HTTPStatus.NOT_FOUND)
+                    return
+                if blueprint.status != BlueprintStatus.SUCCEEDED:
+                    self.send_error(HTTPStatus.BAD_REQUEST)
+                    return
+                try:
+                    book = create_draft_book_from_blueprint(
+                        session,
+                        blueprint,
+                        selected_title=selected_title,
+                    )
+                except ValueError:
+                    self._send_html(
+                        render_blueprint_page(
+                            db_path,
+                            provider_config,
+                            blueprint,
+                            t("blueprint.title_required"),
+                        ),
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+            self._redirect(f"/book/{book.id}")
+
+        def _run_chapter(self, db_path: Path) -> None:
+            chapter_id = int(self._read_form().get("chapter_id", "0"))
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                try:
+                    chapter = run_chapter_pipeline(session, chapter_id)
+                except ValueError:
+                    self.send_error(HTTPStatus.BAD_REQUEST)
+                    return
+            self._redirect(f"/chapter/{chapter.id}")
+
+        def _approve_chapter(self, db_path: Path) -> None:
+            form = self._read_form()
+            chapter_id = int(form.get("chapter_id", "0"))
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                try:
+                    chapter = approve_chapter(
+                        session,
+                        chapter_id,
+                        form.get("reviewer_note") or None,
+                    )
+                except ValueError:
+                    self.send_error(HTTPStatus.BAD_REQUEST)
+                    return
+            self._redirect(f"/chapter/{chapter.id}")
 
         def _read_form(self) -> dict[str, str]:
             length = int(self.headers.get("Content-Length", "0"))
@@ -734,6 +401,41 @@ def _load_books(db_path: Path) -> list[Book]:
         return list(session.exec(statement))
 
 
+def _load_book(db_path: Path, book_id: int) -> Book | None:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        return get_book(session, book_id)
+
+
+def _load_chapter(db_path: Path, chapter_id: int):
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        return get_chapter(session, chapter_id)
+
+
+def _load_chapters_for_book(db_path: Path, book_id: int):
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        return list_chapters_for_book(session, book_id)
+
+
+def _load_latest_canon(db_path: Path, book_id: int):
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        return get_latest_canon(session, book_id)
+
+
+def _load_run_traces_for_book(db_path: Path, book_id: int):
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        return list_run_traces_for_book(session, book_id)
+
+
 def _load_provider_config(db_path: Path) -> ProviderConfig | None:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
@@ -771,7 +473,7 @@ def _load_open_book_blueprint(db_path: Path, blueprint_id: int) -> OpenBookBluep
         return get_open_book_blueprint(session, blueprint_id)
 
 
-def _parse_blueprint_id(path: str) -> int:
+def _parse_numeric_id(path: str) -> int:
     _, _, raw_id = path.rpartition("/")
     try:
         return int(raw_id)
@@ -779,24 +481,18 @@ def _parse_blueprint_id(path: str) -> int:
         return 0
 
 
-def _render_blueprint_panel(blueprints: list[OpenBookBlueprint], locale: str) -> str:
-    if not blueprints:
-        return f'<div class="blueprint"><p>{t("blueprint.empty", locale)}</p></div>'
-
-    latest = blueprints[0]
-    title = t("blueprint.title", locale, version=latest.version)
-    status = blueprint_status_label(latest.status, locale)
-    body = render_structured_blueprint(latest.content, locale) if latest.content else f"<p>{status}</p>"
-
-    return f"""
-        <div class="blueprint">
-          <h2>{title}</h2>
-          {body}
-          <div class="actions">
-            <a class="button secondary" href="/blueprint/{latest.id}">{t("blueprint.open", locale)}</a>
-          </div>
-        </div>
-"""
+def _book_idea_from_form(form: dict[str, str]) -> str:
+    parts = [
+        form.get("idea", ""),
+        form.get("genre", ""),
+        form.get("audience", ""),
+        form.get("selling_points", ""),
+        form.get("constraints", ""),
+        form.get("style_reference", ""),
+        form.get("length_goal", ""),
+        form.get("serial_rhythm", ""),
+    ]
+    return "\n".join(part for part in parts if part)
 
 
 def _start_blueprint_job(

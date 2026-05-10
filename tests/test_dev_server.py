@@ -21,7 +21,7 @@ def test_health_payload_reports_database_path() -> None:
     assert payload == {"status": "ok", "database": ".mynovel/dev.sqlite"}
 
 
-def test_home_page_renders_debug_surface() -> None:
+def test_home_page_renders_product_surface() -> None:
     page = render_home(
         Path(".mynovel/dev.sqlite"),
         books=[],
@@ -31,10 +31,12 @@ def test_home_page_renders_debug_surface() -> None:
     )
 
     assert 'lang="zh-CN"' in page
-    assert "MyNovel 调试台" in page
+    assert "MyNovel" in page
+    assert "还没有书籍" in page
     assert "模型配置" in page
-    assert "配置完成后才能开书" in page
-    assert "disabled" in page
+    assert "模型未配置" in page
+    assert "创建第一本书" in page
+    assert "可信设定" in page
     assert ".mynovel/dev.sqlite" in page
     assert "Ready" in page
 
@@ -55,15 +57,15 @@ def test_home_page_enables_open_book_after_provider_config() -> None:
         message=None,
     )
 
-    assert "配置已完成" in page
+    assert "模型已配置" in page
     assert "配置完成后才能开书" not in page
-    assert '<button type="submit" disabled>' not in page
-    assert "只输入一个想法" in page
-    assert "类型" not in page
-    assert "读者" not in page
+    assert "创建第一本书" in page
+    assert "接口地址" in page
+    assert "访问密钥" in page
+    assert "对话模型" in page
 
 
-def test_home_page_renders_blueprint_revision_form() -> None:
+def test_home_page_keeps_language_product_focused_with_blueprints_present() -> None:
     provider_config = ProviderConfig(
         llm_base_url="https://api.example.test/v1",
         llm_model="gpt-test",
@@ -91,9 +93,10 @@ def test_home_page_renders_blueprint_revision_form() -> None:
         message=None,
     )
 
-    assert "开书蓝图 v1" in page
-    assert "长夜图书馆" in page
-    assert "查看蓝图任务" in page
+    assert "还没有书籍" in page
+    assert "模型已配置" in page
+    assert "调试台" not in page
+    assert "Canon" not in page
 
 
 def test_blueprint_page_renders_pending_job_without_content() -> None:
@@ -186,7 +189,7 @@ def test_blueprint_page_renders_structured_blueprint() -> None:
     assert "确认书名，进入下一步" in page
     assert "核心冲突" in page
     assert "前 10 章方向" in page
-    assert "<dt>chapter</dt>" in page
+    assert "章节：第 1 章" in page
     assert "得到残页" in page
     assert "{&#x27;chapter&#x27;" not in page
     assert '"title_options"' not in page
@@ -230,4 +233,4 @@ def test_blueprint_page_renders_title_required_message() -> None:
 
 
 def test_i18n_defaults_to_simplified_chinese() -> None:
-    assert t("app.title") == "MyNovel 调试台"
+    assert t("app.title") == "MyNovel"

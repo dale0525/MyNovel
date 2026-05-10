@@ -57,7 +57,10 @@ def build_blueprint_messages(
 
     return [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"{schema_prompt}\n{json.dumps(user_payload, ensure_ascii=False)}"},
+        {
+            "role": "user",
+            "content": f"{schema_prompt}\n{json.dumps(user_payload, ensure_ascii=False)}",
+        },
     ]
 
 
