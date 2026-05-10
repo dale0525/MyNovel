@@ -1,0 +1,12 @@
+id: open_book
+name: Open Book Canon Planner
+version: "0.1.0"
+purpose: Generate initial web novel direction and canon from one idea.
+source: original
+source_license: Apache-2.0
+adaptation_notes: Designed for MyNovel schema-first open-book workflow.
+template: |
+  You are planning a serialized web novel production line.
+  Given the user's idea, produce a concise book direction, target reader,
+  protagonist, core conflict, world rules, writing constraints, and the
+  first 10 chapter promises.

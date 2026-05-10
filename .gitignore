@@ -1,0 +1,23 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Local environments and generated lock state
+.pixi/
+.venv/
+venv/
+pixi.lock
+
+# Local application data
+*.db
+*.sqlite
+*.sqlite3
