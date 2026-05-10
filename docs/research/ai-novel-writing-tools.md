@@ -19,6 +19,18 @@ AI 长篇小说工具已经从“补全文本”明显分化为三条路线：
 - **人类审核点要前置在关键决策**：书名方向、世界观、角色阵容、卷纲、章节发布、重大冲突等位置需要 gate；普通小修可自动化。
 - **要记录每次生成的 trace 和成本**：长篇项目会出现上下文污染、模型幻觉、风格漂移、成本失控，必须可追踪和可回滚。
 
+## 已明确的产品约束
+
+结合当前设想，MyNovel 不应做成通用写作编辑器，也不应做成多人 Web SaaS。它更适合定位为“个人本地 AI 小说生产与审核台”：
+
+- **全 AI 化 + 人工审核**：AI 负责规划、生成、审计、修订和状态维护；人类主要做方向确认、问题审核、定稿批准。文本编辑能力只保留轻量修正，不把富文本编辑器作为核心。
+- **接口范围收敛**：只支持 OpenAI-compatible 的 LLM、embedding、rerank 接口。模型供应商差异通过 base_url、api_key、model、extra 参数和能力探测处理。
+- **SQLite-first**：业务数据库优先 SQLite；向量库如有需要，也优先本地、SQLite-friendly 或可嵌入方案，避免早期引入 Qdrant/Postgres/Redis 这类外部服务。
+- **个人使用**：不做用户管理、权限、团队协作、租户隔离。敏感信息只需本机加密/脱敏存储。
+- **开发与发布路径**：开发阶段使用 pixi 本地快捷启动；正式版优先桌面端打包。移动端同步打包可以作为后续增强，不作为 MVP 阻塞项。
+- **长时间审核 UI**：界面要护眼、低疲劳、低噪音，适合连续阅读章节、审计报告和状态变化。
+- **普通作者优先**：UI/UX 应面向非技术用户，减少术语暴露，把 pipeline 状态翻译成“正在规划本章”“发现 3 个连续性问题”“建议人工确认”等可理解动作。
+
 ## 仓库快照
 
 | 项目 | Stars | 主要语言 | License | 最近 pushed | 定位 |
@@ -493,20 +505,23 @@ AI 长篇小说工具已经从“补全文本”明显分化为三条路线：
 
 ### 产品定位
 
-建议初期定位为：**本地优先、长篇项目管理清晰、AI 可主导但人类可审核的小说生产工作台**。
+建议初期定位为：**个人本地、全 AI 主导、人工审核 gate 清晰的长篇小说生产工作台**。
 
-不要第一版就承诺“全自动生成百万字”。更现实的承诺是：从一个创意开始，能稳定生成一卷/若干章，并且每章的事实状态可追踪、可审计、可回滚。
+不要第一版就承诺“全自动生成百万字”，也不要做重型文字编辑器。更现实的承诺是：从一个创意开始，AI 能稳定推进到一卷/若干章；人类在关键节点审核确认；每章的事实状态、审计问题、修订过程可追踪、可回滚。
+
+产品体验上，主界面应更像“生产驾驶舱 + 审核台”，而不是传统文档编辑器。作者看到的是下一步该确认什么、哪里有风险、AI 修改了哪些事实，而不是一堆技术参数和 prompt。
 
 ### MVP 核心循环
 
 1. `create book`：输入题材、目标读者、核心卖点、风格参考、禁区。
-2. `plan book`：生成 premise、world bible、character set、volume outline。
+2. `plan book`：AI 生成 premise、world bible、character set、volume outline；人类审核后锁定为初始 canon。
 3. `plan chapter`：根据大纲和当前状态生成章节目标、must-keep、must-avoid、上下文选择 trace。
-4. `draft chapter`：生成章节草稿，记录模型、参数、prompt、成本。
-5. `extract state`：从草稿抽取角色、地点、物资、关系、伏笔、时间线、情绪变化。
+4. `draft chapter`：AI 生成章节草稿，记录模型、参数、prompt、成本。
+5. `extract state`：AI 从草稿抽取角色、地点、物资、关系、伏笔、时间线、情绪变化，形成 `StateDelta`。
 6. `audit chapter`：对照 canonical state 做连续性、因果、信息边界、AI 味、字数和风格审计。
-7. `revise chapter`：根据 audit brief 自动修订；严重问题进入人工 gate。
-8. `accept chapter`：定稿后才更新 canonical state 和向量索引。
+7. `revise chapter`：AI 根据 audit brief 自动修订；严重问题进入人工审核，不要求用户直接改正文。
+8. `review changes`：人类用审核台查看正文、问题列表、状态 delta、AI 修订说明，选择通过、退回重写或局部指令修订。
+9. `accept chapter`：定稿后才更新 canonical state 和向量索引。
 
 ### 建议的数据模型
 
@@ -525,13 +540,26 @@ AI 长篇小说工具已经从“补全文本”明显分化为三条路线：
 
 结合仓库现状为空、AGENTS 要求使用 pixi，建议：
 
-- Core 使用 Python + pixi 起步：方便 LLM、RAG、评估、脚本化 pipeline。
-- 状态存储先用 SQLite + JSON schema/Pydantic；Markdown 作为投影导出。
-- Provider 走 OpenAI-compatible abstraction，预留 Anthropic/Gemini/Ollama。
-- 向量检索先用 Chroma 或 SQLite-friendly 方案，后续再接 Qdrant/pgvector。
-- CLI 先行，Web Studio 后置。CLI 的每步都输出 JSON，方便未来 agent/workflow 调用。
+- **Core**：Python + pixi 起步，便于 LLM 调用、RAG、评估、脚本化 pipeline 和本地开发快捷启动。
+- **数据库**：SQLite 作为唯一必需数据库；schema 用 Pydantic/SQLModel 或 SQLAlchemy + Pydantic 明确边界。
+- **状态文件**：SQLite 是权威存储；Markdown/JSON 作为可读导出和调试投影，不作为唯一事实源。
+- **模型接口**：只做 OpenAI-compatible abstraction，覆盖 chat/completions、embeddings、rerank 三类能力；不单独适配 Anthropic/Gemini SDK。
+- **向量检索**：优先 SQLite-friendly 本地方案，例如 sqlite-vec/sqlite-vss、FAISS 本地索引配 SQLite 元数据，或轻量 Chroma 本地模式。只有在本地方案明显不足时再考虑 Qdrant/pgvector。
+- **桌面端**：优先本地 Web UI + 桌面壳打包路线。Python 后端可以通过 Tauri/Electron 调起本地服务，前端用 Web 技术实现审核台。移动端可等核心稳定后评估 Capacitor/React Native/Tauri mobile。
+- **CLI**：保留开发者/自动化 CLI，每步输出 JSON，服务 UI、测试和未来 workflow；但普通作者不需要直接接触 CLI。
 
-如果项目更偏桌面/Web 产品，可以第二阶段引入 TypeScript 前端；不要一开始就同时做 monorepo、桌面、workflow agent、多人系统。
+前端不宜照搬聊天工具或 IDE。主路径应是“项目 -> 当前任务 -> 审核 -> 批准/退回”，让作者不用理解 Agent、RAG、schema 这些内部概念。
+
+### UI/UX 方向
+
+界面应围绕长时间文字审核设计：
+
+- **护眼主题**：默认暖灰/柔和浅色或低对比深色，避免纯白大面积背景和高饱和装饰色；支持字号、行宽、行距、段落间距调节。
+- **审核优先**：章节正文、审计问题、AI 修订建议、状态 delta 四块信息要能并排或分栏查看，避免来回跳页。
+- **普通语言**：把 “StateDelta validation failed” 显示为“AI 提议的状态更新有 2 处不可信，需要确认”；把 “rerank top_k” 隐藏在高级设置。
+- **明确下一步**：每个页面都应有一个主操作，例如“批准本章”“退回重写”“让 AI 修复这些问题”“查看影响的角色状态”。
+- **轻编辑**：允许用户对正文做小范围修字、添加审核意见或局部改写指令；不做复杂排版、协同批注、富文本 CMS。
+- **低噪音进度**：AI 自动运行时展示阶段、耗时、费用、失败原因和可恢复操作，不刷大量原始日志。
 
 ### 不建议第一阶段做的事
 
@@ -539,7 +567,10 @@ AI 长篇小说工具已经从“补全文本”明显分化为三条路线：
 - 不要把多 Agent 数量堆到十几个；先做少数可验证角色。
 - 不要把 RAG 当作事实数据库。
 - 不要追求一次生成 10,000+ 词；先保证章节级状态闭环。
-- 不要让用户只能通过聊天控制项目；长篇创作需要可编辑资产和明确状态面板。
+- 不要让用户只能通过聊天控制项目；长篇创作需要可审核资产和明确状态面板。
+- 不要做用户管理、团队协作、在线发布、订阅计费等 SaaS 能力。
+- 不要一开始引入外部基础设施依赖；本地个人工具的可靠性优先于横向扩展能力。
+- 不要投入重型文字编辑器；它会稀释“AI 生产 + 人工审核”的核心。
 
 ## 可直接复用/借鉴的设计清单
 
@@ -556,14 +587,18 @@ AI 长篇小说工具已经从“补全文本”明显分化为三条路线：
 | 递归任务图可视化 | WriteHERE | P2 |
 | 市场扫榜/拆文 workflow | oh-story、AI-Novel-Writing-Assistant | P2 |
 | 单次超长输出模型评估 | LongWriter | P2 |
+| 护眼审核台与低术语 UI | Arboris、Ai-Novel、SillyTavern 的用户侧经验 | P0 |
+| 本地 SQLite + 桌面打包路线 | Arboris、KoboldCpp、Ai-Novel 的本地部署经验 | P0 |
+| OpenAI-compatible-only provider 层 | KoboldCpp、SillyTavern、多数小说工具 | P0 |
 
 ## 推荐下一步
 
-1. 建立项目骨架：pixi、Python package、CLI、SQLite、Pydantic schema、docs。
-2. 先实现最短闭环：create book -> plan chapter -> draft -> audit -> accept。
-3. 准备 2-3 个固定测试小说项目，用同一套 pipeline 比较模型和 prompt 版本。
-4. 每章保存完整 trace，包括输入上下文、模型参数、生成成本、状态 delta、审计结果。
-5. 等 CLI 闭环稳定后，再做 Web Studio：状态面板、章节编辑、审计查看、角色/伏笔卡片。
+1. 建立项目骨架：pixi、Python package、SQLite、Pydantic schema、OpenAI-compatible client、开发 CLI。
+2. 先实现最短闭环：create book -> plan book -> plan chapter -> draft -> extract state -> audit -> revise -> human review -> accept。
+3. 设计第一版审核台原型：章节阅读、问题列表、状态 delta、通过/退回/让 AI 修复三个主操作。
+4. 准备 2-3 个固定测试小说项目，用同一套 pipeline 比较模型、prompt 版本和审核体验。
+5. 每章保存完整 trace，包括输入上下文、模型参数、生成成本、状态 delta、审计结果和人工审核决定。
+6. CLI 闭环稳定后做本地 Web UI，再评估 Tauri/Electron 桌面打包；移动端放到核心流程稳定之后。
 
 ## 来源链接
 
