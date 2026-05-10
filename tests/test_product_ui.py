@@ -1,7 +1,17 @@
 from pathlib import Path
 
 from mynovel.dev_server import render_blueprint_page, render_home
-from mynovel.domain.models import BlueprintStatus, OpenBookBlueprint, ProviderConfig
+from mynovel.domain.models import (
+    Book,
+    BookStatus,
+    BlueprintStatus,
+    Canon,
+    Chapter,
+    ChapterStatus,
+    OpenBookBlueprint,
+    ProviderConfig,
+)
+from mynovel.product_views import render_chapter_review
 
 
 def test_home_page_uses_product_language_without_exposed_english_terms() -> None:
@@ -90,3 +100,43 @@ def test_blueprint_page_translates_structured_model_keys() -> None:
     assert "方向：得到残页" in page
     assert "chapter：" not in page
     assert "direction：" not in page
+
+
+def test_review_page_exposes_revision_repair_accept_and_export_actions() -> None:
+    book = Book(
+        id=1,
+        title="幽谷回声",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=9,
+        book_id=1,
+        number=1,
+        title="离开的召唤",
+        status=ChapterStatus.AWAITING_REVIEW,
+        revised_text="莉拉离开村庄。",
+        audit_report={
+            "risk_level": "medium",
+            "issues": [{"severity": "medium", "title": "钩子偏弱", "resolved": False}],
+        },
+        state_delta={"changes": [{"type": "人物状态", "target": "莉拉", "change": "离村"}]},
+    )
+    canon = Canon(id=1, book_id=1, version=1, content={})
+
+    page = render_chapter_review(book, [chapter], chapter, canon)
+
+    assert "退回修改" in page
+    assert "让系统修复" in page
+    assert "批准并写入可信设定" in page
+    assert 'action="/request-revision"' in page
+    assert 'action="/repair-chapter"' in page
+    assert "导出正文" not in page
+
+    chapter.status = ChapterStatus.ACCEPTED
+    chapter.final_text = chapter.revised_text
+    page = render_chapter_review(book, [chapter], chapter, canon)
+
+    assert "导出正文" in page
+    assert "/chapter/9/export" in page

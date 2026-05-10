@@ -36,7 +36,14 @@ from mynovel.product_views import (
     render_home,
     render_new_book_page,
 )
-from mynovel.workflows.chapter_pipeline import approve_chapter, run_chapter_pipeline
+from mynovel.workflows.chapter_pipeline import (
+    OpenAIChapterModelClient,
+    approve_chapter,
+    export_chapter_text,
+    repair_chapter_with_ai,
+    return_chapter_for_revision,
+    run_chapter_pipeline,
+)
 from mynovel.workflows.open_book import create_draft_book_from_blueprint
 from mynovel.workflows.open_book_blueprint import (
     build_blueprint_messages,
@@ -100,6 +107,9 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if parsed.path.startswith("/book/"):
                 self._send_book_page(state.db_path, _parse_numeric_id(parsed.path))
                 return
+            if parsed.path.startswith("/chapter/") and parsed.path.endswith("/export"):
+                self._send_chapter_export(state.db_path, _parse_chapter_export_id(parsed.path))
+                return
             if parsed.path.startswith("/chapter/"):
                 self._send_chapter_page(state.db_path, _parse_numeric_id(parsed.path))
                 return
@@ -145,6 +155,12 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if parsed.path == "/run-chapter":
                 self._run_chapter(state.db_path)
                 return
+            if parsed.path == "/request-revision":
+                self._request_revision(state.db_path)
+                return
+            if parsed.path == "/repair-chapter":
+                self._repair_chapter(state.db_path)
+                return
             if parsed.path == "/approve-chapter":
                 self._approve_chapter(state.db_path)
                 return
@@ -184,6 +200,23 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     _load_latest_canon(db_path, book.id),
                 )
             )
+
+        def _send_chapter_export(self, db_path: Path, chapter_id: int) -> None:
+            chapter = _load_chapter(db_path, chapter_id)
+            if chapter is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            try:
+                text = export_chapter_text(chapter)
+            except ValueError:
+                self.send_error(HTTPStatus.BAD_REQUEST)
+                return
+            payload = text.encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
 
         def _send_blueprint_page(self, db_path: Path, blueprint_id: int) -> None:
             blueprint = _load_open_book_blueprint(db_path, blueprint_id)
@@ -334,11 +367,56 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
 
         def _run_chapter(self, db_path: Path) -> None:
             chapter_id = int(self._read_form().get("chapter_id", "0"))
+            provider_config = _load_provider_config(db_path)
+            model_client, model_name = _chapter_model_client_from_provider_config(provider_config)
             engine = create_engine_for_path(db_path)
             create_db_and_tables(engine)
             with Session(engine) as session:
                 try:
-                    chapter = run_chapter_pipeline(session, chapter_id)
+                    chapter = run_chapter_pipeline(
+                        session,
+                        chapter_id,
+                        model_client=model_client,
+                        model_name=model_name,
+                    )
+                except ValueError:
+                    self.send_error(HTTPStatus.BAD_REQUEST)
+                    return
+            self._redirect(f"/chapter/{chapter.id}")
+
+        def _request_revision(self, db_path: Path) -> None:
+            form = self._read_form()
+            chapter_id = int(form.get("chapter_id", "0"))
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                try:
+                    chapter = return_chapter_for_revision(
+                        session,
+                        chapter_id,
+                        form.get("reviewer_note") or None,
+                    )
+                except ValueError:
+                    self.send_error(HTTPStatus.BAD_REQUEST)
+                    return
+            self._redirect(f"/chapter/{chapter.id}")
+
+        def _repair_chapter(self, db_path: Path) -> None:
+            form = self._read_form()
+            chapter_id = int(form.get("chapter_id", "0"))
+            provider_config = _load_provider_config(db_path)
+            model_client, model_name = _chapter_model_client_from_provider_config(provider_config)
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                try:
+                    chapter = repair_chapter_with_ai(
+                        session,
+                        chapter_id,
+                        model_client=model_client,
+                        model_name=model_name,
+                        reviewer_note=form.get("reviewer_note") or None,
+                    )
                 except ValueError:
                     self.send_error(HTTPStatus.BAD_REQUEST)
                     return
@@ -479,6 +557,37 @@ def _parse_numeric_id(path: str) -> int:
         return int(raw_id)
     except ValueError:
         return 0
+
+
+def _parse_chapter_export_id(path: str) -> int:
+    parts = path.strip("/").split("/")
+    if len(parts) != 3 or parts[0] != "chapter" or parts[2] != "export":
+        return 0
+    try:
+        return int(parts[1])
+    except ValueError:
+        return 0
+
+
+def _chapter_model_client_from_provider_config(
+    provider_config: ProviderConfig | None,
+) -> tuple[OpenAIChapterModelClient | None, str | None]:
+    if (
+        provider_config is None
+        or not provider_config.llm_base_url.strip()
+        or not provider_config.llm_model.strip()
+    ):
+        return None, None
+    return (
+        OpenAIChapterModelClient(
+            OpenAICompatibleClient(
+                base_url=provider_config.llm_base_url,
+                api_key=provider_config.llm_api_key or "",
+            ),
+            provider_config.llm_model,
+        ),
+        provider_config.llm_model,
+    )
 
 
 def _book_idea_from_form(form: dict[str, str]) -> str:

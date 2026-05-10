@@ -22,3 +22,19 @@ template: "Write a book plan for {{ idea }}"
 
     assert asset.id == "open_book"
     assert asset.source_license == "Apache-2.0"
+
+
+def test_chapter_pipeline_prompt_asset_declares_all_stage_prompts() -> None:
+    asset = load_prompt_asset(Path("src/mynovel/prompts/assets/chapter_pipeline.yaml"))
+
+    assert asset.id == "chapter_pipeline"
+    assert asset.version == "0.1.0"
+    assert asset.source_license == "Apache-2.0"
+    assert asset.output_schema["stages"] == [
+        "chapter_plan",
+        "chapter_context",
+        "chapter_draft",
+        "chapter_state_extract",
+        "chapter_audit",
+        "chapter_revise",
+    ]

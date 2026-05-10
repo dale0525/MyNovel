@@ -1,7 +1,12 @@
 from pathlib import Path
 import tomllib
 
-from mynovel.dev_server import build_health_payload, render_blueprint_page, render_home
+from mynovel.dev_server import (
+    _chapter_model_client_from_provider_config,
+    build_health_payload,
+    render_blueprint_page,
+    render_home,
+)
 from mynovel.domain.models import BlueprintStatus, OpenBookBlueprint, ProviderConfig
 from mynovel.i18n import t
 
@@ -63,6 +68,23 @@ def test_home_page_enables_open_book_after_provider_config() -> None:
     assert "接口地址" in page
     assert "访问密钥" in page
     assert "对话模型" in page
+
+
+def test_chapter_generation_uses_saved_dialogue_model_config() -> None:
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_api_key="secret",
+        llm_model="chapter-model",
+        embedding_base_url="https://api.example.test/v1",
+        embedding_model="text-embedding-test",
+    )
+
+    client, model_name = _chapter_model_client_from_provider_config(provider_config)
+
+    assert client is not None
+    assert client.model == "chapter-model"
+    assert client.client.base_url == "https://api.example.test/v1"
+    assert model_name == "chapter-model"
 
 
 def test_home_page_keeps_language_product_focused_with_blueprints_present() -> None:

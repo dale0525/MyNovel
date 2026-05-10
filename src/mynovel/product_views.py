@@ -554,7 +554,6 @@ def _render_chapter_body(chapter: Chapter, locale: str) -> str:
     text = chapter.final_text or chapter.revised_text or chapter.draft_text
     return f"""
       <article class="chapter-text">{html.escape(text).replace(chr(10), "<br>")}</article>
-      <label class="note-box">{t("chapter.reviewer_note", locale)}<textarea form="approve-form" name="reviewer_note" placeholder="{t("chapter.note_placeholder", locale)}"></textarea></label>
 """
 
 
@@ -575,11 +574,27 @@ def _render_review_inspector(chapter: Chapter, canon: Canon | None, locale: str)
     action = ""
     if chapter.status == ChapterStatus.AWAITING_REVIEW:
         action = f"""
-          <form id="approve-form" method="post" action="/approve-chapter" class="actions">
+          <form method="post" action="/repair-chapter" class="compact-form action-form">
             <input type="hidden" name="chapter_id" value="{chapter.id}">
-            <a class="button secondary" href="/book/{chapter.book_id}">{t("action.return_for_revision", locale)}</a>
+            <label>{t("chapter.repair_note", locale)}<textarea name="reviewer_note" placeholder="{t("chapter.repair_placeholder", locale)}"></textarea></label>
+            <button class="secondary" type="submit">{t("action.repair_with_ai", locale)}</button>
+          </form>
+          <form method="post" action="/request-revision" class="compact-form action-form">
+            <input type="hidden" name="chapter_id" value="{chapter.id}">
+            <label>{t("chapter.reviewer_note", locale)}<textarea name="reviewer_note" placeholder="{t("chapter.note_placeholder", locale)}"></textarea></label>
+            <button class="secondary" type="submit">{t("action.return_for_revision", locale)}</button>
+          </form>
+          <form id="approve-form" method="post" action="/approve-chapter" class="compact-form action-form">
+            <input type="hidden" name="chapter_id" value="{chapter.id}">
+            <label>{t("chapter.accept_note", locale)}<textarea name="reviewer_note" placeholder="{t("chapter.accept_placeholder", locale)}"></textarea></label>
             <button type="submit">{t("action.accept_to_trusted_state", locale)}</button>
           </form>
+"""
+    elif chapter.status == ChapterStatus.ACCEPTED:
+        action = f"""
+          <div class="actions">
+            <a class="button" href="/chapter/{chapter.id}/export">{t("action.export_chapter", locale)}</a>
+          </div>
 """
     return f"""
       <h2>{t("review.audit_issues", locale)}</h2>
@@ -750,6 +765,6 @@ def _css() -> str:
     .card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.data-card,.table-card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:14px}.data-card h3{margin-top:0;color:var(--ink);font-size:15px}ul{margin:0;padding-left:20px}li{margin:5px 0;line-height:1.5}dl{display:grid;grid-template-columns:96px 1fr;gap:8px 12px}dt{color:var(--muted)}dd{margin:0}
     .metric-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}.metric-grid div{border:1px solid var(--line);border-radius:8px;background:#fff;padding:12px}.metric-grid strong{font-size:26px;display:block}.metric-grid span{color:var(--muted);font-size:13px}.chapter-list{display:grid;gap:6px}.chapter-row{display:grid;grid-template-columns:36px 1fr auto;gap:8px;align-items:center;border-radius:8px;padding:10px;color:var(--muted)}.chapter-row:hover,.chapter-row.awaiting_review,.chapter-row.accepted{background:var(--accent-2);color:var(--accent)}.chapter-row em{font-style:normal;font-size:12px}
     table{width:100%;border-collapse:collapse;font-size:14px}td{border-bottom:1px solid var(--line);padding:10px 8px;vertical-align:top}.reader-panel{grid-column:2 / 3}.chapter-text{min-height:560px;border-top:1px solid var(--line);padding:28px 64px;font-size:19px;line-height:2;color:#222;white-space:normal}.note-box{border-top:1px solid var(--line);padding-top:14px}.review-list{display:grid;gap:8px;padding:0;list-style:none}.review-list li{border:1px solid var(--line);border-radius:8px;background:#fff;padding:10px;display:grid;gap:4px}.review-list em{font-style:normal;color:var(--muted);font-size:12px}
-    .choice-list{display:grid;gap:8px}.choice{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:11px;color:var(--ink)}.choice input{width:auto;min-height:auto}.pipeline{height:92px;border-top:1px solid var(--line);background:#fffefa;display:flex;align-items:center;gap:16px;padding:0 24px;overflow:auto}.pipe-step{white-space:nowrap;border:1px solid var(--line);border-radius:999px;padding:8px 14px;color:var(--muted)}.pipe-step.active{border-color:var(--warn);color:var(--warn);background:#fff7ea}
+    .choice-list{display:grid;gap:8px}.choice{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:11px;color:var(--ink)}.choice input{width:auto;min-height:auto}.action-form{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}.pipeline{height:92px;border-top:1px solid var(--line);background:#fffefa;display:flex;align-items:center;gap:16px;padding:0 24px;overflow:auto}.pipe-step{white-space:nowrap;border:1px solid var(--line);border-radius:999px;padding:8px 14px;color:var(--muted)}.pipe-step.active{border-color:var(--warn);color:var(--warn);background:#fff7ea}
     @media(max-width:1100px){.app-shell{grid-template-columns:82px 1fr}.rail strong{font-size:14px}.content-grid{grid-template-columns:1fr}.empty-hero,.reader-panel{grid-column:auto}.form-grid,.card-grid,.split{grid-template-columns:1fr}}
     """

@@ -1,0 +1,42 @@
+id: chapter_pipeline
+name: Chapter Production Pipeline
+version: "0.1.0"
+purpose: Run gated chapter production from plan through human review candidate.
+source: original
+source_license: Apache-2.0
+adaptation_notes: Designed for MyNovel fixed single-chapter pipeline and traceable stage records.
+model_family_hint: OpenAI-compatible chat models with JSON response-format support.
+input_schema:
+  required:
+    - trusted_state
+    - chapter
+    - draft_text
+    - audit_report
+output_schema:
+  stages:
+    - chapter_plan
+    - chapter_context
+    - chapter_draft
+    - chapter_state_extract
+    - chapter_audit
+    - chapter_revise
+  json_outputs:
+    chapter_plan:
+      - goal
+      - must_write
+      - forbidden_drift
+      - word_budget
+      - ending_hook
+    chapter_state_extract:
+      - chapter
+      - changes
+    chapter_audit:
+      - risk_level
+      - issues
+      - suggestions
+evaluation_notes: Verify continuity, causality, motivation, promises, state changes, risk level, and ending hook before approval.
+template: |
+  Use the trusted state as the only source of facts. Draft text is a candidate,
+  extracted state changes remain pending, and only approved changes may enter
+  the trusted state. Each stage must produce the expected structured or text
+  output for the next stage.
