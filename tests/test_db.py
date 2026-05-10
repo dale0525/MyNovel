@@ -5,7 +5,11 @@ from sqlmodel import Session
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import BlueprintStatus, OpenBookBlueprint, ProviderConfig
-from mynovel.domain.repositories import add_open_book_blueprint, save_provider_config
+from mynovel.domain.repositories import (
+    add_open_book_blueprint,
+    list_open_book_blueprints,
+    save_provider_config,
+)
 
 
 def test_create_db_and_tables(tmp_path: Path) -> None:
@@ -79,6 +83,30 @@ def test_create_db_and_tables_migrates_open_book_blueprint_status_columns(tmp_pa
             )
             """
         )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO openbookblueprint (
+              id,
+              idea,
+              version,
+              instruction,
+              content,
+              raw_response,
+              parse_error,
+              created_at
+            )
+            VALUES (
+              1,
+              '失意档案员重建禁书馆',
+              1,
+              NULL,
+              '{}',
+              '{}',
+              NULL,
+              '2026-05-10 00:00:00'
+            )
+            """
+        )
 
     create_db_and_tables(engine)
 
@@ -90,6 +118,9 @@ def test_create_db_and_tables_migrates_open_book_blueprint_status_columns(tmp_pa
     assert "finished_at" in columns
 
     with Session(engine) as session:
+        blueprints = list_open_book_blueprints(session)
+        assert blueprints[0].status == BlueprintStatus.SUCCEEDED
+
         saved = add_open_book_blueprint(
             session,
             OpenBookBlueprint(
@@ -102,3 +133,61 @@ def test_create_db_and_tables_migrates_open_book_blueprint_status_columns(tmp_pa
         )
 
     assert saved.status == BlueprintStatus.PENDING
+
+
+def test_create_db_and_tables_normalizes_existing_lowercase_blueprint_status(tmp_path: Path) -> None:
+    db_path = tmp_path / "mynovel.sqlite"
+    engine = create_engine_for_path(db_path)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE openbookblueprint (
+              id INTEGER NOT NULL PRIMARY KEY,
+              parent_id INTEGER,
+              idea VARCHAR NOT NULL,
+              version INTEGER NOT NULL,
+              status VARCHAR NOT NULL DEFAULT 'succeeded',
+              instruction VARCHAR,
+              content JSON,
+              raw_response VARCHAR NOT NULL,
+              parse_error VARCHAR,
+              error_message VARCHAR,
+              created_at DATETIME NOT NULL,
+              started_at DATETIME,
+              finished_at DATETIME
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO openbookblueprint (
+              id,
+              idea,
+              version,
+              status,
+              instruction,
+              content,
+              raw_response,
+              parse_error,
+              created_at
+            )
+            VALUES (
+              1,
+              '失意档案员重建禁书馆',
+              1,
+              'succeeded',
+              NULL,
+              '{}',
+              '{}',
+              NULL,
+              '2026-05-10 00:00:00'
+            )
+            """
+        )
+
+    create_db_and_tables(engine)
+
+    with Session(engine) as session:
+        blueprints = list_open_book_blueprints(session)
+
+    assert blueprints[0].status == BlueprintStatus.SUCCEEDED

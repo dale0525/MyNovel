@@ -52,8 +52,15 @@ def _migrate_open_book_blueprint(engine: Engine, inspector) -> None:
         if "status" not in columns:
             connection.exec_driver_sql(
                 "ALTER TABLE openbookblueprint "
-                "ADD COLUMN status VARCHAR NOT NULL DEFAULT 'succeeded'"
+                "ADD COLUMN status VARCHAR NOT NULL DEFAULT 'SUCCEEDED'"
             )
+        connection.exec_driver_sql(
+            """
+            UPDATE openbookblueprint
+            SET status = UPPER(status)
+            WHERE status IN ('pending', 'running', 'succeeded', 'failed')
+            """
+        )
         if "error_message" not in columns:
             connection.exec_driver_sql("ALTER TABLE openbookblueprint ADD COLUMN error_message VARCHAR")
         if "started_at" not in columns:
