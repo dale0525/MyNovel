@@ -1,6 +1,6 @@
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from mynovel.domain.models import Book, ProviderConfig, utc_now
+from mynovel.domain.models import Book, OpenBookBlueprint, ProviderConfig, utc_now
 
 
 def add_book(session: Session, book: Book) -> Book:
@@ -26,9 +26,11 @@ def save_provider_config(session: Session, config: ProviderConfig) -> ProviderCo
     existing.llm_base_url = config.llm_base_url
     existing.llm_api_key = config.llm_api_key
     existing.llm_model = config.llm_model
+    existing.embedding_use_llm_credentials = config.embedding_use_llm_credentials
     existing.embedding_base_url = config.embedding_base_url
     existing.embedding_api_key = config.embedding_api_key
     existing.embedding_model = config.embedding_model
+    existing.rerank_use_llm_credentials = config.rerank_use_llm_credentials
     existing.rerank_base_url = config.rerank_base_url
     existing.rerank_api_key = config.rerank_api_key
     existing.rerank_model = config.rerank_model
@@ -37,3 +39,15 @@ def save_provider_config(session: Session, config: ProviderConfig) -> ProviderCo
     session.commit()
     session.refresh(existing)
     return existing
+
+
+def add_open_book_blueprint(session: Session, blueprint: OpenBookBlueprint) -> OpenBookBlueprint:
+    session.add(blueprint)
+    session.commit()
+    session.refresh(blueprint)
+    return blueprint
+
+
+def list_open_book_blueprints(session: Session) -> list[OpenBookBlueprint]:
+    statement = select(OpenBookBlueprint).order_by(OpenBookBlueprint.version.desc())
+    return list(session.exec(statement))

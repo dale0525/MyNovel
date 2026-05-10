@@ -53,11 +53,44 @@ class ProviderConfig(SQLModel, table=True):
     llm_base_url: str
     llm_api_key: str | None = None
     llm_model: str
+    embedding_use_llm_credentials: bool = True
     embedding_base_url: str
     embedding_api_key: str | None = None
     embedding_model: str
+    rerank_use_llm_credentials: bool = True
     rerank_base_url: str | None = None
     rerank_api_key: str | None = None
     rerank_model: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+    def resolved_embedding_base_url(self) -> str:
+        if self.embedding_use_llm_credentials:
+            return self.llm_base_url
+        return self.embedding_base_url
+
+    def resolved_embedding_api_key(self) -> str | None:
+        if self.embedding_use_llm_credentials:
+            return self.llm_api_key
+        return self.embedding_api_key
+
+    def resolved_rerank_base_url(self) -> str | None:
+        if self.rerank_use_llm_credentials:
+            return self.llm_base_url
+        return self.rerank_base_url
+
+    def resolved_rerank_api_key(self) -> str | None:
+        if self.rerank_use_llm_credentials:
+            return self.llm_api_key
+        return self.rerank_api_key
+
+
+class OpenBookBlueprint(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    idea: str
+    version: int = 1
+    instruction: str | None = None
+    content: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    raw_response: str
+    parse_error: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)

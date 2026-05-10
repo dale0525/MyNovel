@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import html
 import json
 from dataclasses import dataclass
@@ -13,10 +14,20 @@ from urllib.parse import parse_qs, quote, urlparse
 from sqlmodel import Session, select
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import Book, ProviderConfig
-from mynovel.domain.repositories import get_provider_config, save_provider_config
+from mynovel.domain.models import Book, OpenBookBlueprint, ProviderConfig
+from mynovel.domain.repositories import (
+    add_open_book_blueprint,
+    get_provider_config,
+    list_open_book_blueprints,
+    save_provider_config,
+)
 from mynovel.i18n import DEFAULT_LOCALE, t
-from mynovel.workflows.open_book import create_draft_book
+from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
+from mynovel.workflows.open_book_blueprint import (
+    build_blueprint_messages,
+    extract_chat_content,
+    parse_blueprint_json,
+)
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -36,11 +47,13 @@ def render_home(
     db_path: Path,
     books: list[Book],
     provider_config: ProviderConfig | None,
+    blueprints: list[OpenBookBlueprint] | None = None,
     message: str | None = None,
     locale: str = DEFAULT_LOCALE,
 ) -> str:
     escaped_message = html.escape(message) if message else ""
-    book_rows = _render_book_rows(books)
+    blueprints = blueprints or []
+    blueprint_panel = _render_blueprint_panel(blueprints, locale)
     db_label = html.escape(str(db_path))
     configured = is_provider_config_complete(provider_config)
     config_status = t("status.configured", locale) if configured else t("status.not_configured", locale)
@@ -157,13 +170,33 @@ def render_home(
       padding: 9px 11px;
     }}
 
+    input[type="checkbox"] {{
+      width: auto;
+      min-height: auto;
+      margin: 0;
+    }}
+
+    textarea {{
+      width: 100%;
+      min-height: 96px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--ink);
+      font: inherit;
+      padding: 9px 11px;
+    }}
+
     input:disabled,
-    button:disabled {{
+    button:disabled,
+    textarea:disabled {{
       cursor: not-allowed;
       opacity: 0.55;
     }}
 
-    input:focus {{
+    input:focus,
+    textarea:focus {{
       border-color: var(--accent);
       outline: 3px solid rgba(53, 107, 85, 0.18);
     }}
@@ -206,6 +239,33 @@ def render_home(
     .section-intro {{
       margin-bottom: 16px;
       font-size: 14px;
+    }}
+
+    .inline-check {{
+      display: flex;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: 8px;
+      color: var(--ink);
+    }}
+
+    .blueprint {{
+      margin-top: 20px;
+      border-top: 1px solid var(--line);
+      padding-top: 18px;
+    }}
+
+    .blueprint pre {{
+      overflow: auto;
+      max-height: 360px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f6f8f3;
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.55;
+      padding: 14px;
+      white-space: pre-wrap;
     }}
 
     table {{
@@ -278,31 +338,10 @@ def render_home(
             <input name="idea" required placeholder="{t("book.idea_placeholder", locale)}"
               {open_book_disabled}>
           </label>
-          <label>
-            {t("book.genre", locale)}
-            <input name="genre" value="web-novel"{open_book_disabled}>
-          </label>
-          <label>
-            {t("book.audience", locale)}
-            <input name="audience" value="web novel readers"{open_book_disabled}>
-          </label>
           <button type="submit"{open_book_disabled}>{t("book.create", locale)}</button>
         </form>
 
-        <h2>{t("books.title", locale)}</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>{t("books.id", locale)}</th>
-              <th>{t("books.premise", locale)}</th>
-              <th>{t("books.genre", locale)}</th>
-              <th>{t("books.status", locale)}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {book_rows}
-          </tbody>
-        </table>
+        {blueprint_panel}
       </section>
     </div>
   </main>
@@ -332,9 +371,13 @@ def _render_provider_form(provider_config: ProviderConfig | None, locale: str) -
     config = provider_config or ProviderConfig(
         llm_base_url="",
         llm_model="",
+        embedding_use_llm_credentials=True,
         embedding_base_url="",
         embedding_model="",
+        rerank_use_llm_credentials=True,
     )
+    embedding_checked = " checked" if config.embedding_use_llm_credentials else ""
+    rerank_checked = " checked" if config.rerank_use_llm_credentials else ""
     return f"""
         <form method="post" action="/provider-config">
           <label>
@@ -353,7 +396,7 @@ def _render_provider_form(provider_config: ProviderConfig | None, locale: str) -
           </label>
           <label>
             {t("provider.embedding_base_url", locale)}
-            <input name="embedding_base_url" required value="{_field(config.embedding_base_url)}"
+            <input name="embedding_base_url" value="{_field(config.embedding_base_url)}"
               placeholder="https://api.openai.com/v1">
           </label>
           <label>
@@ -364,6 +407,10 @@ def _render_provider_form(provider_config: ProviderConfig | None, locale: str) -
             {t("provider.embedding_model", locale)}
             <input name="embedding_model" required value="{_field(config.embedding_model)}"
               placeholder="text-embedding-3-small">
+          </label>
+          <label class="inline-check">
+            <input name="embedding_use_llm_credentials" type="checkbox" value="1"{embedding_checked}>
+            {t("provider.embedding_use_llm", locale)}
           </label>
           <label>
             {t("provider.rerank_base_url", locale)}
@@ -376,6 +423,10 @@ def _render_provider_form(provider_config: ProviderConfig | None, locale: str) -
           <label>
             {t("provider.rerank_model", locale)}
             <input name="rerank_model" value="{_field(config.rerank_model)}">
+          </label>
+          <label class="inline-check">
+            <input name="rerank_use_llm_credentials" type="checkbox" value="1"{rerank_checked}>
+            {t("provider.rerank_use_llm", locale)}
           </label>
           <button type="submit">{t("provider.save", locale)}</button>
         </form>
@@ -391,7 +442,7 @@ def is_provider_config_complete(provider_config: ProviderConfig | None) -> bool:
         provider_config
         and provider_config.llm_base_url.strip()
         and provider_config.llm_model.strip()
-        and provider_config.embedding_base_url.strip()
+        and provider_config.resolved_embedding_base_url().strip()
         and provider_config.embedding_model.strip()
     )
 
@@ -444,6 +495,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     state.db_path,
                     _load_books(state.db_path),
                     provider_config,
+                    _load_open_book_blueprints(state.db_path),
                     message,
                 )
             )
@@ -473,6 +525,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                             state.db_path,
                             _load_books(state.db_path),
                             provider_config,
+                            _load_open_book_blueprints(state.db_path),
                             t("status.not_configured"),
                         ),
                         status=HTTPStatus.BAD_REQUEST,
@@ -484,6 +537,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                             state.db_path,
                             _load_books(state.db_path),
                             provider_config,
+                            _load_open_book_blueprints(state.db_path),
                             t("book.idea_required"),
                         ),
                         status=HTTPStatus.BAD_REQUEST,
@@ -493,13 +547,55 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 engine = create_engine_for_path(state.db_path)
                 create_db_and_tables(engine)
                 with Session(engine) as session:
-                    book = create_draft_book(
-                        session,
-                        idea=idea,
-                        genre=form.get("genre", "web-novel"),
-                        audience=form.get("audience", "web novel readers"),
+                    blueprint = _generate_and_save_blueprint(session, provider_config, idea)
+                self._redirect_message(t("book.created", version=blueprint.version))
+                return
+            if parsed.path == "/revise-blueprint":
+                form = self._read_form()
+                revision_notes = form.get("revision_notes", "")
+                provider_config = _load_provider_config(state.db_path)
+                blueprints = _load_open_book_blueprints(state.db_path)
+                if not provider_config or not is_provider_config_complete(provider_config):
+                    self._send_html(
+                        render_home(
+                            state.db_path,
+                            _load_books(state.db_path),
+                            provider_config,
+                            blueprints,
+                            t("status.not_configured"),
+                        ),
+                        status=HTTPStatus.BAD_REQUEST,
                     )
-                self._redirect_message(t("book.created", book_id=book.id))
+                    return
+                if not blueprints:
+                    self._redirect("/")
+                    return
+                if not revision_notes:
+                    self._send_html(
+                        render_home(
+                            state.db_path,
+                            _load_books(state.db_path),
+                            provider_config,
+                            blueprints,
+                            t("blueprint.revision_required"),
+                        ),
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+
+                latest = blueprints[0]
+                engine = create_engine_for_path(state.db_path)
+                create_db_and_tables(engine)
+                with Session(engine) as session:
+                    blueprint = _generate_and_save_blueprint(
+                        session,
+                        provider_config,
+                        latest.idea,
+                        revision_notes=revision_notes,
+                        previous_blueprint=latest.content,
+                        version=latest.version + 1,
+                    )
+                self._redirect_message(t("blueprint.revised", version=blueprint.version))
                 return
 
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -559,13 +655,110 @@ def _provider_config_from_form(form: dict[str, str]) -> ProviderConfig:
         llm_base_url=form.get("llm_base_url", ""),
         llm_api_key=form.get("llm_api_key") or None,
         llm_model=form.get("llm_model", ""),
+        embedding_use_llm_credentials=form.get("embedding_use_llm_credentials") == "1",
         embedding_base_url=form.get("embedding_base_url", ""),
         embedding_api_key=form.get("embedding_api_key") or None,
         embedding_model=form.get("embedding_model", ""),
+        rerank_use_llm_credentials=form.get("rerank_use_llm_credentials") == "1",
         rerank_base_url=form.get("rerank_base_url") or None,
         rerank_api_key=form.get("rerank_api_key") or None,
         rerank_model=form.get("rerank_model") or None,
     )
+
+
+def _load_open_book_blueprints(db_path: Path) -> list[OpenBookBlueprint]:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        return list_open_book_blueprints(session)
+
+
+def _render_blueprint_panel(blueprints: list[OpenBookBlueprint], locale: str) -> str:
+    if not blueprints:
+        return f'<div class="blueprint"><p>{t("blueprint.empty", locale)}</p></div>'
+
+    latest = blueprints[0]
+    title = t("blueprint.title", locale, version=latest.version)
+    content = html.escape(json.dumps(latest.content, ensure_ascii=False, indent=2))
+    raw_response = ""
+    if latest.parse_error:
+        raw = html.escape(latest.raw_response)
+        raw_response = (
+            f"<p class='message'>{t('blueprint.parse_failed', locale)}</p>"
+            f"<h2>{t('blueprint.raw_response', locale)}</h2><pre>{raw}</pre>"
+        )
+
+    return f"""
+        <div class="blueprint">
+          <h2>{title}</h2>
+          <pre>{content}</pre>
+          {raw_response}
+          <form method="post" action="/revise-blueprint">
+            <label>
+              {t("blueprint.revision_notes", locale)}
+              <textarea name="revision_notes" required
+                placeholder="主角更疯一点，节奏更爽文"></textarea>
+            </label>
+            <button type="submit">{t("blueprint.revise", locale)}</button>
+          </form>
+        </div>
+"""
+
+
+def _generate_and_save_blueprint(
+    session: Session,
+    provider_config: ProviderConfig,
+    idea: str,
+    revision_notes: str | None = None,
+    previous_blueprint: dict[str, Any] | None = None,
+    version: int = 1,
+) -> OpenBookBlueprint:
+    raw_response = asyncio.run(
+        _request_blueprint(provider_config, idea, previous_blueprint, revision_notes)
+    )
+    parse_error = None
+    try:
+        content = parse_blueprint_json(raw_response)
+    except (json.JSONDecodeError, ValueError) as error:
+        parse_error = str(error)
+        content = {}
+
+    return add_open_book_blueprint(
+        session,
+        OpenBookBlueprint(
+            idea=idea,
+            version=version,
+            instruction=revision_notes,
+            content=content,
+            raw_response=raw_response,
+            parse_error=parse_error,
+        ),
+    )
+
+
+async def _request_blueprint(
+    provider_config: ProviderConfig,
+    idea: str,
+    previous_blueprint: dict[str, Any] | None,
+    revision_notes: str | None,
+) -> str:
+    client = OpenAICompatibleClient(
+        base_url=provider_config.llm_base_url,
+        api_key=provider_config.llm_api_key or "",
+    )
+    response = await client.chat(
+        ChatRequest(
+            model=provider_config.llm_model,
+            messages=build_blueprint_messages(
+                idea=idea,
+                previous_blueprint=previous_blueprint,
+                revision_notes=revision_notes,
+            ),
+            temperature=0.7,
+            extra={"response_format": {"type": "json_object"}},
+        )
+    )
+    return extract_chat_content(response)
 
 
 if __name__ == "__main__":
