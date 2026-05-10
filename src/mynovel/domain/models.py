@@ -46,3 +46,18 @@ class RunTrace(SQLModel, table=True):
     cost: dict = Field(default_factory=dict, sa_column=Column(JSON))
     metadata_: dict = Field(default_factory=dict, sa_column=Column("metadata", JSON))
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class ProviderConfig(SQLModel, table=True):
+    id: int | None = Field(default=1, primary_key=True)
+    llm_base_url: str
+    llm_api_key: str | None = None
+    llm_model: str
+    embedding_base_url: str
+    embedding_api_key: str | None = None
+    embedding_model: str
+    rerank_base_url: str | None = None
+    rerank_api_key: str | None = None
+    rerank_model: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)

@@ -20,6 +20,8 @@ pixi run lint
 ```
 
 `pixi run dev` starts the local debug web server at `http://127.0.0.1:8765`.
+The dev surface is localized in Simplified Chinese and asks for OpenAI-compatible
+LLM/Embedding settings before enabling the open-book flow.
 
 ## License
 
