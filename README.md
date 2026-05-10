@@ -19,6 +19,8 @@ pixi run test
 pixi run lint
 ```
 
+`pixi run dev` starts the local debug web server at `http://127.0.0.1:8765`.
+
 ## License
 
 Apache-2.0.

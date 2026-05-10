@@ -18,6 +18,7 @@ venv/
 pixi.lock
 
 # Local application data
+.mynovel/
 *.db
 *.sqlite
 *.sqlite3
