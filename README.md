@@ -14,6 +14,7 @@ AI plans, drafts, audits, revises, and maintains state; the author reviews and a
 ## Development
 
 ```bash
+pixi run dev
 pixi run test
 pixi run lint
 ```

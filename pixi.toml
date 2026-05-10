@@ -13,6 +13,7 @@ pytest = ">=8.0"
 ruff = ">=0.5"
 
 [tasks]
+dev = "mynovel --help"
 test = "pytest"
 lint = "ruff check src tests"
 format = "ruff format src tests"
