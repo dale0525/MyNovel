@@ -181,12 +181,52 @@ def test_blueprint_page_renders_structured_blueprint() -> None:
 
     assert "书名候选" in page
     assert "长夜图书馆" in page
+    assert 'name="selected_title"' in page
+    assert 'value="长夜图书馆"' in page
+    assert "确认书名，进入下一步" in page
     assert "核心冲突" in page
     assert "前 10 章方向" in page
     assert "<dt>chapter</dt>" in page
     assert "得到残页" in page
     assert "{&#x27;chapter&#x27;" not in page
     assert '"title_options"' not in page
+
+
+def test_blueprint_page_renders_title_required_message() -> None:
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_model="gpt-test",
+        embedding_base_url="https://api.example.test/v1",
+        embedding_model="text-embedding-test",
+    )
+    blueprint = OpenBookBlueprint(
+        id=10,
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        instruction=None,
+        content={
+            "title_options": ["长夜图书馆"],
+            "genre": "玄幻",
+            "audience": "男频网文读者",
+            "selling_points": [],
+            "protagonist": {},
+            "world": {},
+            "central_conflict": "主角重建禁书馆",
+            "reader_promises": [],
+            "chapter_directions": [],
+        },
+        raw_response="{}",
+    )
+
+    page = render_blueprint_page(
+        Path(".mynovel/dev.sqlite"),
+        provider_config,
+        blueprint,
+        message="请选择一个书名后再进入下一步。",
+    )
+
+    assert "请选择一个书名后再进入下一步。" in page
 
 
 def test_i18n_defaults_to_simplified_chinese() -> None:

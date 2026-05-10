@@ -6,6 +6,7 @@ from typing import Any
 
 from mynovel.domain.models import BlueprintStatus, OpenBookBlueprint, ProviderConfig
 from mynovel.i18n import DEFAULT_LOCALE, t
+from mynovel.workflows.open_book import title_options_from_blueprint
 
 
 def render_blueprint_page(
@@ -100,6 +101,19 @@ def render_blueprint_page(
     }}
 
     .actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }}
+    .title-options {{ display: grid; gap: 8px; margin: 8px 0 18px; }}
+    .title-option {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--ink);
+      padding: 8px 10px;
+    }}
+    .title-option input {{ margin: 0; }}
 
     a.button,
     button {{
@@ -184,7 +198,11 @@ def render_blueprint_page(
 """
 
 
-def render_structured_blueprint(content: dict[str, Any], locale: str) -> str:
+def render_structured_blueprint(
+    content: dict[str, Any],
+    locale: str,
+    include_title_options: bool = True,
+) -> str:
     if not content:
         return "<p></p>"
     sections = [
@@ -200,6 +218,8 @@ def render_structured_blueprint(content: dict[str, Any], locale: str) -> str:
     ]
     rendered = []
     for label_key, value in sections:
+        if label_key == "blueprint.title_options" and not include_title_options:
+            continue
         if value in (None, "", [], {}):
             continue
         rendered.append(f"<h3>{t(label_key, locale)}</h3>{_render_blueprint_value(value)}")
@@ -245,7 +265,8 @@ def _render_blueprint_detail(blueprint: OpenBookBlueprint, locale: str) -> str:
 
     return f"""
       <p class="{status_class}">{status_label}</p>
-      {render_structured_blueprint(blueprint.content, locale)}
+      {_render_title_selection_form(blueprint, locale)}
+      {render_structured_blueprint(blueprint.content, locale, include_title_options=False)}
 """
 
 
@@ -273,6 +294,34 @@ def _render_revision_form(blueprint: OpenBookBlueprint, locale: str) -> str:
         <div class="actions">
           <button type="submit">{t("blueprint.revise", locale)}</button>
           <a class="button secondary" href="/">{t("app.title", locale)}</a>
+        </div>
+      </form>
+"""
+
+
+def _render_title_selection_form(blueprint: OpenBookBlueprint, locale: str) -> str:
+    title_options = title_options_from_blueprint(blueprint.content)
+    if not title_options:
+        return ""
+
+    options = "".join(
+        f"""
+        <label class="title-option">
+          <input type="radio" name="selected_title" value="{html.escape(title, quote=True)}" required>
+          <span>{html.escape(title)}</span>
+        </label>
+"""
+        for title in title_options
+    )
+    return f"""
+      <form method="post" action="/accept-blueprint">
+        <input type="hidden" name="blueprint_id" value="{blueprint.id}">
+        <h3>{t("blueprint.title_options", locale)}</h3>
+        <div class="title-options">
+          {options}
+        </div>
+        <div class="actions">
+          <button type="submit">{t("blueprint.continue", locale)}</button>
         </div>
       </form>
 """

@@ -29,6 +29,7 @@ from mynovel.dev_views import (
 )
 from mynovel.i18n import DEFAULT_LOCALE, t
 from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
+from mynovel.workflows.open_book import create_draft_book_from_blueprint
 from mynovel.workflows.open_book_blueprint import (
     build_blueprint_messages,
     create_blueprint_job,
@@ -645,6 +646,47 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     _reset_blueprint_for_retry(session, blueprint)
                 _start_blueprint_job(state.db_path, blueprint_id, provider_config)
                 self._redirect(f"/blueprint/{blueprint_id}")
+                return
+            if parsed.path == "/accept-blueprint":
+                form = self._read_form()
+                blueprint_id = int(form.get("blueprint_id", "0"))
+                selected_title = form.get("selected_title", "")
+                provider_config = _load_provider_config(state.db_path)
+                engine = create_engine_for_path(state.db_path)
+                create_db_and_tables(engine)
+                with Session(engine) as session:
+                    blueprint = get_open_book_blueprint(session, blueprint_id)
+                    if blueprint is None:
+                        self.send_error(HTTPStatus.NOT_FOUND)
+                        return
+                    if blueprint.status != BlueprintStatus.SUCCEEDED:
+                        self.send_error(HTTPStatus.BAD_REQUEST)
+                        return
+                    try:
+                        book = create_draft_book_from_blueprint(
+                            session,
+                            blueprint,
+                            selected_title=selected_title,
+                        )
+                    except ValueError:
+                        self._send_html(
+                            render_blueprint_page(
+                                state.db_path,
+                                provider_config,
+                                blueprint,
+                                t("blueprint.title_required"),
+                            ),
+                            status=HTTPStatus.BAD_REQUEST,
+                        )
+                        return
+
+                self._redirect_message(
+                    t(
+                        "book.created_from_blueprint",
+                        title=book.title,
+                        book_id=book.id,
+                    )
+                )
                 return
 
             self.send_error(HTTPStatus.NOT_FOUND)
