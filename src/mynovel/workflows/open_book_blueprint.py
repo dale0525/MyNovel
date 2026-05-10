@@ -3,6 +3,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from sqlmodel import Session
+
+from mynovel.domain.models import BlueprintStatus, OpenBookBlueprint
+from mynovel.domain.repositories import add_open_book_blueprint
+
 REQUIRED_BLUEPRINT_FIELDS = {
     "title_options",
     "genre",
@@ -64,6 +69,27 @@ def extract_chat_content(response: dict[str, Any]) -> str:
     if not isinstance(content, str) or not content.strip():
         raise ValueError("Chat completion response has no message content.")
     return content
+
+
+def create_blueprint_job(
+    session: Session,
+    idea: str,
+    version: int,
+    instruction: str | None,
+    parent_id: int | None,
+) -> OpenBookBlueprint:
+    return add_open_book_blueprint(
+        session,
+        OpenBookBlueprint(
+            parent_id=parent_id,
+            idea=idea,
+            version=version,
+            status=BlueprintStatus.PENDING,
+            instruction=instruction,
+            content={},
+            raw_response="",
+        ),
+    )
 
 
 def _strip_code_fence(text: str) -> str:

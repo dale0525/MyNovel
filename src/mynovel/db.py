@@ -22,9 +22,14 @@ def migrate_sqlite_schema(engine: Engine) -> None:
         return
 
     inspector = inspect(engine)
-    if "providerconfig" not in inspector.get_table_names():
-        return
+    table_names = set(inspector.get_table_names())
+    if "providerconfig" in table_names:
+        _migrate_provider_config(engine, inspector)
+    if "openbookblueprint" in table_names:
+        _migrate_open_book_blueprint(engine, inspector)
 
+
+def _migrate_provider_config(engine: Engine, inspector) -> None:
     columns = {column["name"] for column in inspector.get_columns("providerconfig")}
     with engine.begin() as connection:
         if "embedding_use_llm_credentials" not in columns:
@@ -37,3 +42,21 @@ def migrate_sqlite_schema(engine: Engine) -> None:
                 "ALTER TABLE providerconfig "
                 "ADD COLUMN rerank_use_llm_credentials BOOLEAN NOT NULL DEFAULT 1"
             )
+
+
+def _migrate_open_book_blueprint(engine: Engine, inspector) -> None:
+    columns = {column["name"] for column in inspector.get_columns("openbookblueprint")}
+    with engine.begin() as connection:
+        if "parent_id" not in columns:
+            connection.exec_driver_sql("ALTER TABLE openbookblueprint ADD COLUMN parent_id INTEGER")
+        if "status" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE openbookblueprint "
+                "ADD COLUMN status VARCHAR NOT NULL DEFAULT 'succeeded'"
+            )
+        if "error_message" not in columns:
+            connection.exec_driver_sql("ALTER TABLE openbookblueprint ADD COLUMN error_message VARCHAR")
+        if "started_at" not in columns:
+            connection.exec_driver_sql("ALTER TABLE openbookblueprint ADD COLUMN started_at DATETIME")
+        if "finished_at" not in columns:
+            connection.exec_driver_sql("ALTER TABLE openbookblueprint ADD COLUMN finished_at DATETIME")

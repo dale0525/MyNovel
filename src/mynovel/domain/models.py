@@ -16,6 +16,13 @@ class BookStatus(StrEnum):
     PAUSED = "paused"
 
 
+class BlueprintStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 class Book(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     title: str
@@ -87,10 +94,15 @@ class ProviderConfig(SQLModel, table=True):
 
 class OpenBookBlueprint(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    parent_id: int | None = Field(default=None, index=True, foreign_key="openbookblueprint.id")
     idea: str
     version: int = 1
+    status: BlueprintStatus = BlueprintStatus.PENDING
     instruction: str | None = None
     content: dict = Field(default_factory=dict, sa_column=Column(JSON))
-    raw_response: str
+    raw_response: str = ""
     parse_error: str | None = None
+    error_message: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
+    started_at: datetime | None = None
+    finished_at: datetime | None = None

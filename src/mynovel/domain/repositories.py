@@ -48,6 +48,10 @@ def add_open_book_blueprint(session: Session, blueprint: OpenBookBlueprint) -> O
     return blueprint
 
 
+def get_open_book_blueprint(session: Session, blueprint_id: int) -> OpenBookBlueprint | None:
+    return session.get(OpenBookBlueprint, blueprint_id)
+
+
 def list_open_book_blueprints(session: Session) -> list[OpenBookBlueprint]:
     statement = select(OpenBookBlueprint).order_by(OpenBookBlueprint.version.desc())
     return list(session.exec(statement))

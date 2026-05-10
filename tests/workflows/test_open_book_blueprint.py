@@ -1,10 +1,11 @@
 from sqlmodel import Session
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import OpenBookBlueprint
+from mynovel.domain.models import BlueprintStatus, OpenBookBlueprint
 from mynovel.domain.repositories import add_open_book_blueprint, list_open_book_blueprints
 from mynovel.workflows.open_book_blueprint import (
     build_blueprint_messages,
+    create_blueprint_job,
     parse_blueprint_json,
 )
 
@@ -73,3 +74,22 @@ def test_blueprint_versions_round_trip_through_sqlite(tmp_path) -> None:
 
     assert [blueprint.version for blueprint in blueprints] == [2, 1]
     assert blueprints[0].instruction == "主角更疯一点"
+
+
+def test_create_blueprint_job_persists_pending_status(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+
+    with Session(engine) as session:
+        job = create_blueprint_job(
+            session,
+            idea="失意档案员重建禁书馆",
+            version=1,
+            instruction=None,
+            parent_id=None,
+        )
+
+    assert job.id is not None
+    assert job.status == BlueprintStatus.PENDING
+    assert job.raw_response == ""
+    assert job.content == {}

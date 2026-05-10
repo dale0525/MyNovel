@@ -1,8 +1,8 @@
 from pathlib import Path
 import tomllib
 
-from mynovel.dev_server import build_health_payload, render_home
-from mynovel.domain.models import OpenBookBlueprint, ProviderConfig
+from mynovel.dev_server import build_health_payload, render_blueprint_page, render_home
+from mynovel.domain.models import BlueprintStatus, OpenBookBlueprint, ProviderConfig
 from mynovel.i18n import t
 
 
@@ -93,7 +93,100 @@ def test_home_page_renders_blueprint_revision_form() -> None:
 
     assert "开书蓝图 v1" in page
     assert "长夜图书馆" in page
-    assert "修改意见" in page
+    assert "查看蓝图任务" in page
+
+
+def test_blueprint_page_renders_pending_job_without_content() -> None:
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_model="gpt-test",
+        embedding_base_url="https://api.example.test/v1",
+        embedding_model="text-embedding-test",
+    )
+    blueprint = OpenBookBlueprint(
+        id=7,
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.PENDING,
+        instruction=None,
+        content={},
+        raw_response="",
+    )
+
+    page = render_blueprint_page(Path(".mynovel/dev.sqlite"), provider_config, blueprint)
+
+    assert "正在生成开书蓝图" in page
+    assert "手动刷新" in page
+    assert "重新尝试" not in page
+
+
+def test_blueprint_page_renders_failure_retry() -> None:
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_model="gpt-test",
+        embedding_base_url="https://api.example.test/v1",
+        embedding_model="text-embedding-test",
+    )
+    blueprint = OpenBookBlueprint(
+        id=8,
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.FAILED,
+        instruction=None,
+        content={},
+        raw_response="not json",
+        parse_error="missing fields",
+        error_message="missing fields",
+    )
+
+    page = render_blueprint_page(Path(".mynovel/dev.sqlite"), provider_config, blueprint)
+
+    assert "生成失败" in page
+    assert "missing fields" in page
+    assert 'action="/retry-blueprint"' in page
+    assert "重新尝试" in page
+
+
+def test_blueprint_page_renders_structured_blueprint() -> None:
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_model="gpt-test",
+        embedding_base_url="https://api.example.test/v1",
+        embedding_model="text-embedding-test",
+    )
+    blueprint = OpenBookBlueprint(
+        id=9,
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        instruction=None,
+        content={
+            "title_options": ["长夜图书馆", "禁书归途"],
+            "genre": "玄幻",
+            "audience": "男频网文读者",
+            "selling_points": ["禁书体系", "升级节奏"],
+            "protagonist": {"name": "林烬", "hook": "失意档案员"},
+            "world": {"premise": "书籍可以封印神明"},
+            "central_conflict": "主角重建禁书馆",
+            "reader_promises": ["每章有新禁书"],
+            "chapter_directions": [
+                {"chapter": "第 1 章", "direction": "得到残页"},
+                {"chapter": "第 2 章", "direction": "发现追杀者"},
+            ],
+        },
+        raw_response="{}",
+    )
+
+    page = render_blueprint_page(Path(".mynovel/dev.sqlite"), provider_config, blueprint)
+
+    assert "书名候选" in page
+    assert "长夜图书馆" in page
+    assert "核心冲突" in page
+    assert "前 10 章方向" in page
+    assert "<dt>chapter</dt>" in page
+    assert "得到残页" in page
+    assert "{&#x27;chapter&#x27;" not in page
+    assert '"title_options"' not in page
 
 
 def test_i18n_defaults_to_simplified_chinese() -> None:

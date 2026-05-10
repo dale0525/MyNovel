@@ -8,23 +8,30 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
 
 from sqlmodel import Session, select
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import Book, OpenBookBlueprint, ProviderConfig
+from mynovel.domain.models import Book, BlueprintStatus, OpenBookBlueprint, ProviderConfig, utc_now
 from mynovel.domain.repositories import (
-    add_open_book_blueprint,
+    get_open_book_blueprint,
     get_provider_config,
     list_open_book_blueprints,
     save_provider_config,
+)
+from mynovel.dev_views import (
+    blueprint_status_label,
+    render_blueprint_page,
+    render_structured_blueprint,
 )
 from mynovel.i18n import DEFAULT_LOCALE, t
 from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
 from mynovel.workflows.open_book_blueprint import (
     build_blueprint_messages,
+    create_blueprint_job,
     extract_chat_content,
     parse_blueprint_json,
 )
@@ -483,6 +490,15 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if parsed.path == "/health":
                 self._send_json(build_health_payload(state.db_path))
                 return
+            if parsed.path.startswith("/blueprint/"):
+                blueprint_id = _parse_blueprint_id(parsed.path)
+                provider_config = _load_provider_config(state.db_path)
+                blueprint = _load_open_book_blueprint(state.db_path, blueprint_id)
+                if blueprint is None:
+                    self.send_error(HTTPStatus.NOT_FOUND)
+                    return
+                self._send_html(render_blueprint_page(state.db_path, provider_config, blueprint))
+                return
             if parsed.path != "/":
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
@@ -547,8 +563,19 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 engine = create_engine_for_path(state.db_path)
                 create_db_and_tables(engine)
                 with Session(engine) as session:
-                    blueprint = _generate_and_save_blueprint(session, provider_config, idea)
-                self._redirect_message(t("book.created", version=blueprint.version))
+                    blueprint = create_blueprint_job(
+                        session,
+                        idea=idea,
+                        version=1,
+                        instruction=None,
+                        parent_id=None,
+                    )
+                    blueprint_id = blueprint.id
+                if blueprint_id is None:
+                    self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR)
+                    return
+                _start_blueprint_job(state.db_path, blueprint_id, provider_config)
+                self._redirect(f"/blueprint/{blueprint_id}")
                 return
             if parsed.path == "/revise-blueprint":
                 form = self._read_form()
@@ -587,15 +614,37 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 engine = create_engine_for_path(state.db_path)
                 create_db_and_tables(engine)
                 with Session(engine) as session:
-                    blueprint = _generate_and_save_blueprint(
+                    blueprint = create_blueprint_job(
                         session,
-                        provider_config,
-                        latest.idea,
-                        revision_notes=revision_notes,
-                        previous_blueprint=latest.content,
+                        idea=latest.idea,
                         version=latest.version + 1,
+                        instruction=revision_notes,
+                        parent_id=latest.id,
                     )
-                self._redirect_message(t("blueprint.revised", version=blueprint.version))
+                    blueprint_id = blueprint.id
+                if blueprint_id is None:
+                    self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR)
+                    return
+                _start_blueprint_job(state.db_path, blueprint_id, provider_config)
+                self._redirect(f"/blueprint/{blueprint_id}")
+                return
+            if parsed.path == "/retry-blueprint":
+                form = self._read_form()
+                blueprint_id = int(form.get("blueprint_id", "0"))
+                provider_config = _load_provider_config(state.db_path)
+                if not provider_config or not is_provider_config_complete(provider_config):
+                    self.send_error(HTTPStatus.BAD_REQUEST)
+                    return
+                engine = create_engine_for_path(state.db_path)
+                create_db_and_tables(engine)
+                with Session(engine) as session:
+                    blueprint = get_open_book_blueprint(session, blueprint_id)
+                    if blueprint is None:
+                        self.send_error(HTTPStatus.NOT_FOUND)
+                        return
+                    _reset_blueprint_for_retry(session, blueprint)
+                _start_blueprint_job(state.db_path, blueprint_id, provider_config)
+                self._redirect(f"/blueprint/{blueprint_id}")
                 return
 
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -673,67 +722,131 @@ def _load_open_book_blueprints(db_path: Path) -> list[OpenBookBlueprint]:
         return list_open_book_blueprints(session)
 
 
+def _load_open_book_blueprint(db_path: Path, blueprint_id: int) -> OpenBookBlueprint | None:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        return get_open_book_blueprint(session, blueprint_id)
+
+
+def _parse_blueprint_id(path: str) -> int:
+    _, _, raw_id = path.rpartition("/")
+    try:
+        return int(raw_id)
+    except ValueError:
+        return 0
+
+
 def _render_blueprint_panel(blueprints: list[OpenBookBlueprint], locale: str) -> str:
     if not blueprints:
         return f'<div class="blueprint"><p>{t("blueprint.empty", locale)}</p></div>'
 
     latest = blueprints[0]
     title = t("blueprint.title", locale, version=latest.version)
-    content = html.escape(json.dumps(latest.content, ensure_ascii=False, indent=2))
-    raw_response = ""
-    if latest.parse_error:
-        raw = html.escape(latest.raw_response)
-        raw_response = (
-            f"<p class='message'>{t('blueprint.parse_failed', locale)}</p>"
-            f"<h2>{t('blueprint.raw_response', locale)}</h2><pre>{raw}</pre>"
-        )
+    status = blueprint_status_label(latest.status, locale)
+    body = render_structured_blueprint(latest.content, locale) if latest.content else f"<p>{status}</p>"
 
     return f"""
         <div class="blueprint">
           <h2>{title}</h2>
-          <pre>{content}</pre>
-          {raw_response}
-          <form method="post" action="/revise-blueprint">
-            <label>
-              {t("blueprint.revision_notes", locale)}
-              <textarea name="revision_notes" required
-                placeholder="主角更疯一点，节奏更爽文"></textarea>
-            </label>
-            <button type="submit">{t("blueprint.revise", locale)}</button>
-          </form>
+          {body}
+          <div class="actions">
+            <a class="button secondary" href="/blueprint/{latest.id}">{t("blueprint.open", locale)}</a>
+          </div>
         </div>
 """
 
 
-def _generate_and_save_blueprint(
-    session: Session,
+def _start_blueprint_job(
+    db_path: Path,
+    blueprint_id: int,
     provider_config: ProviderConfig,
-    idea: str,
-    revision_notes: str | None = None,
-    previous_blueprint: dict[str, Any] | None = None,
-    version: int = 1,
-) -> OpenBookBlueprint:
-    raw_response = asyncio.run(
-        _request_blueprint(provider_config, idea, previous_blueprint, revision_notes)
+) -> None:
+    thread = Thread(
+        target=_run_blueprint_job,
+        args=(db_path, blueprint_id, provider_config),
+        daemon=True,
     )
+    thread.start()
+
+
+def _run_blueprint_job(
+    db_path: Path,
+    blueprint_id: int,
+    provider_config: ProviderConfig,
+) -> None:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    previous_blueprint: dict[str, Any] | None = None
+    idea = ""
+    revision_notes = None
+
+    with Session(engine) as session:
+        blueprint = get_open_book_blueprint(session, blueprint_id)
+        if blueprint is None:
+            return
+        blueprint.status = BlueprintStatus.RUNNING
+        blueprint.started_at = utc_now()
+        blueprint.error_message = None
+        blueprint.parse_error = None
+        blueprint.raw_response = ""
+        blueprint.content = {}
+        idea = blueprint.idea
+        revision_notes = blueprint.instruction
+        if blueprint.parent_id is not None:
+            parent = get_open_book_blueprint(session, blueprint.parent_id)
+            previous_blueprint = parent.content if parent else None
+        session.add(blueprint)
+        session.commit()
+
+    raw_response = ""
+    status = BlueprintStatus.SUCCEEDED
+    content: dict[str, Any] = {}
     parse_error = None
+    error_message = None
+
     try:
+        raw_response = asyncio.run(
+            _request_blueprint(provider_config, idea, previous_blueprint, revision_notes)
+        )
         content = parse_blueprint_json(raw_response)
     except (json.JSONDecodeError, ValueError) as error:
+        status = BlueprintStatus.FAILED
         parse_error = str(error)
-        content = {}
+        error_message = str(error)
+    except Exception as error:  # noqa: BLE001
+        status = BlueprintStatus.FAILED
+        error_message = str(error)
 
-    return add_open_book_blueprint(
-        session,
-        OpenBookBlueprint(
-            idea=idea,
-            version=version,
-            instruction=revision_notes,
-            content=content,
-            raw_response=raw_response,
-            parse_error=parse_error,
-        ),
-    )
+    with Session(engine) as session:
+        blueprint = get_open_book_blueprint(session, blueprint_id)
+        if blueprint is None:
+            return
+        blueprint.status = status
+        blueprint.content = content
+        blueprint.raw_response = raw_response
+        blueprint.parse_error = parse_error
+        blueprint.error_message = error_message
+        blueprint.finished_at = utc_now()
+        session.add(blueprint)
+        session.commit()
+
+
+def _reset_blueprint_for_retry(
+    session: Session,
+    blueprint: OpenBookBlueprint,
+) -> OpenBookBlueprint:
+    blueprint.status = BlueprintStatus.PENDING
+    blueprint.content = {}
+    blueprint.raw_response = ""
+    blueprint.parse_error = None
+    blueprint.error_message = None
+    blueprint.started_at = None
+    blueprint.finished_at = None
+    session.add(blueprint)
+    session.commit()
+    session.refresh(blueprint)
+    return blueprint
 
 
 async def _request_blueprint(
