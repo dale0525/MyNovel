@@ -83,6 +83,18 @@ class RunTrace(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class VectorEntry(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    book_id: int = Field(index=True, foreign_key="book.id")
+    source_type: str = Field(index=True)
+    source_id: str = Field(index=True)
+    text: str
+    embedding: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    metadata_: dict = Field(default_factory=dict, sa_column=Column("metadata", JSON))
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class ProviderConfig(SQLModel, table=True):
     id: int | None = Field(default=1, primary_key=True)
     llm_base_url: str

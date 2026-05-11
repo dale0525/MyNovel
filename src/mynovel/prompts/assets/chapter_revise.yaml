@@ -1,0 +1,17 @@
+id: chapter_revise
+name: Chapter Revise
+version: "0.1.0"
+purpose: Revise a chapter draft according to audit findings.
+source: original
+source_license: Apache-2.0
+adaptation_notes: Revisions remain candidates until human approval.
+model_family_hint: OpenAI-compatible chat models.
+input_schema:
+  required:
+    - chapter_title
+    - draft_text
+    - audit_report
+output_schema:
+  type: text
+template: |
+  根据审计意见修订《{chapter_title}》正文，只输出修订后的完整正文。

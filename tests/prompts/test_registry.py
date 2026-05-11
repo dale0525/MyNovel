@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from mynovel.prompts.registry import load_prompt_asset
+from mynovel.prompts.registry import load_prompt_asset, load_prompt_by_id, render_prompt_messages
 
 
 def test_prompt_asset_requires_source_metadata(tmp_path: Path) -> None:
@@ -38,3 +38,13 @@ def test_chapter_pipeline_prompt_asset_declares_all_stage_prompts() -> None:
         "chapter_audit",
         "chapter_revise",
     ]
+
+
+def test_runtime_prompt_registry_loads_and_renders_stage_prompt() -> None:
+    asset = load_prompt_by_id("chapter_plan")
+    messages = render_prompt_messages(asset, {"chapter_title": "离开的召唤"})
+
+    assert asset.id == "chapter_plan"
+    assert asset.source_license == "Apache-2.0"
+    assert messages[0]["role"] == "system"
+    assert "离开的召唤" in messages[1]["content"]

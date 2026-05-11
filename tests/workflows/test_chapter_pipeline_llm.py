@@ -109,6 +109,10 @@ def test_run_chapter_pipeline_uses_model_client_for_each_generation_stage(tmp_pa
     ]
     assert {trace.prompt_version for trace in traces} == {"0.1.0"}
     assert {trace.model for trace in traces} == {"章节模型"}
+    assert traces[0].cost["prompt_chars"] > 0
+    assert traces[0].cost["completion_chars"] > 0
+    assert traces[0].cost["elapsed_ms"] >= 0
+    assert traces[0].metadata_["prompt_source"] == "original"
 
 
 def test_approve_chapter_blocks_high_risk_unresolved_issues(tmp_path) -> None:

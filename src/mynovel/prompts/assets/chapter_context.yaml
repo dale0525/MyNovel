@@ -1,0 +1,18 @@
+id: chapter_context
+name: Chapter Context
+version: "0.1.0"
+purpose: Compile trusted context for one chapter.
+source: original
+source_license: Apache-2.0
+adaptation_notes: Keeps Canon as the only durable fact source.
+model_family_hint: Local deterministic assembly or OpenAI-compatible chat models.
+input_schema:
+  required:
+    - chapter_title
+    - trusted_state
+output_schema:
+  required:
+    - trusted_state
+    - chapter_goal
+template: |
+  请为《{chapter_title}》整理本章可用的可信上下文，不引入未批准事实。

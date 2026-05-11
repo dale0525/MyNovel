@@ -1,0 +1,20 @@
+id: chapter_audit
+name: Chapter Audit
+version: "0.1.0"
+purpose: Audit continuity, risk and unresolved issues before review.
+source: original
+source_license: Apache-2.0
+adaptation_notes: Focuses on risks that affect future chapters.
+model_family_hint: OpenAI-compatible chat models with JSON response-format support.
+input_schema:
+  required:
+    - chapter_title
+    - draft_text
+    - state_delta
+output_schema:
+  required:
+    - risk_level
+    - issues
+    - suggestions
+template: |
+  审计《{chapter_title}》的连续性、因果、动机、伏笔和章节风险，只输出 JSON。

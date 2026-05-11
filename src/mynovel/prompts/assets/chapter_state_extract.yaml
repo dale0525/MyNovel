@@ -1,0 +1,18 @@
+id: chapter_state_extract
+name: Chapter State Extract
+version: "0.1.0"
+purpose: Extract reviewable state changes from a draft chapter.
+source: original
+source_license: Apache-2.0
+adaptation_notes: Extracted state remains pending until human approval.
+model_family_hint: OpenAI-compatible chat models with JSON response-format support.
+input_schema:
+  required:
+    - chapter_title
+    - draft_text
+output_schema:
+  required:
+    - chapter
+    - changes
+template: |
+  从《{chapter_title}》草稿提取人物、关系、地点、资源和伏笔变化，只输出 JSON。

@@ -1,0 +1,16 @@
+id: chapter_draft
+name: Chapter Draft
+version: "0.1.0"
+purpose: Generate a readable chapter draft from the approved context package.
+source: original
+source_license: Apache-2.0
+adaptation_notes: The draft may propose state changes but cannot mutate trusted state.
+model_family_hint: OpenAI-compatible chat models.
+input_schema:
+  required:
+    - chapter_title
+    - context_package
+output_schema:
+  type: text
+template: |
+  根据本章计划和可信上下文撰写《{chapter_title}》正文草稿，只输出正文。

@@ -7,6 +7,7 @@ from mynovel.domain.models import (
     OpenBookBlueprint,
     ProviderConfig,
     RunTrace,
+    VectorEntry,
     utc_now,
 )
 
@@ -64,6 +65,40 @@ def add_run_trace(session: Session, trace: RunTrace) -> RunTrace:
 
 def list_run_traces_for_book(session: Session, book_id: int) -> list[RunTrace]:
     statement = select(RunTrace).where(RunTrace.book_id == book_id).order_by(RunTrace.created_at)
+    return list(session.exec(statement))
+
+
+def add_vector_entry(session: Session, entry: VectorEntry) -> VectorEntry:
+    session.add(entry)
+    session.commit()
+    session.refresh(entry)
+    return entry
+
+
+def list_vector_entries_for_book(session: Session, book_id: int) -> list[VectorEntry]:
+    statement = (
+        select(VectorEntry)
+        .where(VectorEntry.book_id == book_id)
+        .order_by(VectorEntry.created_at, VectorEntry.id)
+    )
+    return list(session.exec(statement))
+
+
+def list_vector_entries_for_source(
+    session: Session,
+    book_id: int,
+    source_type: str,
+    source_id: str,
+) -> list[VectorEntry]:
+    statement = (
+        select(VectorEntry)
+        .where(
+            VectorEntry.book_id == book_id,
+            VectorEntry.source_type == source_type,
+            VectorEntry.source_id == source_id,
+        )
+        .order_by(VectorEntry.created_at, VectorEntry.id)
+    )
     return list(session.exec(statement))
 
 

@@ -10,7 +10,9 @@ from sqlmodel import Session
 from mynovel.domain.models import BookStatus, Canon, Chapter, ChapterStatus, RunTrace, utc_now
 from mynovel.domain.repositories import get_book, get_chapter, get_latest_canon
 from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
+from mynovel.prompts.registry import load_prompt_by_id, render_prompt_messages
 from mynovel.workflows.open_book_blueprint import extract_chat_content
+from mynovel.workflows.retrieval import index_text
 
 
 class ChapterModelClient(Protocol):
@@ -121,18 +123,22 @@ def approve_chapter(
     chapter.reviewer_note = reviewer_note
     chapter.updated_at = utc_now()
 
+    trusted_state_version = latest.version + 1
     updated_content = _content_with_accepted_chapter(latest.content, chapter)
     session.add(chapter)
-    session.add(Canon(book_id=chapter.book_id, version=latest.version + 1, content=updated_content))
+    session.add(
+        Canon(book_id=chapter.book_id, version=trusted_state_version, content=updated_content)
+    )
     session.add(
         RunTrace(
             book_id=chapter.book_id,
             stage="accept_chapter",
             model=None,
             cost={"estimated": 0},
-            metadata_={"chapter": chapter.number, "trusted_state_version": latest.version + 1},
+            metadata_={"chapter": chapter.number, "trusted_state_version": trusted_state_version},
         )
     )
+    _index_accepted_chapter(session, chapter, updated_content, trusted_state_version)
     session.commit()
     session.refresh(chapter)
     return chapter
@@ -480,18 +486,26 @@ def _build_context_package(canon: Canon, chapter: Chapter) -> dict:
 
 def _add_pipeline_traces(session: Session, chapter: Chapter, model_name: str) -> None:
     for stage_key, stage_label, prompt_id in TRACE_STAGES:
+        prompt_version, prompt_source, prompt_chars = _trace_prompt_metadata(chapter, prompt_id)
+        completion_chars = max(1, len(_stage_completion_text(chapter, stage_key)))
         session.add(
             RunTrace(
                 book_id=chapter.book_id,
                 stage=stage_label,
                 prompt_id=prompt_id,
-                prompt_version=PROMPT_VERSION,
+                prompt_version=prompt_version,
                 model=model_name,
-                cost={"estimated": 0},
+                cost={
+                    "estimated": 0,
+                    "prompt_chars": prompt_chars,
+                    "completion_chars": completion_chars,
+                    "elapsed_ms": 0,
+                },
                 metadata_={
                     "chapter": chapter.number,
                     "status": chapter.status.value,
                     "stage_key": stage_key,
+                    "prompt_source": prompt_source,
                 },
             )
         )
@@ -632,7 +646,168 @@ def _content_with_accepted_chapter(content: dict, chapter: Chapter) -> dict:
         }
     )
     updated.setdefault("state_history", []).append(chapter.state_delta)
+    for change in chapter.state_delta.get("changes", []):
+        if isinstance(change, dict):
+            _append_structured_state_change(updated, chapter, change)
     updated.setdefault("accepted_chapters", []).append(
         {"chapter": chapter.number, "title": chapter.title, "accepted_at": utc_now().isoformat()}
     )
     return updated
+
+
+def _append_structured_state_change(
+    content: dict[str, Any],
+    chapter: Chapter,
+    change: dict[str, Any],
+) -> None:
+    bucket = _state_bucket_for_change(change)
+    if bucket is None:
+        return
+
+    target = str(change.get("target") or change.get("name") or "").strip()
+    detail = str(change.get("change") or change.get("detail") or "").strip()
+    if not target and not detail:
+        return
+
+    content.setdefault(bucket, []).append(
+        {
+            "name": target or detail[:32],
+            "detail": detail,
+            "type": str(change.get("type") or "").strip(),
+            "chapter": chapter.number,
+            "chapter_title": chapter.title,
+            "updated_at": utc_now().isoformat(),
+        }
+    )
+
+
+def _state_bucket_for_change(change: dict[str, Any]) -> str | None:
+    text = " ".join(str(change.get(key, "")) for key in ("type", "target", "change"))
+    if any(term in text for term in ("人物", "角色")):
+        return "characters"
+    if "关系" in text:
+        return "relationships"
+    if any(term in text for term in ("地点", "场景", "位置")):
+        return "locations"
+    if any(term in text for term in ("势力", "组织", "阵营")):
+        return "factions"
+    if any(term in text for term in ("资源", "道具", "物品", "地图")):
+        return "resources"
+    if any(term in text for term in ("伏笔", "线索", "信息")):
+        return "foreshadowing"
+    return None
+
+
+def _index_accepted_chapter(
+    session: Session,
+    chapter: Chapter,
+    trusted_state: dict[str, Any],
+    trusted_state_version: int,
+) -> None:
+    chapter_text = "\n".join(
+        part
+        for part in (
+            f"第 {chapter.number:02d} 章《{chapter.title}》",
+            chapter.summary,
+            chapter.final_text,
+        )
+        if part
+    )
+    index_text(
+        session,
+        book_id=chapter.book_id,
+        source_type="accepted_chapter",
+        source_id=str(chapter.id),
+        text=chapter_text,
+        metadata={
+            "kind": "章节正文",
+            "chapter": chapter.number,
+            "trusted_state_version": trusted_state_version,
+        },
+        commit=False,
+    )
+
+    state_text = _trusted_state_index_text(chapter, trusted_state)
+    if state_text:
+        index_text(
+            session,
+            book_id=chapter.book_id,
+            source_type="trusted_state",
+            source_id=f"chapter-{chapter.id}",
+            text=state_text,
+            metadata={
+                "kind": "可信状态",
+                "chapter": chapter.number,
+                "trusted_state_version": trusted_state_version,
+            },
+            commit=False,
+        )
+
+
+def _trusted_state_index_text(chapter: Chapter, trusted_state: dict[str, Any]) -> str:
+    lines = [f"第 {chapter.number:02d} 章《{chapter.title}》状态变化"]
+    for change in chapter.state_delta.get("changes", []):
+        if not isinstance(change, dict):
+            continue
+        lines.append(
+            " / ".join(
+                text
+                for text in (
+                    str(change.get("type") or "").strip(),
+                    str(change.get("target") or "").strip(),
+                    str(change.get("change") or "").strip(),
+                )
+                if text
+            )
+        )
+    for bucket in (
+        "characters",
+        "relationships",
+        "locations",
+        "factions",
+        "resources",
+        "foreshadowing",
+    ):
+        values = trusted_state.get(bucket, [])
+        if values:
+            lines.append(f"{bucket}: {json.dumps(values[-3:], ensure_ascii=False)}")
+    return "\n".join(line for line in lines if line)
+
+
+def _trace_prompt_metadata(chapter: Chapter, prompt_id: str) -> tuple[str, str, int]:
+    try:
+        asset = load_prompt_by_id(prompt_id)
+        messages = render_prompt_messages(asset, _trace_payload(chapter))
+        prompt_chars = sum(len(message["content"]) for message in messages)
+        return asset.version, asset.source, max(1, prompt_chars)
+    except FileNotFoundError:
+        return PROMPT_VERSION, "unknown", 1
+
+
+def _trace_payload(chapter: Chapter) -> dict[str, Any]:
+    return {
+        "chapter_number": chapter.number,
+        "chapter_title": chapter.title,
+        "plan": chapter.plan,
+        "context_package": chapter.context_package,
+        "draft_text": chapter.draft_text,
+        "state_delta": chapter.state_delta,
+        "audit_report": chapter.audit_report,
+    }
+
+
+def _stage_completion_text(chapter: Chapter, stage_key: str) -> str:
+    match stage_key:
+        case "plan":
+            return json.dumps(chapter.plan, ensure_ascii=False, sort_keys=True)
+        case "context":
+            return json.dumps(chapter.context_package, ensure_ascii=False, sort_keys=True)
+        case "draft":
+            return chapter.draft_text
+        case "extract_state":
+            return json.dumps(chapter.state_delta, ensure_ascii=False, sort_keys=True)
+        case "audit":
+            return json.dumps(chapter.audit_report, ensure_ascii=False, sort_keys=True)
+        case "revise":
+            return chapter.revised_text
+    return ""

@@ -1,0 +1,22 @@
+id: chapter_plan
+name: Chapter Plan
+version: "0.1.0"
+purpose: Plan one serialized chapter from trusted state and chapter direction.
+source: original
+source_license: Apache-2.0
+adaptation_notes: Designed for MyNovel stage-level traceability.
+model_family_hint: OpenAI-compatible chat models with JSON response-format support.
+input_schema:
+  required:
+    - chapter_title
+    - trusted_state
+output_schema:
+  required:
+    - goal
+    - must_write
+    - forbidden_drift
+    - word_budget
+    - ending_hook
+evaluation_notes: The plan must preserve locked facts and keep state changes reviewable.
+template: |
+  请为《{chapter_title}》生成本章计划，只输出符合 schema 的 JSON。

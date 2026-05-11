@@ -18,6 +18,7 @@ dependencies = [
 [project.scripts]
 mynovel = "mynovel.cli:app"
 mynovel-dev = "mynovel.dev_server:main"
+mynovel-desktop = "mynovel.desktop:main"
 
 [tool.setuptools.package-data]
 mynovel = ["prompts/assets/*.yaml"]
