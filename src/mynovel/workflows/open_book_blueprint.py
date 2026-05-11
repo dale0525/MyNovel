@@ -48,6 +48,7 @@ def build_blueprint_messages(
         "world, central_conflict, reader_promises, chapter_directions。"
         "title_options、selling_points、reader_promises、chapter_directions 使用数组；"
         "protagonist 和 world 使用对象。"
+        "如果用户没有明确题材、目标读者或卖点，请根据一句灵感自行生成，不要反问。"
     )
     user_payload: dict[str, Any] = {"idea": idea}
     if previous_blueprint is not None:

@@ -30,6 +30,26 @@ from mynovel.product_components import (
 from mynovel.ui_shell import PipelineStep, render_app_page, render_pipeline, render_project_sidebar
 from mynovel.workflows.open_book import title_options_from_blueprint
 
+GENRE_PRESETS = (
+    "玄幻升级",
+    "都市异能",
+    "悬疑推理",
+    "科幻冒险",
+    "古言权谋",
+    "现言情感",
+    "无限流",
+    "轻小说",
+)
+
+AUDIENCE_PRESETS = (
+    "男频网文读者",
+    "女频网文读者",
+    "悬疑推理读者",
+    "轻小说读者",
+    "成长冒险读者",
+    "短篇精品读者",
+)
+
 
 def render_home(
     db_path: Path,
@@ -101,14 +121,9 @@ def render_new_book_page(
         </div>
         <form method="post" action="/open-book" class="form-grid">
           {_input("idea", t("book.idea", locale), t("book.idea_placeholder", locale), required=True)}
-          {_input("genre", t("book.genre", locale), "奇幻成长")}
-          {_input("audience", t("book.audience", locale), "喜欢连载爽点和悬念的读者")}
-          {_input("selling_points", t("book.selling_points", locale), "持续揭秘、角色成长、章节钩子")}
-          {_textarea("constraints", t("book.constraints", locale), "不写崩坏人设，不让关键设定前后矛盾")}
-          {_input("style_reference", t("book.style_reference", locale), "清爽、克制、节奏明确")}
           <div class="split">
-            {_input("length_goal", t("book.length_goal", locale), "120000 字")}
-            {_input("serial_rhythm", t("book.serial_rhythm", locale), "每天 1 章")}
+            {_select("genre", t("book.genre", locale), t("book.ai_choice", locale), GENRE_PRESETS)}
+            {_select("audience", t("book.audience", locale), t("book.ai_choice", locale), AUDIENCE_PRESETS)}
           </div>
           <div class="actions">
             <a class="button secondary" href="/">{t("action.back", locale)}</a>
@@ -120,6 +135,8 @@ def render_new_book_page(
         <h2>{t("new_book.preview_title", locale)}</h2>
         <div class="stack-list">
           <p>{t("blueprint.title_options", locale)}</p>
+          <p>{t("blueprint.genre", locale)}</p>
+          <p>{t("blueprint.audience", locale)}</p>
           <p>{t("blueprint.selling_points", locale)}</p>
           <p>{t("blueprint.protagonist", locale)}</p>
           <p>{t("blueprint.world", locale)}</p>
@@ -850,6 +867,15 @@ def _input(
         f'<label>{label}<input name="{name}" type="{input_type}" value="{value}" '
         f'placeholder="{html.escape(placeholder, quote=True)}"{" required" if required else ""}></label>'
     )
+
+
+def _select(name: str, label: str, empty_label: str, options: tuple[str, ...]) -> str:
+    option_html = [f'<option value="">{html.escape(empty_label)}</option>']
+    option_html.extend(
+        f'<option value="{html.escape(option, quote=True)}">{html.escape(option)}</option>'
+        for option in options
+    )
+    return f'<label>{label}<select name="{name}">{"".join(option_html)}</select></label>'
 
 
 def _textarea(name: str, label: str, placeholder: str = "") -> str:

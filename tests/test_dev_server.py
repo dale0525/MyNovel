@@ -2,16 +2,21 @@ from pathlib import Path
 import tomllib
 
 from mynovel.dev_server import (
+    _book_idea_from_form,
     _chapter_model_client_from_provider_config,
     _parse_batch_limit,
+    _parse_book_export,
     _parse_book_quality_id,
     _parse_book_state_id,
-    _parse_book_export,
     build_health_payload,
     render_blueprint_page,
     render_home,
+    run_server,
 )
-from mynovel.domain.models import BlueprintStatus, OpenBookBlueprint, ProviderConfig
+from sqlmodel import Session, select
+
+from mynovel.db import create_engine_for_path
+from mynovel.domain.models import Book, BlueprintStatus, OpenBookBlueprint, ProviderConfig
 from mynovel.i18n import t
 
 
@@ -112,6 +117,54 @@ def test_parse_batch_limit_clamps_to_safe_range() -> None:
     assert _parse_batch_limit({"limit": "0"}) == 1
     assert _parse_batch_limit({"limit": "99"}) == 10
     assert _parse_batch_limit({"limit": "bad"}) == 1
+
+
+def test_book_idea_from_form_keeps_only_idea_required_and_optional_presets() -> None:
+    idea = _book_idea_from_form(
+        {
+            "idea": "失意档案员重建禁书馆",
+            "genre": "玄幻升级",
+            "audience": "男频网文读者",
+            "selling_points": "旧版字段应该忽略",
+            "constraints": "旧版字段应该忽略",
+            "style_reference": "旧版字段应该忽略",
+            "length_goal": "旧版字段应该忽略",
+            "serial_rhythm": "旧版字段应该忽略",
+        }
+    )
+
+    assert "一句灵感：失意档案员重建禁书馆" in idea
+    assert "题材：玄幻升级" in idea
+    assert "目标读者：男频网文读者" in idea
+    assert "旧版字段应该忽略" not in idea
+    assert _book_idea_from_form({"idea": "", "genre": "玄幻升级"}) == ""
+
+
+def test_default_server_database_starts_without_placeholder_book(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "dev.sqlite"
+
+    class FakeServer:
+        server_port = 8765
+
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def serve_forever(self) -> None:
+            raise KeyboardInterrupt
+
+        def server_close(self) -> None:
+            pass
+
+    monkeypatch.setattr("mynovel.dev_server.DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr("mynovel.dev_server.ThreadingHTTPServer", FakeServer)
+
+    run_server("127.0.0.1", 0, db_path)
+
+    engine = create_engine_for_path(db_path)
+    with Session(engine) as session:
+        books = list(session.exec(select(Book)))
+
+    assert books == []
 
 
 def test_home_page_keeps_language_product_focused_with_blueprints_present() -> None:

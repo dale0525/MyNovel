@@ -14,7 +14,6 @@ from urllib.parse import parse_qs, quote, urlparse
 from sqlmodel import Session, select
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.dev_seed import ensure_dev_demo_data
 from mynovel.domain.models import Book, BlueprintStatus, OpenBookBlueprint, ProviderConfig, utc_now
 from mynovel.domain.repositories import (
     get_book,
@@ -85,8 +84,6 @@ def build_health_payload(db_path: Path) -> dict[str, str]:
 def run_server(host: str, port: int, db_path: Path) -> None:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
-    if db_path == DEFAULT_DB_PATH:
-        ensure_dev_demo_data(db_path)
 
     state = DevServerState(db_path=db_path)
     server = ThreadingHTTPServer((host, port), _make_handler(state))
@@ -863,17 +860,17 @@ def _chapter_model_client_from_provider_config(
 
 
 def _book_idea_from_form(form: dict[str, str]) -> str:
-    parts = [
-        form.get("idea", ""),
-        form.get("genre", ""),
-        form.get("audience", ""),
-        form.get("selling_points", ""),
-        form.get("constraints", ""),
-        form.get("style_reference", ""),
-        form.get("length_goal", ""),
-        form.get("serial_rhythm", ""),
+    idea = form.get("idea", "").strip()
+    if not idea:
+        return ""
+    preferences = [
+        ("题材", form.get("genre", "").strip()),
+        ("目标读者", form.get("audience", "").strip()),
     ]
-    return "\n".join(part for part in parts if part)
+    filled_preferences = [f"- {label}：{value}" for label, value in preferences if value]
+    if not filled_preferences:
+        return idea
+    return "\n".join(["一句灵感：" + idea, "可选偏好：", *filled_preferences])
 
 
 def _start_blueprint_job(

@@ -15,6 +15,7 @@ from mynovel.product_views import (
     render_book_workspace,
     render_chapter_review,
     render_model_setup_page,
+    render_new_book_page,
     render_trusted_state_page,
 )
 
@@ -102,6 +103,32 @@ def test_model_setup_page_uses_dedicated_configuration_dashboard() -> None:
     assert "准备创建书籍" in page
     assert "本地数据库" in page
     assert "测试连接" in page
+
+
+def test_new_book_page_requires_only_idea_and_uses_optional_presets() -> None:
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-test",
+    )
+
+    page = render_new_book_page(provider_config)
+
+    assert 'name="idea"' in page
+    assert 'name="idea" type="text"' in page
+    assert 'name="idea" type="text" value="" placeholder="一个失意档案员重建禁书图书馆" required' in page
+    assert '<select name="genre">' in page
+    assert '<select name="audience">' in page
+    assert "让 AI 判断" in page
+    assert "玄幻升级" in page
+    assert "男频网文读者" in page
+    assert "爽点偏好" not in page
+    assert "写作禁区" not in page
+    assert "参考风格" not in page
+    assert "篇幅目标" not in page
+    assert "连载节奏" not in page
 
 
 def test_blueprint_page_translates_structured_model_keys() -> None:
