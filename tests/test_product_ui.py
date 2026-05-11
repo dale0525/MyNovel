@@ -374,6 +374,22 @@ def test_book_workspace_exposes_batch_chapter_production_action() -> None:
     assert 'name="book_id" value="1"' in page
 
 
+def test_project_surfaces_expose_ai_api_settings_entry() -> None:
+    book = Book(
+        id=1,
+        title="幽谷回声",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+
+    page = render_book_workspace(book, [], Canon(id=1, book_id=1, version=1, content={}), [])
+
+    assert "/provider-config" in page
+    assert "模型配置" in page
+    assert "AI API 设置" in page
+
+
 def test_book_workspace_hides_batch_action_when_book_is_paused() -> None:
     book = Book(
         id=1,

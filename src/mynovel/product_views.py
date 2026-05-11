@@ -64,7 +64,7 @@ def render_model_setup_page(
 ) -> str:
     return _page(
         title=t("model.title", locale),
-        active="create",
+        active="model",
         main=render_model_setup_content(db_path, provider_config, locale),
         message=message,
         bottom=_render_start_pipeline(None, locale),
@@ -466,7 +466,7 @@ def _render_project_home(
           <a class="button" href="/books/new">{t("home.create_first", locale)}</a>
         </div>
         <div class="project-list">{rows}{blueprint_note}</div>
-        <div class="setup-card"><strong>{model_status}</strong><span>{t("app.local_first", locale)}</span></div>
+        <div class="setup-card"><strong>{model_status}</strong><a class="button secondary" href="/provider-config">AI API 设置</a></div>
       </section>
 """
 

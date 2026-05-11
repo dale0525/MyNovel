@@ -56,6 +56,7 @@ def render_app_page(
         {render_nav_item("/", t("nav.review", locale), "✓", active == "review")}
       </div>
       <div class="nav-bottom">
+        {render_nav_item("/provider-config", "模型配置", "◈", active == "model")}
         {render_nav_item("/updates", t("nav.settings", locale), "⚙", active == "settings")}
       </div>
     </nav>
@@ -64,6 +65,8 @@ def render_app_page(
         <div><span class="eyebrow">{html.escape(eyebrow or t("app.product_mode", locale))}</span></div>
         <div class="top-actions">
           <a href="/">查看日志</a>
+          <span aria-hidden="true">◌</span>
+          <a href="/provider-config">AI API 设置</a>
           <span aria-hidden="true">◌</span>
           <a href="/updates">设置</a>
           {db_hint}
