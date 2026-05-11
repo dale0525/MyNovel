@@ -14,14 +14,16 @@ mynovel = { path = ".", editable = true }
 pytest = ">=8.0"
 ruff = ">=0.5"
 pyinstaller = ">=6.0"
+mypy = ">=1.10"
 
 [tasks]
 dev = "mynovel-dev --db .mynovel/dev.sqlite"
 desktop = "mynovel-desktop --db .mynovel/dev.sqlite"
 desktop-build = "pyinstaller --name MyNovel --onefile --collect-all mynovel --workpath build/pyinstaller --specpath build src/mynovel/desktop.py"
+native-package = "python -m mynovel.release_package"
 test = "pytest"
 lint = "ruff check src tests"
 format = "ruff format src tests"
-typecheck = "python -m compileall -q src tests"
+typecheck = "mypy src"
 schema-check = "python -m mynovel.schema_check"
 cli = "mynovel --help"

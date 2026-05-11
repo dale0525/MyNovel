@@ -15,13 +15,13 @@ jobs:
         include:
           - os: macos-14
             asset_suffix: macos-arm64
-            executable: MyNovel
+            installer_glob: MyNovel-macos-arm64.dmg
           - os: macos-13
             asset_suffix: macos-x64
-            executable: MyNovel
+            installer_glob: MyNovel-macos-x64.dmg
           - os: windows-latest
             asset_suffix: windows-x64
-            executable: MyNovel.exe
+            installer_glob: MyNovel-windows-x64.msi
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -32,42 +32,20 @@ jobs:
       - run: pixi run typecheck
       - run: pixi run schema-check
       - run: pixi run desktop-build
-      - name: Prepare release metadata
-        shell: python
+      - name: Install free WiX toolset
+        if: runner.os == 'Windows'
         run: |
-          import hashlib
-          import json
-          import os
-          from pathlib import Path
-
-          dist = Path("dist")
-          asset = dist / "${{ matrix.executable }}"
-          target = dist / f"MyNovel-${{ matrix.asset_suffix }}{asset.suffix}"
-          asset.replace(target)
-          digest = hashlib.sha256(target.read_bytes()).hexdigest()
-          checksum = dist / f"checksums-${{ matrix.asset_suffix }}.sha256"
-          checksum.write_text(f"{digest}  {target.name}\n", encoding="utf-8")
-          manifest = {
-              "channel": "stable",
-              "version": os.environ["GITHUB_REF_NAME"].lstrip("v"),
-              "tag": os.environ["GITHUB_REF_NAME"],
-              "platform": "${{ matrix.asset_suffix }}",
-              "url": target.name,
-              "sha256": digest,
-              "size_bytes": target.stat().st_size,
-              "notes": "生成更新元数据",
-          }
-          (dist / f"update-${{ matrix.asset_suffix }}.json").write_text(
-              json.dumps(manifest, ensure_ascii=False) + "\n",
-              encoding="utf-8",
-          )
+          dotnet tool install --tool-path .tools wix
+          "$PWD/.tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Build unsigned native installer
+        run: pixi run native-package --version "${{ github.ref_name }}" --platform "${{ matrix.asset_suffix }}"
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.asset_suffix }}
           path: |
             dist/update-${{ matrix.asset_suffix }}.json
             dist/checksums-${{ matrix.asset_suffix }}.sha256
-            dist/MyNovel-${{ matrix.asset_suffix }}*
+            dist/${{ matrix.installer_glob }}
 
   publish:
     needs: package
@@ -85,4 +63,5 @@ jobs:
           files: |
             dist/update-*.json
             dist/checksums-*.sha256
-            dist/MyNovel-*
+            dist/*.dmg
+            dist/*.msi

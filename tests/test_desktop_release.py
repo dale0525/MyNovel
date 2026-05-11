@@ -3,6 +3,8 @@ from pathlib import Path
 
 import yaml
 
+from mynovel.release_package import normalize_release_version
+
 
 def test_desktop_entrypoint_and_build_task_are_configured() -> None:
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
@@ -11,6 +13,8 @@ def test_desktop_entrypoint_and_build_task_are_configured() -> None:
     assert project["project"]["scripts"]["mynovel-desktop"] == "mynovel.desktop:main"
     assert "pyinstaller" in pixi["pypi-dependencies"]
     assert "src/mynovel/desktop.py" in pixi["tasks"]["desktop-build"]
+    assert "native-package" in pixi["tasks"]
+    assert "mynovel.release_package" in pixi["tasks"]["native-package"]
 
 
 def test_release_workflow_builds_desktop_artifact_and_update_metadata() -> None:
@@ -20,4 +24,23 @@ def test_release_workflow_builds_desktop_artifact_and_update_metadata() -> None:
     ]
 
     assert "pixi run desktop-build" in commands
-    assert any("update-" in command and "sha256" in command for command in commands)
+    assert any(command.startswith("pixi run native-package") for command in commands)
+    workflow_text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert "update-" in workflow_text
+    assert "sha256" in workflow_text
+
+
+def test_release_workflow_uploads_unsigned_native_installers_without_paid_signing() -> None:
+    workflow_text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    assert ".dmg" in workflow_text
+    assert ".msi" in workflow_text
+    assert "codesign" not in workflow_text
+    assert "signtool" not in workflow_text
+    assert "notarize" not in workflow_text
+    assert "--global" not in workflow_text
+
+
+def test_release_package_normalizes_github_tag_versions() -> None:
+    assert normalize_release_version("v0.2.0") == "0.2.0"
+    assert normalize_release_version("refs/tags/v1.0.0") == "1.0.0"

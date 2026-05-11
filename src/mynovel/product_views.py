@@ -734,7 +734,8 @@ def _render_production_pipeline(active: ChapterStatus | None, locale: str) -> st
         ("review", t("pipeline.review", locale)),
         ("accept", t("pipeline.accept", locale)),
     ]
-    return _pipeline(steps, status_map.get(active))
+    active_step = status_map.get(active) if active is not None else None
+    return _pipeline(steps, active_step)
 
 
 def _pipeline(steps: list[tuple[str, str]], active: str | None) -> str:

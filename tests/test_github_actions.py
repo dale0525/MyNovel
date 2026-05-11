@@ -14,6 +14,11 @@ def test_ci_workflow_runs_project_verification_with_pixi() -> None:
     assert "pixi run typecheck" in commands
     assert "pixi run schema-check" in commands
 
+    pixi = Path("pixi.toml").read_text(encoding="utf-8")
+    assert 'mypy = "' in pixi
+    assert 'typecheck = "mypy src"' in pixi
+    assert "compileall" not in pixi
+
 
 def test_release_workflow_reserves_desktop_release_metadata_steps() -> None:
     workflow = yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8"))
@@ -21,7 +26,7 @@ def test_release_workflow_reserves_desktop_release_metadata_steps() -> None:
     commands = _workflow_run_commands(workflow)
 
     assert "pixi run pytest" in commands
-    assert "生成更新元数据" in " ".join(commands)
+    assert any(command.startswith("pixi run native-package") for command in commands)
     assert workflow["on"]["push"]["tags"] == ["v*"]
 
 

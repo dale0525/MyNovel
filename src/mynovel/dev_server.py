@@ -8,12 +8,11 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, quote, urlparse
 
 from sqlmodel import Session, select
 
-from mynovel import __version__
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import Book, BlueprintStatus, OpenBookBlueprint, ProviderConfig, utc_now
 from mynovel.domain.repositories import (
@@ -39,7 +38,7 @@ from mynovel.product_views import (
     render_trusted_state_page,
 )
 from mynovel.quality_views import render_quality_center
-from mynovel.update import check_for_update, fetch_update_manifest
+from mynovel.update_server import handle_check_update, handle_stage_update
 from mynovel.update_views import render_update_page
 from mynovel.workflows.quality_enhancement import (
     create_style_asset,
@@ -86,7 +85,8 @@ def run_server(host: str, port: int, db_path: Path) -> None:
 
     state = DevServerState(db_path=db_path)
     server = ThreadingHTTPServer((host, port), _make_handler(state))
-    actual_host, actual_port = server.server_address
+    actual_host = host
+    actual_port = server.server_port
     print(f"MyNovel dev server running at http://{actual_host}:{actual_port}", flush=True)
     print("Press Ctrl+C to stop.", flush=True)
 
@@ -209,7 +209,12 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 self._create_quality_snapshot(state.db_path)
                 return
             if parsed.path == "/check-update":
-                self._check_update()
+                response = handle_check_update(self._read_form())
+                self._send_html(response.body, status=response.status)
+                return
+            if parsed.path == "/stage-update":
+                response = handle_stage_update(self._read_form(), state.db_path)
+                self._send_html(response.body, status=response.status)
                 return
             self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -343,6 +348,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 self._send_html(render_new_book_page(provider_config, t("book.idea_required")))
                 return
 
+            assert provider_config is not None
             engine = create_engine_for_path(db_path)
             create_db_and_tables(engine)
             with Session(engine) as session:
@@ -619,24 +625,6 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     return
             self._redirect(f"/book/{book_id}/quality")
 
-        def _check_update(self) -> None:
-            form = self._read_form()
-            manifest_url = form.get("manifest_url", "")
-            try:
-                manifest = fetch_update_manifest(manifest_url)
-                result = check_for_update(
-                    __version__,
-                    manifest,
-                    skipped_version=form.get("skipped_version") or None,
-                )
-            except Exception as error:  # noqa: BLE001
-                self._send_html(
-                    render_update_page(message=str(error), manifest_url=manifest_url),
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-                return
-            self._send_html(render_update_page(result, manifest_url=manifest_url))
-
         def _read_form(self) -> dict[str, str]:
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length).decode("utf-8")
@@ -673,7 +661,7 @@ def _load_books(db_path: Path) -> list[Book]:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
-        statement = select(Book).order_by(Book.created_at.desc()).limit(20)
+        statement = select(Book).order_by(cast(Any, Book.created_at).desc()).limit(20)
         return list(session.exec(statement))
 
 

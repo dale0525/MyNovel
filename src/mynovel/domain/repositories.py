@@ -1,4 +1,5 @@
 from sqlmodel import Session, select
+from typing import Any, cast
 
 from mynovel.domain.models import (
     Book,
@@ -13,6 +14,10 @@ from mynovel.domain.models import (
     VectorEntry,
     utc_now,
 )
+
+
+def _orm(value: object) -> Any:
+    return cast(Any, value)
 
 
 def add_book(session: Session, book: Book) -> Book:
@@ -37,7 +42,7 @@ def get_latest_canon(session: Session, book_id: int) -> Canon | None:
     statement = (
         select(Canon)
         .where(Canon.book_id == book_id)
-        .order_by(Canon.version.desc(), Canon.created_at.desc())
+        .order_by(_orm(Canon.version).desc(), _orm(Canon.created_at).desc())
         .limit(1)
     )
     return session.exec(statement).first()
@@ -55,7 +60,7 @@ def get_chapter(session: Session, chapter_id: int) -> Chapter | None:
 
 
 def list_chapters_for_book(session: Session, book_id: int) -> list[Chapter]:
-    statement = select(Chapter).where(Chapter.book_id == book_id).order_by(Chapter.number)
+    statement = select(Chapter).where(Chapter.book_id == book_id).order_by(_orm(Chapter.number))
     return list(session.exec(statement))
 
 
@@ -67,7 +72,9 @@ def add_run_trace(session: Session, trace: RunTrace) -> RunTrace:
 
 
 def list_run_traces_for_book(session: Session, book_id: int) -> list[RunTrace]:
-    statement = select(RunTrace).where(RunTrace.book_id == book_id).order_by(RunTrace.created_at)
+    statement = (
+        select(RunTrace).where(RunTrace.book_id == book_id).order_by(_orm(RunTrace.created_at))
+    )
     return list(session.exec(statement))
 
 
@@ -82,7 +89,7 @@ def list_vector_entries_for_book(session: Session, book_id: int) -> list[VectorE
     statement = (
         select(VectorEntry)
         .where(VectorEntry.book_id == book_id)
-        .order_by(VectorEntry.created_at, VectorEntry.id)
+        .order_by(_orm(VectorEntry.created_at), _orm(VectorEntry.id))
     )
     return list(session.exec(statement))
 
@@ -100,7 +107,7 @@ def list_vector_entries_for_source(
             VectorEntry.source_type == source_type,
             VectorEntry.source_id == source_id,
         )
-        .order_by(VectorEntry.created_at, VectorEntry.id)
+        .order_by(_orm(VectorEntry.created_at), _orm(VectorEntry.id))
     )
     return list(session.exec(statement))
 
@@ -116,7 +123,7 @@ def list_style_assets_for_book(session: Session, book_id: int) -> list[StyleAsse
     statement = (
         select(StyleAsset)
         .where(StyleAsset.book_id == book_id)
-        .order_by(StyleAsset.created_at, StyleAsset.id)
+        .order_by(_orm(StyleAsset.created_at), _orm(StyleAsset.id))
     )
     return list(session.exec(statement))
 
@@ -138,7 +145,7 @@ def list_deconstruction_studies_for_book(
     statement = (
         select(DeconstructionStudy)
         .where(DeconstructionStudy.book_id == book_id)
-        .order_by(DeconstructionStudy.created_at, DeconstructionStudy.id)
+        .order_by(_orm(DeconstructionStudy.created_at), _orm(DeconstructionStudy.id))
     )
     return list(session.exec(statement))
 
@@ -154,7 +161,7 @@ def list_quality_snapshots_for_book(session: Session, book_id: int) -> list[Qual
     statement = (
         select(QualitySnapshot)
         .where(QualitySnapshot.book_id == book_id)
-        .order_by(QualitySnapshot.created_at, QualitySnapshot.id)
+        .order_by(_orm(QualitySnapshot.created_at), _orm(QualitySnapshot.id))
     )
     return list(session.exec(statement))
 
@@ -202,5 +209,5 @@ def get_open_book_blueprint(session: Session, blueprint_id: int) -> OpenBookBlue
 
 
 def list_open_book_blueprints(session: Session) -> list[OpenBookBlueprint]:
-    statement = select(OpenBookBlueprint).order_by(OpenBookBlueprint.version.desc())
+    statement = select(OpenBookBlueprint).order_by(_orm(OpenBookBlueprint.version).desc())
     return list(session.exec(statement))
