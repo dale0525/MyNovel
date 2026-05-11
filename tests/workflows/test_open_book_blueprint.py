@@ -45,6 +45,27 @@ def test_build_blueprint_messages_include_revision_context() -> None:
     assert "previous_blueprint" in joined
 
 
+def test_build_blueprint_messages_revision_mode_preserves_previous_blueprint_context() -> None:
+    messages = build_blueprint_messages(
+        idea="现代医生穿越将军府",
+        previous_blueprint={
+            "genre": "古代言情 / 穿越重生 / 医术宅斗",
+            "audience": "女性网文读者",
+            "protagonist": {"name": "苏清歌", "identity": "将门嫡女"},
+            "world": {"background": "大乾王朝将军府"},
+            "central_conflict": "女主夺回将军府话语权并用医术复仇",
+        },
+        revision_notes="请重新生成一组方向，保持题材但扩大差异。",
+    )
+
+    joined = "\n".join(message["content"] for message in messages)
+
+    assert "修订模式" in joined
+    assert "以上一版蓝图为基础" in joined
+    assert "保留题材、目标读者、主角身份、世界基础和核心冲突" in joined
+    assert "不要退回只根据一句灵感重新开书" in joined
+
+
 def test_build_blueprint_messages_ask_ai_to_fill_missing_open_book_context() -> None:
     messages = build_blueprint_messages(idea="一句灵感：失意档案员重建禁书馆")
 

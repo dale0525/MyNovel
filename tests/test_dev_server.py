@@ -293,6 +293,11 @@ def test_blueprint_page_renders_structured_blueprint() -> None:
     assert 'name="selected_title"' in page
     assert 'value="长夜图书馆"' in page
     assert "确认书名，进入下一步" in page
+    assert 'action="/revise-blueprint"' in page
+    assert 'name="revision_notes"' in page
+    assert 'name="revision_preset"' in page
+    assert "让系统修改蓝图" in page
+    assert "换一批" in page
     assert "核心冲突" in page
     assert "前 10 章方向" in page
     assert "章节：第 1 章" in page

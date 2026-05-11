@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from sqlmodel import Session, select
 
+from mynovel.blueprint_revision import create_revision_blueprint_job, revision_notes_from_form
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import Book, BlueprintStatus, OpenBookBlueprint, ProviderConfig, utc_now
 from mynovel.domain.repositories import (
@@ -378,7 +379,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
 
         def _revise_blueprint(self, db_path: Path) -> None:
             form = self._read_form()
-            revision_notes = form.get("revision_notes", "")
+            revision_notes = revision_notes_from_form(form)
             provider_config = _load_provider_config(db_path)
             blueprints = _load_open_book_blueprints(db_path)
             if not provider_config or not is_provider_config_complete(provider_config):
@@ -399,18 +400,19 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     status=HTTPStatus.BAD_REQUEST,
                 )
                 return
-
-            latest = blueprints[0]
             engine = create_engine_for_path(db_path)
             create_db_and_tables(engine)
             with Session(engine) as session:
-                blueprint = create_blueprint_job(
-                    session,
-                    idea=latest.idea,
-                    version=latest.version + 1,
-                    instruction=revision_notes,
-                    parent_id=latest.id,
-                )
+                try:
+                    blueprint = create_revision_blueprint_job(
+                        session,
+                        form,
+                        blueprints,
+                        revision_notes,
+                    )
+                except ValueError:
+                    self.send_error(HTTPStatus.NOT_FOUND)
+                    return
                 blueprint_id = blueprint.id
             if blueprint_id is None:
                 self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR)

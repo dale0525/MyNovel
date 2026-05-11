@@ -4,6 +4,7 @@ import html
 from pathlib import Path
 from typing import Any
 
+from mynovel.blueprint_revision import REGENERATE_BLUEPRINT_NOTES
 from mynovel.blueprint_views import render_generating_blueprint
 from mynovel.domain.models import (
     Book,
@@ -539,13 +540,15 @@ def _render_blueprint_review(
           <input type="hidden" name="blueprint_id" value="{blueprint.id}">
           <h3>{t("blueprint.title_options", locale)}</h3>
           <div class="choice-list">{options}</div>
-          {_textarea("revision_notes", t("blueprint.revision_notes", locale), "也可以先写修改意见，再让系统重做")}
           <button type="submit">{t("blueprint.continue", locale)}</button>
         </form>
-        <form method="post" action="/revise-blueprint" class="actions">
+        <form method="post" action="/revise-blueprint" class="compact-form action-form">
           <input type="hidden" name="blueprint_id" value="{blueprint.id}">
-          <input type="hidden" name="revision_notes" value="请重新生成一组方向，保持题材但扩大差异。">
-          <button class="secondary" type="submit">{t("blueprint.regenerate", locale)}</button>
+          {_textarea("revision_notes", t("blueprint.revision_notes", locale), "写下你希望保留、加强或避开的方向")}
+          <div class="actions">
+            <button type="submit">{t("blueprint.revise", locale)}</button>
+            <button class="secondary" type="submit" name="revision_preset" value="{html.escape(REGENERATE_BLUEPRINT_NOTES, quote=True)}">{t("blueprint.regenerate", locale)}</button>
+          </div>
         </form>
       </aside>
 """

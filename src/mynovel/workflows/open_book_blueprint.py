@@ -52,6 +52,12 @@ def build_blueprint_messages(
     )
     user_payload: dict[str, Any] = {"idea": idea}
     if previous_blueprint is not None:
+        schema_prompt += (
+            "修订模式：必须以上一版蓝图为基础响应 revision_notes。"
+            "除非修改意见明确要求改变，否则保留题材、目标读者、主角身份、世界基础和核心冲突；"
+            "可以扩大书名候选、卖点包装、章节方向和读者承诺的差异。"
+            "不要退回只根据一句灵感重新开书。"
+        )
         user_payload["previous_blueprint"] = previous_blueprint
     if revision_notes:
         user_payload["revision_notes"] = revision_notes
