@@ -381,6 +381,36 @@ def test_book_workspace_exposes_whole_book_export_actions() -> None:
     assert "/book/1/export.json" in page
 
 
+def test_book_workspace_exposes_editable_word_targets() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+        constraints={"target_word_count": 300000, "chapter_word_count": 3200},
+    )
+    chapters = [
+        Chapter(
+            id=1,
+            book_id=1,
+            number=1,
+            title="离开的召唤",
+            status=ChapterStatus.AWAITING_REVIEW,
+            plan={"word_budget": 2800},
+        )
+    ]
+
+    page = render_book_workspace(book, chapters, Canon(id=1, book_id=1, version=1, content={}), [])
+
+    assert "目标字数" in page
+    assert 'action="/book-word-targets"' in page
+    assert 'name="target_word_count" type="number" value="300000"' in page
+    assert 'name="chapter_word_count" type="number" value="3200"' in page
+    assert 'name="update_existing_chapters"' in page
+    assert "同步更新已有章节计划" in page
+
+
 def test_book_workspace_exposes_batch_chapter_production_action() -> None:
     book = Book(
         id=1,

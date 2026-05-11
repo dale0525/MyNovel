@@ -44,6 +44,7 @@ from mynovel.product_views import (
 from mynovel.quality_views import render_quality_center
 from mynovel.update_server import handle_check_update, handle_stage_update
 from mynovel.update_views import render_update_page
+from mynovel.word_target_server import save_book_word_targets_from_form
 from mynovel.word_targets import book_idea_from_form as _book_idea_from_form
 from mynovel.workflows.quality_enhancement import (
     create_style_asset,
@@ -197,6 +198,14 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 return
             if parsed.path == "/run-chapter-batch":
                 self._run_chapter_batch(state.db_path)
+                return
+            if parsed.path == "/book-word-targets":
+                try:
+                    book_id = save_book_word_targets_from_form(self._read_form(), state.db_path)
+                except ValueError:
+                    self.send_error(HTTPStatus.BAD_REQUEST)
+                    return
+                self._redirect(f"/book/{book_id}")
                 return
             if parsed.path == "/request-revision":
                 self._request_revision(state.db_path)

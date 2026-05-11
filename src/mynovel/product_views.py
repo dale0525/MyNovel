@@ -30,6 +30,7 @@ from mynovel.product_components import (
     render_review_tabs,
 )
 from mynovel.ui_shell import PipelineStep, render_app_page, render_pipeline, render_project_sidebar
+from mynovel.word_target_views import render_word_target_form
 from mynovel.word_targets import DEFAULT_CHAPTER_WORD_COUNT, DEFAULT_TARGET_WORD_COUNT
 from mynovel.workflows.open_book import title_options_from_blueprint
 
@@ -279,6 +280,8 @@ def render_book_workspace(
         {_render_next_action(active_chapter, locale)}
         <h2>{t("batch.title", locale)}</h2>
         {_render_batch_action(book, active_chapter, locale)}
+        <h2>目标字数</h2>
+        {render_word_target_form(book)}
         <h2>{t("dashboard.recent_trace", locale)}</h2>
         {_render_trace_list(traces, locale)}
       </aside>

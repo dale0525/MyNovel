@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from sqlmodel import Session
+
 from mynovel.domain.models import Book, Chapter
+from mynovel.domain.repositories import get_book, list_chapters_for_book
 
 TARGET_WORD_COUNT_KEY = "target_word_count"
 CHAPTER_WORD_COUNT_KEY = "chapter_word_count"
@@ -66,6 +69,38 @@ def format_word_count(count: object) -> str:
     if parsed is None:
         return "未设置"
     return f"{parsed:,} 字"
+
+
+def update_book_word_targets(
+    session: Session,
+    book_id: int,
+    *,
+    target_word_count: object,
+    chapter_word_count: object,
+    update_existing_chapters: bool,
+) -> Book:
+    book = get_book(session, book_id)
+    if book is None:
+        raise ValueError("Book does not exist.")
+
+    target_count = parse_word_count(target_word_count)
+    chapter_count = parse_word_count(chapter_word_count)
+    if target_count is None or chapter_count is None:
+        raise ValueError("Word targets must be positive numbers.")
+
+    book.constraints = {
+        **(book.constraints or {}),
+        TARGET_WORD_COUNT_KEY: target_count,
+        CHAPTER_WORD_COUNT_KEY: chapter_count,
+    }
+    session.add(book)
+    if update_existing_chapters:
+        for chapter in list_chapters_for_book(session, book_id):
+            chapter.plan = {**(chapter.plan or {}), "word_budget": chapter_count}
+            session.add(chapter)
+    session.commit()
+    session.refresh(book)
+    return book
 
 
 def _word_count_preference(value: object) -> str:
