@@ -221,7 +221,11 @@ def test_blueprint_page_renders_pending_job_without_content() -> None:
     page = render_blueprint_page(Path(".mynovel/dev.sqlite"), provider_config, blueprint)
 
     assert "正在生成开书蓝图" in page
-    assert "手动刷新" in page
+    assert "自动刷新中" in page
+    assert "立即刷新" in page
+    assert "失意档案员重建禁书馆" in page
+    assert "blueprint.generating_title" not in page
+    assert 'setTimeout(() => window.location.reload(), 3000)' in page
     assert "重新尝试" not in page
 
 

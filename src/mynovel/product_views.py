@@ -4,6 +4,7 @@ import html
 from pathlib import Path
 from typing import Any
 
+from mynovel.blueprint_views import render_generating_blueprint
 from mynovel.domain.models import (
     Book,
     BookStatus,
@@ -165,15 +166,7 @@ def render_blueprint_page(
     content = blueprint.content or {}
     status_label = blueprint_status_label(blueprint.status, locale)
     if blueprint.status in {BlueprintStatus.PENDING, BlueprintStatus.RUNNING}:
-        body = f"""
-          <section class="main-panel single">
-            <h1>{t("blueprint.generating_title", locale)}</h1>
-            <p>{t("blueprint.running", locale)}</p>
-            <div class="actions">
-              <a class="button" href="/blueprint/{blueprint.id}">{t("blueprint.refresh", locale)}</a>
-            </div>
-          </section>
-"""
+        body = render_generating_blueprint(blueprint, locale)
     elif blueprint.status == BlueprintStatus.FAILED:
         body = f"""
           <section class="main-panel single">
