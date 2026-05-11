@@ -302,3 +302,87 @@ def test_book_workspace_hides_batch_action_when_book_is_paused() -> None:
 
     assert "等待人工审核" in page
     assert 'action="/run-chapter-batch"' not in page
+
+
+def test_application_shell_uses_icon_navigation_and_project_context() -> None:
+    book = Book(
+        id=1,
+        title="幽谷回声",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapters = [
+        Chapter(id=1, book_id=1, number=1, title="召唤", status=ChapterStatus.ACCEPTED),
+        Chapter(id=2, book_id=1, number=2, title="穿越迷雾", status=ChapterStatus.AWAITING_REVIEW),
+    ]
+
+    page = render_book_workspace(
+        book,
+        chapters,
+        Canon(id=1, book_id=1, version=1, content={}),
+        [],
+    )
+
+    assert 'class="app-shell"' in page
+    assert 'class="nav-icon"' in page
+    assert 'aria-hidden="true"' in page
+    assert "项目概览" in page
+    assert "120,000 字" in page
+    assert "章节队列" in page
+
+
+def test_pipeline_renders_stateful_steps_with_icons_and_connectors() -> None:
+    book = Book(
+        id=1,
+        title="幽谷回声",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapters = [
+        Chapter(id=1, book_id=1, number=1, title="召唤", status=ChapterStatus.ACCEPTED),
+        Chapter(id=2, book_id=1, number=2, title="穿越迷雾", status=ChapterStatus.AWAITING_REVIEW),
+    ]
+
+    page = render_chapter_review(
+        book,
+        chapters,
+        chapters[1],
+        Canon(id=1, book_id=1, version=1, content={}),
+    )
+
+    assert "制作流水线" in page
+    assert 'class="pipeline-step done"' in page
+    assert 'class="pipeline-step current"' in page
+    assert 'class="pipeline-connector"' in page
+    assert "当前阶段" in page
+
+
+def test_blueprint_review_uses_wide_proposal_layout_without_overflow_columns() -> None:
+    blueprint = OpenBookBlueprint(
+        id=1,
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜图书馆", "禁书归途", "群星档案"],
+            "genre": "玄幻",
+            "audience": "男频网文读者",
+            "selling_points": ["禁书体系", "升级节奏"],
+            "protagonist": {"name": "林烬", "hook": "失意档案员"},
+            "world": {"premise": "书籍可以封印神明"},
+            "central_conflict": "主角重建禁书馆",
+            "reader_promises": ["每章有新禁书"],
+            "chapter_directions": [{"chapter": "第 1 章", "direction": "得到残页"}],
+        },
+        raw_response="{}",
+    )
+
+    page = render_blueprint_page(Path(".mynovel/dev.sqlite"), None, blueprint)
+
+    assert "blueprint-layout" in page
+    assert "proposal-grid" in page
+    assert 'class="main-panel blueprint-main"' in page
+    assert 'class="right-panel blueprint-actions"' in page
+    assert "方案 A" in page

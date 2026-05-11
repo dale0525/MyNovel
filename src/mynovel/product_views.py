@@ -17,6 +17,7 @@ from mynovel.domain.models import (
     VolumePlan,
 )
 from mynovel.i18n import DEFAULT_LOCALE, t
+from mynovel.ui_shell import PipelineStep, render_app_page, render_pipeline, render_project_sidebar
 from mynovel.workflows.open_book import title_options_from_blueprint
 
 
@@ -148,6 +149,7 @@ def render_blueprint_page(
         bottom=_render_start_pipeline("proposal", locale),
         locale=locale,
         eyebrow=status_label,
+        content_class="content-grid blueprint-layout",
     )
 
 
@@ -335,43 +337,19 @@ def _page(
     locale: str,
     db_path: Path | None = None,
     eyebrow: str | None = None,
+    content_class: str = "content-grid",
 ) -> str:
-    db_hint = (
-        f"<span>{t('app.local_database', locale)}：{html.escape(str(db_path))}</span>"
-        if db_path
-        else ""
+    return render_app_page(
+        title=title,
+        active=active,
+        main=main,
+        bottom=bottom,
+        message=message,
+        locale=locale,
+        db_path=db_path,
+        eyebrow=eyebrow,
+        content_class=content_class,
     )
-    return f"""<!doctype html>
-<html lang="{locale}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{html.escape(title)}</title>
-  <style>{_css()}</style>
-</head>
-<body>
-  <div class="app-shell">
-    <nav class="rail">
-      <strong>MyNovel</strong>
-      {_nav_item("/", t("nav.workspace", locale), active == "workspace")}
-      {_nav_item("/books/new", t("nav.create", locale), active == "create")}
-      {_nav_item("/", t("nav.docs", locale), False)}
-      {_nav_item("/", t("nav.review", locale), active == "review")}
-      {_nav_item("/updates", t("nav.settings", locale), False)}
-    </nav>
-    <main class="workspace">
-      <header class="topbar">
-        <div><span class="eyebrow">{html.escape(eyebrow or t("app.product_mode", locale))}</span></div>
-        <div class="top-actions">{db_hint}<span>{t("app.local_first", locale)}</span></div>
-      </header>
-      {f"<p class='notice'>{html.escape(message)}</p>" if message else ""}
-      <div class="content-grid">{main}</div>
-      {bottom}
-    </main>
-  </div>
-</body>
-</html>
-"""
 
 
 def _render_empty_home(
@@ -481,9 +459,10 @@ def _render_blueprint_review(
         f'value="{html.escape(title, quote=True)}" required><span>{html.escape(title)}</span></label>'
         for title in title_options
     )
+    proposals = _render_blueprint_proposal_cards(content, title_options, locale)
     proposal = render_structured_blueprint(content, locale, include_title_options=False)
     return f"""
-      <section class="main-panel">
+      <section class="main-panel blueprint-main">
         <div class="panel-head">
           <div>
             <h1>{t("blueprint.review_title", locale)}</h1>
@@ -491,9 +470,10 @@ def _render_blueprint_review(
           </div>
           <span class="status-pill pending">{t("trusted_state.not_written", locale)}</span>
         </div>
-        <div class="card-grid">{proposal}</div>
+        <div class="proposal-grid">{proposals}</div>
+        <div class="blueprint-detail-grid">{proposal}</div>
       </section>
-      <aside class="right-panel">
+      <aside class="right-panel blueprint-actions">
         <h2>{t("blueprint.choose_direction", locale)}</h2>
         <form method="post" action="/accept-blueprint" class="compact-form">
           <input type="hidden" name="blueprint_id" value="{blueprint.id}">
@@ -511,22 +491,43 @@ def _render_blueprint_review(
 """
 
 
-def _render_book_sidebar(book: Book, chapters: list[Chapter], locale: str) -> str:
-    rows = "".join(
-        f"<a class='chapter-row {chapter.status.value}' href='/chapter/{chapter.id}'>"
-        f"<span>{chapter.number:02d}</span><strong>{html.escape(chapter.title)}</strong>"
-        f"<em>{_chapter_status_label(chapter.status, locale)}</em></a>"
-        for chapter in chapters
-    )
-    return f"""
-      <aside class="side-panel book-side">
-        <h2>{html.escape(book.title)}</h2>
-        <p>{html.escape(book.genre)} · {html.escape(book.audience)}</p>
-        <span class="status-pill trusted">{_book_status_label(book.status, locale)}</span>
-        <h3>{t("dashboard.chapter_queue", locale)}</h3>
-        <div class="chapter-list">{rows}</div>
-      </aside>
+def _render_blueprint_proposal_cards(
+    content: dict[str, Any],
+    title_options: list[str],
+    locale: str,
+) -> str:
+    if not title_options:
+        return f"<section class='proposal-card'><h3>{t('blueprint.title_options', locale)}</h3><p>—</p></section>"
+    labels = ["方案 A", "方案 B", "方案 C"]
+    cards = []
+    for index, title in enumerate(title_options[:3]):
+        directions = content.get("chapter_directions")
+        direction_items = directions if isinstance(directions, list) else []
+        chapter_rows = "".join(
+            f"<li>{_render_nested(item)}</li>" for item in direction_items[index : index + 3]
+        )
+        if not chapter_rows:
+            chapter_rows = "<li>围绕核心冲突推进前 10 章承诺。</li>"
+        cards.append(
+            f"""
+        <section class="proposal-card">
+          <header><h3>{labels[index] if index < len(labels) else f"方案 {index + 1}"}</h3><span class="status-pill pending">候选中</span></header>
+          <dl>
+            <dt>{t("blueprint.title_options", locale)}</dt><dd>{html.escape(title)}</dd>
+            <dt>{t("blueprint.central_conflict", locale)}</dt><dd>{_render_nested(content.get("central_conflict"))}</dd>
+            <dt>{t("blueprint.protagonist", locale)}</dt><dd>{_render_nested(content.get("protagonist"))}</dd>
+            <dt>{t("blueprint.world", locale)}</dt><dd>{_render_nested(content.get("world"))}</dd>
+          </dl>
+          <h3>{t("blueprint.chapter_directions", locale)}</h3>
+          <ol>{chapter_rows}</ol>
+        </section>
 """
+        )
+    return "".join(cards)
+
+
+def _render_book_sidebar(book: Book, chapters: list[Chapter], locale: str) -> str:
+    return render_project_sidebar(book, chapters, locale=locale)
 
 
 def _render_foundation_board(canon: Canon | None, locale: str) -> str:
@@ -732,6 +733,7 @@ def _render_review_inspector(chapter: Chapter, canon: Canon | None, locale: str)
 def _render_start_pipeline(active: str | None, locale: str) -> str:
     steps = [
         ("open_book", t("pipeline.open_book", locale)),
+        ("proposal", t("blueprint.review_title", locale)),
         ("foundation", t("pipeline.foundation", locale)),
         ("generate", t("pipeline.generate", locale)),
         ("review", t("pipeline.review", locale)),
@@ -761,15 +763,24 @@ def _render_production_pipeline(active: ChapterStatus | None, locale: str) -> st
 
 
 def _pipeline(steps: list[tuple[str, str]], active: str | None) -> str:
-    items = "".join(
-        f"<span class='pipe-step {'active' if key == active else ''}'>{label}</span>"
-        for key, label in steps
-    )
-    return f"<footer class='pipeline'>{items}</footer>"
-
-
-def _nav_item(href: str, label: str, active: bool) -> str:
-    return f"<a class='{'active' if active else ''}' href='{href}'>{label}</a>"
+    active_index = next((index for index, (key, _) in enumerate(steps) if key == active), None)
+    pipeline_steps = []
+    for index, (key, label) in enumerate(steps):
+        if active_index is None:
+            state = "pending"
+            note = "待开始"
+        elif index < active_index:
+            state = "done"
+            note = "已完成"
+        elif index == active_index:
+            state = "current"
+            note = "当前阶段"
+        else:
+            state = "pending"
+            note = "待开始"
+        icon = "✓" if state == "done" else str(index + 1)
+        pipeline_steps.append(PipelineStep(key=key, label=label, state=state, note=note, icon=icon))
+    return render_pipeline(pipeline_steps)
 
 
 def _input(
@@ -895,23 +906,3 @@ def _chapter_status_label(status: ChapterStatus | str, locale: str) -> str:
 
 def _trace_stage(stage: str) -> str:
     return {"chapter_pipeline": "章节生产", "accept_chapter": "人工批准"}.get(stage, stage)
-
-
-def _css() -> str:
-    return """
-    :root{color-scheme:light;--bg:#f7f8f4;--panel:#fffefa;--ink:#1d2822;--muted:#68756d;--line:#dbe2d8;--accent:#426f4e;--accent-2:#edf4ea;--warn:#c47a16;--danger:#b94435}
-    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}
-    a{color:inherit;text-decoration:none}.app-shell{display:grid;grid-template-columns:136px 1fr;min-height:100vh}.rail{border-right:1px solid var(--line);background:#fbfcf8;padding:22px 16px;display:flex;flex-direction:column;gap:12px}.rail strong{font-size:22px;margin-bottom:18px}.rail a{border-radius:8px;padding:12px 10px;color:var(--muted)}.rail a.active,.rail a:hover{background:var(--accent-2);color:var(--accent)}
-    .workspace{display:flex;flex-direction:column;min-width:0}.topbar{height:58px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 24px;background:#fffefa}.top-actions{display:flex;gap:18px;color:var(--muted);font-size:13px}.eyebrow{color:var(--muted);font-size:13px}.notice{margin:16px 24px 0;color:var(--warn)}
-    .content-grid{display:grid;grid-template-columns:280px minmax(0,1fr) 360px;gap:12px;padding:12px;flex:1;min-height:0}.main-panel,.right-panel,.side-panel,.reader-panel,.empty-hero{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}.main-panel.single{grid-column:1 / -1}.empty-hero{grid-column:1 / 3;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;min-height:560px}.book-mark{font-size:42px;color:var(--accent);margin-bottom:20px}
-    h1{margin:0 0 8px;font-size:26px;line-height:1.2}h2{margin:0 0 12px;font-size:17px}h3{margin:18px 0 10px;font-size:14px;color:var(--muted)}p{margin:0 0 12px;color:var(--muted);line-height:1.6}.panel-head,.chapter-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:16px}
-    .button,button{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border:0;border-radius:7px;background:var(--accent);color:#fff;cursor:pointer;font:inherit;font-weight:650;padding:9px 14px}.button.secondary,button.secondary{background:#fff;color:var(--ink);border:1px solid var(--line)}button:disabled,input:disabled{opacity:.55;cursor:not-allowed}.actions{display:flex;gap:10px;flex-wrap:wrap}.actions.center{justify-content:center}.compact-form,.form-grid{display:grid;gap:12px}.form-grid{grid-template-columns:1fr 1fr}.form-grid label:first-child,.form-grid label:nth-child(5),.form-grid .actions{grid-column:1 / -1}.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    label{display:grid;gap:6px;color:var(--muted);font-size:13px}input,textarea{width:100%;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);font:inherit;min-height:42px;padding:9px 11px}textarea{min-height:90px;resize:vertical}.inline-check{display:flex;align-items:center;gap:8px;color:var(--ink)}.inline-check input{width:auto;min-height:auto}
-    .status-pill{display:inline-flex;align-items:center;border-radius:999px;padding:5px 10px;font-size:13px;background:#f4efe4;color:var(--warn)}.status-pill.trusted{background:var(--accent-2);color:var(--accent)}.pending{color:var(--warn)}.danger{color:var(--danger)}.local-note,.setup-card,.empty-box{border:1px solid var(--line);border-radius:8px;padding:14px;background:#fbfcf8}.local-note{display:grid;gap:4px;margin-top:24px;max-width:360px}.setup-card{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
-    .step-list{margin:24px 0;padding-left:20px;color:var(--muted)}.step-list li{margin:14px 0}.step-list .active{color:var(--accent);font-weight:700}.stack-list{display:grid;gap:8px}.stack-list p,.project-row{border:1px solid var(--line);border-radius:8px;background:#fff;padding:12px}.project-list{display:grid;gap:10px}.project-row{display:flex;justify-content:space-between;align-items:center}
-    .card-grid,.state-sections{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.state-link{margin-bottom:12px}.data-card,.table-card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:14px}.data-card h3{margin-top:0;color:var(--ink);font-size:15px}ul{margin:0;padding-left:20px}li{margin:5px 0;line-height:1.5}dl{display:grid;grid-template-columns:96px 1fr;gap:8px 12px}dt{color:var(--muted)}dd{margin:0}
-    .metric-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}.metric-grid div{border:1px solid var(--line);border-radius:8px;background:#fff;padding:12px}.metric-grid strong{font-size:26px;display:block}.metric-grid span{color:var(--muted);font-size:13px}.chapter-list{display:grid;gap:6px}.chapter-row{display:grid;grid-template-columns:36px 1fr auto;gap:8px;align-items:center;border-radius:8px;padding:10px;color:var(--muted)}.chapter-row:hover,.chapter-row.awaiting_review,.chapter-row.accepted{background:var(--accent-2);color:var(--accent)}.chapter-row em{font-style:normal;font-size:12px}
-    table{width:100%;border-collapse:collapse;font-size:14px}td{border-bottom:1px solid var(--line);padding:10px 8px;vertical-align:top}.reader-panel{grid-column:2 / 3}.chapter-text{min-height:560px;border-top:1px solid var(--line);padding:28px 64px;font-size:19px;line-height:2;color:#222;white-space:normal}.manual-edit{border-top:1px solid var(--line);padding-top:14px;display:grid;gap:12px}.manual-edit textarea[name=manual_text]{min-height:260px;font-size:17px;line-height:1.8}.note-box{border-top:1px solid var(--line);padding-top:14px}.review-list{display:grid;gap:8px;padding:0;list-style:none}.review-list li{border:1px solid var(--line);border-radius:8px;background:#fff;padding:10px;display:grid;gap:4px}.review-list em{font-style:normal;color:var(--muted);font-size:12px}
-    .choice-list{display:grid;gap:8px}.choice{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:11px;color:var(--ink)}.choice input{width:auto;min-height:auto}.action-form{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}.pipeline{height:92px;border-top:1px solid var(--line);background:#fffefa;display:flex;align-items:center;gap:16px;padding:0 24px;overflow:auto}.pipe-step{white-space:nowrap;border:1px solid var(--line);border-radius:999px;padding:8px 14px;color:var(--muted)}.pipe-step.active{border-color:var(--warn);color:var(--warn);background:#fff7ea}
-    @media(max-width:1100px){.app-shell{grid-template-columns:82px 1fr}.rail strong{font-size:14px}.content-grid{grid-template-columns:1fr}.empty-hero,.reader-panel{grid-column:auto}.form-grid,.card-grid,.split{grid-template-columns:1fr}}
-    """

@@ -57,3 +57,26 @@ def test_quality_center_renders_v3_assets_analysis_and_cost_strategy() -> None:
     assert 'action="/style-asset"' in page
     assert 'action="/deconstruct-reference"' in page
     assert 'action="/quality-snapshot"' in page
+
+
+def test_quality_center_uses_the_main_application_shell() -> None:
+    book = Book(
+        id=1,
+        title="幽谷回声",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+
+    page = render_quality_center(
+        book,
+        style_assets=[],
+        studies=[],
+        latest_snapshot=None,
+        cost_strategy=None,
+    )
+
+    assert 'class="app-shell"' in page
+    assert "工作台" in page
+    assert "章节队列" in page
+    assert "返回项目" in page

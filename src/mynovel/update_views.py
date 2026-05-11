@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 
 from mynovel.update import StagedUpdateInstall, UpdateCheckResult
+from mynovel.ui_shell import PipelineStep, render_app_page, render_pipeline
 
 
 def render_update_page(
@@ -11,23 +12,15 @@ def render_update_page(
     manifest_url: str = "",
     staged_install: StagedUpdateInstall | None = None,
 ) -> str:
-    return f"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>检查更新</title>
-  <style>{_css()}</style>
-</head>
-<body>
-  <main class="update-shell">
-    <header>
-      <a href="/">返回工作台</a>
-      <h1>检查更新</h1>
-      <p>仅检查稳定版本；不会静默安装。</p>
-      {f"<p class='notice'>{html.escape(message)}</p>" if message else ""}
-    </header>
-    <section class="panel">
+    main = f"""
+    <section class="main-panel single update-main">
+      <div class="panel-head">
+        <div>
+          <h1>检查更新</h1>
+          <p>仅检查稳定版本；不会静默安装。</p>
+        </div>
+        <a class="button secondary" href="/">返回工作台</a>
+      </div>
       <h2>稳定版本</h2>
       <form method="post" action="/check-update">
         <label>更新元数据地址<input name="manifest_url" placeholder="https://example.test/update.json" required></label>
@@ -36,19 +29,31 @@ def render_update_page(
     </section>
     {_render_result(result, manifest_url)}
     {_render_staged_install(staged_install)}
-  </main>
-</body>
-</html>
 """
+    return render_app_page(
+        title="检查更新",
+        active="settings",
+        main=main,
+        bottom=render_pipeline(
+            [
+                PipelineStep("check", "检查更新", "current", "当前阶段", "1"),
+                PipelineStep("download", "准备安装", "pending", "待开始", "2"),
+                PipelineStep("confirm", "手动确认", "pending", "待开始", "3"),
+            ]
+        ),
+        message=message,
+        eyebrow="设置",
+        content_class="content-grid narrow-layout",
+    )
 
 
 def _render_result(result: UpdateCheckResult | None, manifest_url: str) -> str:
     if result is None:
         return ""
     if not result.available:
-        return "<section class='panel'><h2>当前已是可用版本</h2><p>没有需要提示的稳定更新。</p></section>"
+        return "<section class='main-panel single update-main'><h2>当前已是可用版本</h2><p>没有需要提示的稳定更新。</p></section>"
     return f"""
-    <section class="panel">
+    <section class="main-panel single update-main">
       <h2>发现新版本</h2>
       <dl>
         <dt>版本</dt><dd>{html.escape(result.version or "")}</dd>
@@ -78,7 +83,7 @@ def _render_staged_install(staged_install: StagedUpdateInstall | None) -> str:
     backup_path = html.escape(str(staged_install.payload.get("db_backup_path", "")))
     plan_path = html.escape(str(staged_install.plan_path))
     return f"""
-    <section class="panel">
+    <section class="main-panel single update-main">
       <h2>更新已准备</h2>
       <p>安装包已下载并校验，数据库备份已生成。请手动确认安装。</p>
       <dl>
@@ -88,10 +93,3 @@ def _render_staged_install(staged_install: StagedUpdateInstall | None) -> str:
       </dl>
     </section>
 """
-
-
-def _css() -> str:
-    return """
-    :root{--bg:#f7f8f4;--panel:#fffefa;--ink:#1d2822;--muted:#68756d;--line:#dbe2d8;--accent:#426f4e}
-    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}.update-shell{max-width:860px;margin:0 auto;padding:28px}a{color:var(--accent);text-decoration:none}h1{margin:8px 0;font-size:28px}h2{margin:0 0 12px;font-size:18px}p{color:var(--muted);line-height:1.6}.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;margin-top:12px}form{display:grid;gap:10px;margin-top:10px}label{display:grid;gap:6px;color:var(--muted);font-size:13px}input{border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);font:inherit;min-height:40px;padding:9px 11px}button,.button{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border:0;border-radius:7px;background:var(--accent);color:#fff;font:inherit;font-weight:650;padding:9px 14px}.secondary{background:#fff;color:var(--ink);border:1px solid var(--line)}dl{display:grid;grid-template-columns:96px 1fr;gap:8px 12px}dt{color:var(--muted)}dd{margin:0}.notice{color:#c47a16}
-    """

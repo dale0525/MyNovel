@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from sqlmodel import Session, select
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
+from mynovel.dev_seed import ensure_dev_demo_data
 from mynovel.domain.models import Book, BlueprintStatus, OpenBookBlueprint, ProviderConfig, utc_now
 from mynovel.domain.repositories import (
     get_book,
@@ -83,6 +84,8 @@ def build_health_payload(db_path: Path) -> dict[str, str]:
 def run_server(host: str, port: int, db_path: Path) -> None:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
+    if db_path == DEFAULT_DB_PATH:
+        ensure_dev_demo_data(db_path)
 
     state = DevServerState(db_path=db_path)
     server = ThreadingHTTPServer((host, port), _make_handler(state))
@@ -729,6 +732,7 @@ def _render_quality_page_from_db(db_path: Path, book: Book) -> str:
             list_deconstruction_studies_for_book(session, book_id),
             latest_snapshot,
             strategy,
+            list_chapters_for_book(session, book_id),
         )
 
 

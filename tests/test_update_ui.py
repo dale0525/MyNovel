@@ -7,10 +7,12 @@ from mynovel.update_views import render_update_page
 def test_update_page_renders_stable_check_form() -> None:
     page = render_update_page()
 
+    assert 'class="app-shell"' in page
     assert "检查更新" in page
     assert "稳定版本" in page
     assert 'action="/check-update"' in page
     assert 'name="manifest_url"' in page
+    assert "工作台" in page
     assert "beta" not in page.lower()
     assert "nightly" not in page.lower()
 

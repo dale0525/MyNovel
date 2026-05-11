@@ -5,10 +5,12 @@ from typing import Any
 
 from mynovel.domain.models import (
     Book,
+    Chapter,
     DeconstructionStudy,
     QualitySnapshot,
     StyleAsset,
 )
+from mynovel.ui_shell import PipelineStep, render_app_page, render_pipeline, render_project_sidebar
 
 
 def render_quality_center(
@@ -17,29 +19,22 @@ def render_quality_center(
     studies: list[DeconstructionStudy],
     latest_snapshot: QualitySnapshot | None,
     cost_strategy: dict[str, Any] | None,
+    chapters: list[Chapter] | None = None,
     message: str | None = None,
 ) -> str:
     strategy = cost_strategy or {}
-    return f"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{html.escape(book.title)} · 质量增强</title>
-  <style>{_css()}</style>
-</head>
-<body>
-  <main class="quality-shell">
-    <header class="topbar">
-      <div>
-        <a href="/book/{book.id}">返回项目</a>
-        <h1>质量增强</h1>
-        <p>{html.escape(book.title)} · 风格资产、拆书学习、长期质量分析和成本策略。</p>
-      </div>
-      {f"<p class='notice'>{html.escape(message)}</p>" if message else ""}
-    </header>
-    <section class="grid">
-      <article class="panel">
+    main = f"""
+      {render_project_sidebar(book, chapters or [])}
+      <section class="main-panel quality-main">
+        <div class="panel-head">
+          <div>
+            <h1>质量增强</h1>
+            <p>{html.escape(book.title)} · 风格资产、拆书学习、长期质量分析和成本策略。</p>
+          </div>
+          <a class="button secondary" href="/book/{book.id}">返回项目</a>
+        </div>
+        <div class="quality-grid">
+      <article class="quality-card">
         <h2>风格资产</h2>
         {_render_style_assets(style_assets)}
         <form method="post" action="/style-asset">
@@ -50,7 +45,7 @@ def render_quality_center(
           <button type="submit">保存风格资产</button>
         </form>
       </article>
-      <article class="panel">
+      <article class="quality-card">
         <h2>拆书学习</h2>
         {_render_studies(studies)}
         <form method="post" action="/deconstruct-reference">
@@ -60,7 +55,7 @@ def render_quality_center(
           <button type="submit">生成拆书笔记</button>
         </form>
       </article>
-      <article class="panel">
+      <article class="quality-card">
         <h2>长期质量分析</h2>
         {_render_snapshot(latest_snapshot)}
         <form method="post" action="/quality-snapshot">
@@ -68,15 +63,35 @@ def render_quality_center(
           <button type="submit">刷新质量分析</button>
         </form>
       </article>
-      <article class="panel">
+      <article class="quality-card">
         <h2>成本策略</h2>
         {_render_strategy(strategy)}
       </article>
-    </section>
-  </main>
-</body>
-</html>
+        </div>
+      </section>
+      <aside class="right-panel">
+        <h2>质量 Gate</h2>
+        <p>先处理高风险审计问题，再继续批量生产。</p>
+        <a class="button" href="/book/{book.id}">返回项目</a>
+      </aside>
 """
+    return render_app_page(
+        title=f"{book.title} · 质量增强",
+        active="analysis",
+        main=main,
+        bottom=render_pipeline(
+            [
+                PipelineStep(
+                    "style", "风格资产", "done" if style_assets else "current", "当前阶段", "1"
+                ),
+                PipelineStep("study", "拆书学习", "pending", "待开始", "2"),
+                PipelineStep("analysis", "质量分析", "pending", "待开始", "3"),
+                PipelineStep("cost", "成本策略", "pending", "待开始", "4"),
+            ]
+        ),
+        message=message,
+        eyebrow="质量增强",
+    )
 
 
 def _render_style_assets(assets: list[StyleAsset]) -> str:
