@@ -124,6 +124,10 @@ def test_new_book_page_requires_only_idea_and_uses_optional_presets() -> None:
     assert "让 AI 判断" in page
     assert "玄幻升级" in page
     assert "男频网文读者" in page
+    assert "全书目标字数" in page
+    assert "单章目标字数" in page
+    assert 'name="target_word_count" type="number" value="120000"' in page
+    assert 'name="chapter_word_count" type="number" value="2800"' in page
     assert "爽点偏好" not in page
     assert "写作禁区" not in page
     assert "参考风格" not in page
@@ -214,6 +218,7 @@ def test_running_chapter_page_exposes_production_control_panels() -> None:
             number=1,
             title="召唤",
             status=ChapterStatus.RUNNING,
+            plan={"word_budget": 3200},
             context_package={"canon": "已收集", "characters": "6 人相关"},
             draft_text="罗斯沿着隐秘小径继续向前。",
             state_delta={"changes": []},
@@ -231,6 +236,7 @@ def test_running_chapter_page_exposes_production_control_panels() -> None:
     assert "成本" in page
     assert "恢复点" in page
     assert "继续运行" in page
+    assert "3,200" in page
 
 
 def test_review_page_exposes_manual_edit_and_major_change_confirmation() -> None:
@@ -448,6 +454,7 @@ def test_application_shell_uses_icon_navigation_and_project_context() -> None:
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,
+        constraints={"target_word_count": 300000},
     )
     chapters = [
         Chapter(id=1, book_id=1, number=1, title="召唤", status=ChapterStatus.ACCEPTED),
@@ -465,7 +472,7 @@ def test_application_shell_uses_icon_navigation_and_project_context() -> None:
     assert 'class="nav-icon"' in page
     assert 'aria-hidden="true"' in page
     assert "项目概览" in page
-    assert "120,000 字" in page
+    assert "300,000 字" in page
     assert "章节队列" in page
 
 

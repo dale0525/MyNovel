@@ -1,7 +1,10 @@
+from typing import Any
+
 from sqlmodel import Session
 
 from mynovel.domain.models import Book, BookStatus, Canon, Chapter, OpenBookBlueprint, VolumePlan
 from mynovel.domain.repositories import add_book, add_canon, add_chapter, add_volume_plan
+from mynovel.word_targets import CHAPTER_WORD_COUNT_KEY, target_word_counts_from_text
 
 
 def create_draft_book(
@@ -35,6 +38,7 @@ def create_draft_book_from_blueprint(
     if title not in title_options:
         raise ValueError("Title selection must be one of the candidates.")
 
+    target_words = target_word_counts_from_text(blueprint.idea)
     book = create_draft_book(
         session,
         title=title,
@@ -46,6 +50,7 @@ def create_draft_book_from_blueprint(
     book.constraints = {
         "selling_points": blueprint.content.get("selling_points", []),
         "reader_promises": blueprint.content.get("reader_promises", []),
+        **target_words,
     }
     session.add(book)
     session.commit()
@@ -58,7 +63,11 @@ def create_draft_book_from_blueprint(
         session, Canon(book_id=book.id, version=1, content=_initial_canon_content(book, blueprint))
     )
     add_volume_plan(session, _volume_plan_from_blueprint(book.id, blueprint.content))
-    for chapter in _chapters_from_blueprint(book.id, blueprint.content):
+    for chapter in _chapters_from_blueprint(
+        book.id,
+        blueprint.content,
+        target_words.get(CHAPTER_WORD_COUNT_KEY),
+    ):
         add_chapter(session, chapter)
 
     session.refresh(book)
@@ -98,7 +107,11 @@ def _initial_canon_content(book: Book, blueprint: OpenBookBlueprint) -> dict:
     }
 
 
-def _chapters_from_blueprint(book_id: int, content: dict) -> list[Chapter]:
+def _chapters_from_blueprint(
+    book_id: int,
+    content: dict,
+    chapter_word_count: int | None = None,
+) -> list[Chapter]:
     directions = content.get("chapter_directions")
     if not isinstance(directions, list):
         directions = []
@@ -107,16 +120,19 @@ def _chapters_from_blueprint(book_id: int, content: dict) -> list[Chapter]:
     for number in range(1, 11):
         raw_direction = directions[number - 1] if number <= len(directions) else {}
         title, goal = _chapter_title_and_goal(number, raw_direction)
+        plan: dict[str, Any] = {
+            "goal": goal,
+            "must_write": _list_values(content.get("reader_promises")),
+            "ending_hook": "留下一个明确的新问题，推动读者进入下一章。",
+        }
+        if chapter_word_count is not None:
+            plan["word_budget"] = chapter_word_count
         chapters.append(
             Chapter(
                 book_id=book_id,
                 number=number,
                 title=title,
-                plan={
-                    "goal": goal,
-                    "must_write": _list_values(content.get("reader_promises")),
-                    "ending_hook": "留下一个明确的新问题，推动读者进入下一章。",
-                },
+                plan=plan,
             )
         )
     return chapters

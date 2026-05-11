@@ -30,6 +30,7 @@ from mynovel.product_components import (
     render_review_tabs,
 )
 from mynovel.ui_shell import PipelineStep, render_app_page, render_pipeline, render_project_sidebar
+from mynovel.word_targets import DEFAULT_CHAPTER_WORD_COUNT, DEFAULT_TARGET_WORD_COUNT
 from mynovel.workflows.open_book import title_options_from_blueprint
 
 GENRE_PRESETS = (
@@ -126,6 +127,10 @@ def render_new_book_page(
           <div class="split">
             {_select("genre", t("book.genre", locale), t("book.ai_choice", locale), GENRE_PRESETS)}
             {_select("audience", t("book.audience", locale), t("book.ai_choice", locale), AUDIENCE_PRESETS)}
+          </div>
+          <div class="split">
+            {_input("target_word_count", t("book.target_word_count", locale), "", str(DEFAULT_TARGET_WORD_COUNT), False, "number")}
+            {_input("chapter_word_count", t("book.chapter_word_count", locale), "", str(DEFAULT_CHAPTER_WORD_COUNT), False, "number")}
           </div>
           <div class="actions">
             <a class="button secondary" href="/">{t("action.back", locale)}</a>

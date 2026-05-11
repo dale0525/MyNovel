@@ -19,9 +19,11 @@ from mynovel.workflows.open_book import create_draft_book_from_blueprint
 class FakeChapterModel:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.messages_by_stage: dict[str, list[dict[str, str]]] = {}
 
     def complete(self, stage: str, messages, response_format: str) -> str:
         self.calls.append(stage)
+        self.messages_by_stage[stage] = messages
         match stage:
             case "plan":
                 return """
@@ -113,6 +115,37 @@ def test_run_chapter_pipeline_uses_model_client_for_each_generation_stage(tmp_pa
     assert traces[0].cost["completion_chars"] > 0
     assert traces[0].cost["elapsed_ms"] >= 0
     assert traces[0].metadata_["prompt_source"] == "original"
+
+
+def test_chapter_plan_prompt_includes_saved_chapter_word_budget(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = FakeChapterModel()
+    blueprint = _blueprint()
+    blueprint.idea = "\n".join(
+        [
+            blueprint.idea,
+            "可选偏好：",
+            "- 全书目标字数：300000 字",
+            "- 单章目标字数：3200 字",
+        ]
+    )
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, blueprint, selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+
+        run_chapter_pipeline(
+            session,
+            chapter.id,
+            model_client=model,
+            model_name="章节模型",
+        )
+
+    plan_prompt = "\n".join(message["content"] for message in model.messages_by_stage["plan"])
+
+    assert '"current_word_budget": 3200' in plan_prompt
+    assert "如果 current_word_budget 存在，word_budget 必须沿用该数值" in plan_prompt
 
 
 def test_approve_chapter_blocks_high_risk_unresolved_issues(tmp_path) -> None:

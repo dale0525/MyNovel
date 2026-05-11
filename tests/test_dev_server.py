@@ -125,6 +125,8 @@ def test_book_idea_from_form_keeps_only_idea_required_and_optional_presets() -> 
             "idea": "失意档案员重建禁书馆",
             "genre": "玄幻升级",
             "audience": "男频网文读者",
+            "target_word_count": "300000",
+            "chapter_word_count": "3200",
             "selling_points": "旧版字段应该忽略",
             "constraints": "旧版字段应该忽略",
             "style_reference": "旧版字段应该忽略",
@@ -136,6 +138,8 @@ def test_book_idea_from_form_keeps_only_idea_required_and_optional_presets() -> 
     assert "一句灵感：失意档案员重建禁书馆" in idea
     assert "题材：玄幻升级" in idea
     assert "目标读者：男频网文读者" in idea
+    assert "全书目标字数：300000 字" in idea
+    assert "单章目标字数：3200 字" in idea
     assert "旧版字段应该忽略" not in idea
     assert _book_idea_from_form({"idea": "", "genre": "玄幻升级"}) == ""
 

@@ -44,6 +44,7 @@ from mynovel.product_views import (
 from mynovel.quality_views import render_quality_center
 from mynovel.update_server import handle_check_update, handle_stage_update
 from mynovel.update_views import render_update_page
+from mynovel.word_targets import book_idea_from_form as _book_idea_from_form
 from mynovel.workflows.quality_enhancement import (
     create_style_asset,
     deconstruct_reference_text,
@@ -861,20 +862,6 @@ def _chapter_model_client_from_provider_config(
         ),
         provider_config.llm_model,
     )
-
-
-def _book_idea_from_form(form: dict[str, str]) -> str:
-    idea = form.get("idea", "").strip()
-    if not idea:
-        return ""
-    preferences = [
-        ("题材", form.get("genre", "").strip()),
-        ("目标读者", form.get("audience", "").strip()),
-    ]
-    filled_preferences = [f"- {label}：{value}" for label, value in preferences if value]
-    if not filled_preferences:
-        return idea
-    return "\n".join(["一句灵感：" + idea, "可选偏好：", *filled_preferences])
 
 
 def _start_blueprint_job(

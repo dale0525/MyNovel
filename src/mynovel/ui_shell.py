@@ -6,6 +6,7 @@ from pathlib import Path
 
 from mynovel.domain.models import Book, BookStatus, Chapter, ChapterStatus
 from mynovel.i18n import DEFAULT_LOCALE, t
+from mynovel.word_targets import book_target_word_count, format_word_count
 
 
 @dataclass(frozen=True)
@@ -114,7 +115,7 @@ def render_project_sidebar(
           <div>
             <h2>{title}</h2>
             <p>{html.escape(book.genre)} · {html.escape(book.audience)}</p>
-            <p>120,000 字</p>
+            <p>{html.escape(format_word_count(book_target_word_count(book)))}</p>
             <span class="status-pill trusted">{_book_status_label(book.status)}</span>
           </div>
         </div>

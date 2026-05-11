@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from mynovel.domain.models import Canon, Chapter, ProviderConfig
+from mynovel.word_targets import chapter_word_budget, format_word_count
 from mynovel.i18n import DEFAULT_LOCALE
 
 
@@ -160,6 +161,7 @@ def render_canon_gate_aside(book_id: int, canon: Canon | None) -> str:
 
 
 def render_chapter_production_main(chapter: Chapter) -> str:
+    target_words = chapter_word_budget(chapter)
     return f"""
       <section class="reader-panel production-main">
         <div class="chapter-toolbar">
@@ -167,7 +169,7 @@ def render_chapter_production_main(chapter: Chapter) -> str:
             <p class="muted">当前阶段：生成草稿（AI 正在撰写中）</p>
             <h1>第 {chapter.number:02d} 章 {html.escape(chapter.title)}</h1>
           </div>
-          <div class="toolbar-metrics"><span>字数统计：{chapter.word_count or 1248} / 预计 2,800</span><button class="secondary" type="button">显示设置⌄</button></div>
+          <div class="toolbar-metrics"><span>字数统计：{chapter.word_count or 1248} / 预计 {html.escape(format_word_count(target_words))}</span><button class="secondary" type="button">显示设置⌄</button></div>
         </div>
         <div class="production-stage-grid">
           {_stage_card(1, "规划本章", "已完成", "目标与情节骨架确认", "done")}
@@ -411,8 +413,11 @@ def _render_draft_progress(chapter: Chapter) -> str:
         chapter.draft_text
         or "山谷的风带着潮湿的气息，卷过石拱与残垣。罗斯握紧拳头，沿着断裂的石阶向下。远处，似有低语从雾中传来。"
     )
+    target_words = chapter_word_budget(chapter)
+    current_words = chapter.word_count or 1248
+    progress = min(99, max(1, round(current_words / target_words * 100)))
     return f"""
-      <dl><dt>模型</dt><dd>本地模型 v2 · 32B</dd><dt>风格</dt><dd>奇幻 · 沉稳 · 探索</dd><dt>目标字数</dt><dd>2,800 字左右</dd><dt>已生成</dt><dd>{chapter.word_count or 1248} 字（68%）</dd></dl>
+      <dl><dt>模型</dt><dd>本地模型 v2 · 32B</dd><dt>风格</dt><dd>奇幻 · 沉稳 · 探索</dd><dt>目标字数</dt><dd>{html.escape(format_word_count(target_words))}左右</dd><dt>已生成</dt><dd>{current_words} 字（{progress}%）</dd></dl>
       <p class="draft-snippet">{html.escape(text[:120])}...</p>
 """
 

@@ -16,6 +16,7 @@ from mynovel.domain.repositories import (
 )
 from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
 from mynovel.prompts.registry import load_prompt_by_id, render_prompt_messages
+from mynovel.word_targets import parse_word_count
 from mynovel.workflows.open_book_blueprint import extract_chat_content
 from mynovel.workflows.retrieval import index_text
 from mynovel.workflows.state_validation import validate_state_delta
@@ -385,11 +386,13 @@ def _build_plan_messages(
             "number": chapter.number,
             "title": chapter.title,
             "current_goal": chapter.plan.get("goal", ""),
+            "current_word_budget": parse_word_count(chapter.plan.get("word_budget")),
         },
     }
     return _json_instruction_messages(
         "你是网文章节导演。请为当前章节生成可执行的章节计划，只输出 JSON。",
-        "必须包含 goal, must_write, forbidden_drift, word_budget, ending_hook。",
+        "必须包含 goal, must_write, forbidden_drift, word_budget, ending_hook。"
+        "如果 current_word_budget 存在，word_budget 必须沿用该数值。",
         payload,
     )
 
@@ -506,6 +509,7 @@ def _build_context_package(canon: Canon, chapter: Chapter, volume_plan: dict[str
         },
         "volume_plan": volume_plan,
         "chapter_goal": chapter.plan.get("goal", ""),
+        "word_budget": chapter.plan.get("word_budget"),
         "must_write": chapter.plan.get("must_write", []),
         "forbidden_drift": ["不要改写已锁定设定", "不要让状态变化绕过人工审核"],
     }

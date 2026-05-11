@@ -50,6 +50,8 @@ TRANSLATIONS = {
         "book.constraints": "写作禁区",
         "book.style_reference": "参考风格",
         "book.length_goal": "篇幅目标",
+        "book.target_word_count": "全书目标字数",
+        "book.chapter_word_count": "单章目标字数",
         "book.serial_rhythm": "连载节奏",
         "book.create": "生成开书蓝图",
         "book.created": "已生成开书蓝图 v{version}",
