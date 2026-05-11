@@ -4,6 +4,7 @@ import tomllib
 from mynovel.dev_server import (
     _chapter_model_client_from_provider_config,
     _parse_batch_limit,
+    _parse_book_quality_id,
     _parse_book_state_id,
     _parse_book_export,
     build_health_payload,
@@ -93,6 +94,11 @@ def test_chapter_generation_uses_saved_dialogue_model_config() -> None:
 def test_book_state_route_parser_extracts_book_id() -> None:
     assert _parse_book_state_id("/book/42/state") == 42
     assert _parse_book_state_id("/book/not-a-number/state") == 0
+
+
+def test_book_quality_route_parser_extracts_book_id() -> None:
+    assert _parse_book_quality_id("/book/42/quality") == 42
+    assert _parse_book_quality_id("/book/not-a-number/quality") == 0
 
 
 def test_book_export_route_parser_extracts_book_id_and_format() -> None:

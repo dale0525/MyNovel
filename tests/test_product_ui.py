@@ -234,6 +234,8 @@ def test_book_workspace_links_to_trusted_state_page() -> None:
 
     assert "查看可信设定" in page
     assert "/book/1/state" in page
+    assert "质量增强" in page
+    assert "/book/1/quality" in page
 
 
 def test_book_workspace_exposes_whole_book_export_actions() -> None:

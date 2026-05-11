@@ -37,6 +37,13 @@ from mynovel.product_views import (
     render_new_book_page,
     render_trusted_state_page,
 )
+from mynovel.quality_views import render_quality_center
+from mynovel.workflows.quality_enhancement import (
+    create_style_asset,
+    deconstruct_reference_text,
+    generate_quality_snapshot,
+    recommend_cost_strategy,
+)
 from mynovel.workflows.chapter_batch import run_chapter_batch
 from mynovel.workflows.chapter_pipeline import (
     OpenAIChapterModelClient,
@@ -111,6 +118,9 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if parsed.path.startswith("/book/") and parsed.path.endswith("/state"):
                 self._send_trusted_state_page(state.db_path, _parse_book_state_id(parsed.path))
                 return
+            if parsed.path.startswith("/book/") and parsed.path.endswith("/quality"):
+                self._send_quality_page(state.db_path, _parse_book_quality_id(parsed.path))
+                return
             if parsed.path.startswith("/book/") and (
                 parsed.path.endswith("/export.md") or parsed.path.endswith("/export.json")
             ):
@@ -183,6 +193,15 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if parsed.path == "/approve-chapter":
                 self._approve_chapter(state.db_path)
                 return
+            if parsed.path == "/style-asset":
+                self._create_style_asset(state.db_path)
+                return
+            if parsed.path == "/deconstruct-reference":
+                self._deconstruct_reference(state.db_path)
+                return
+            if parsed.path == "/quality-snapshot":
+                self._create_quality_snapshot(state.db_path)
+                return
             self.send_error(HTTPStatus.NOT_FOUND)
 
         def log_message(self, format: str, *args: Any) -> None:
@@ -214,6 +233,13 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     _load_chapters_for_book(db_path, book_id),
                 )
             )
+
+        def _send_quality_page(self, db_path: Path, book_id: int) -> None:
+            book = _load_book(db_path, book_id)
+            if book is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self._send_html(_render_quality_page_from_db(db_path, book))
 
         def _send_book_export(self, db_path: Path, book_id: int, export_format: str) -> None:
             book = _load_book(db_path, book_id)
@@ -534,6 +560,56 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     return
             self._redirect(f"/chapter/{chapter.id}")
 
+        def _create_style_asset(self, db_path: Path) -> None:
+            form = self._read_form()
+            book_id = int(form.get("book_id", "0"))
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                try:
+                    create_style_asset(
+                        session,
+                        book_id,
+                        form.get("name", ""),
+                        form.get("reference_text", ""),
+                        form.get("source_title") or None,
+                    )
+                except ValueError:
+                    self.send_error(HTTPStatus.BAD_REQUEST)
+                    return
+            self._redirect(f"/book/{book_id}/quality")
+
+        def _deconstruct_reference(self, db_path: Path) -> None:
+            form = self._read_form()
+            book_id = int(form.get("book_id", "0"))
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                try:
+                    deconstruct_reference_text(
+                        session,
+                        book_id,
+                        form.get("source_title", ""),
+                        form.get("reference_text", ""),
+                    )
+                except ValueError:
+                    self.send_error(HTTPStatus.BAD_REQUEST)
+                    return
+            self._redirect(f"/book/{book_id}/quality")
+
+        def _create_quality_snapshot(self, db_path: Path) -> None:
+            form = self._read_form()
+            book_id = int(form.get("book_id", "0"))
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                try:
+                    generate_quality_snapshot(session, book_id)
+                except ValueError:
+                    self.send_error(HTTPStatus.BAD_REQUEST)
+                    return
+            self._redirect(f"/book/{book_id}/quality")
+
         def _read_form(self) -> dict[str, str]:
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length).decode("utf-8")
@@ -609,6 +685,29 @@ def _load_run_traces_for_book(db_path: Path, book_id: int):
         return list_run_traces_for_book(session, book_id)
 
 
+def _render_quality_page_from_db(db_path: Path, book: Book) -> str:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        from mynovel.domain.repositories import (
+            list_deconstruction_studies_for_book,
+            list_quality_snapshots_for_book,
+            list_style_assets_for_book,
+        )
+
+        book_id = book.id or 0
+        snapshots = list_quality_snapshots_for_book(session, book_id)
+        latest_snapshot = snapshots[-1] if snapshots else None
+        strategy = recommend_cost_strategy(latest_snapshot) if latest_snapshot else None
+        return render_quality_center(
+            book,
+            list_style_assets_for_book(session, book_id),
+            list_deconstruction_studies_for_book(session, book_id),
+            latest_snapshot,
+            strategy,
+        )
+
+
 def _load_provider_config(db_path: Path) -> ProviderConfig | None:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
@@ -667,6 +766,16 @@ def _parse_chapter_export_id(path: str) -> int:
 def _parse_book_state_id(path: str) -> int:
     parts = path.strip("/").split("/")
     if len(parts) != 3 or parts[0] != "book" or parts[2] != "state":
+        return 0
+    try:
+        return int(parts[1])
+    except ValueError:
+        return 0
+
+
+def _parse_book_quality_id(path: str) -> int:
+    parts = path.strip("/").split("/")
+    if len(parts) != 3 or parts[0] != "book" or parts[2] != "quality":
         return 0
     try:
         return int(parts[1])

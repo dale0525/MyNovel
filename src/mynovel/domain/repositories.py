@@ -4,9 +4,12 @@ from mynovel.domain.models import (
     Book,
     Canon,
     Chapter,
+    DeconstructionStudy,
     OpenBookBlueprint,
     ProviderConfig,
+    QualitySnapshot,
     RunTrace,
+    StyleAsset,
     VectorEntry,
     utc_now,
 )
@@ -98,6 +101,60 @@ def list_vector_entries_for_source(
             VectorEntry.source_id == source_id,
         )
         .order_by(VectorEntry.created_at, VectorEntry.id)
+    )
+    return list(session.exec(statement))
+
+
+def add_style_asset(session: Session, asset: StyleAsset) -> StyleAsset:
+    session.add(asset)
+    session.commit()
+    session.refresh(asset)
+    return asset
+
+
+def list_style_assets_for_book(session: Session, book_id: int) -> list[StyleAsset]:
+    statement = (
+        select(StyleAsset)
+        .where(StyleAsset.book_id == book_id)
+        .order_by(StyleAsset.created_at, StyleAsset.id)
+    )
+    return list(session.exec(statement))
+
+
+def add_deconstruction_study(
+    session: Session,
+    study: DeconstructionStudy,
+) -> DeconstructionStudy:
+    session.add(study)
+    session.commit()
+    session.refresh(study)
+    return study
+
+
+def list_deconstruction_studies_for_book(
+    session: Session,
+    book_id: int,
+) -> list[DeconstructionStudy]:
+    statement = (
+        select(DeconstructionStudy)
+        .where(DeconstructionStudy.book_id == book_id)
+        .order_by(DeconstructionStudy.created_at, DeconstructionStudy.id)
+    )
+    return list(session.exec(statement))
+
+
+def add_quality_snapshot(session: Session, snapshot: QualitySnapshot) -> QualitySnapshot:
+    session.add(snapshot)
+    session.commit()
+    session.refresh(snapshot)
+    return snapshot
+
+
+def list_quality_snapshots_for_book(session: Session, book_id: int) -> list[QualitySnapshot]:
+    statement = (
+        select(QualitySnapshot)
+        .where(QualitySnapshot.book_id == book_id)
+        .order_by(QualitySnapshot.created_at, QualitySnapshot.id)
     )
     return list(session.exec(statement))
 

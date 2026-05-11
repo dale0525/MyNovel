@@ -95,6 +95,36 @@ class VectorEntry(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class StyleAsset(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    book_id: int = Field(index=True, foreign_key="book.id")
+    name: str
+    source_title: str | None = None
+    source_excerpt: str
+    fingerprint: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    guidance: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class DeconstructionStudy(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    book_id: int = Field(index=True, foreign_key="book.id")
+    source_title: str
+    source_excerpt: str
+    beat_map: list = Field(default_factory=list, sa_column=Column(JSON))
+    craft_notes: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class QualitySnapshot(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    book_id: int = Field(index=True, foreign_key="book.id")
+    score: float = 0.0
+    metrics: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    recommendations: list = Field(default_factory=list, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class ProviderConfig(SQLModel, table=True):
     id: int | None = Field(default=1, primary_key=True)
     llm_base_url: str
