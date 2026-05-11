@@ -17,6 +17,16 @@ from mynovel.domain.models import (
     VolumePlan,
 )
 from mynovel.i18n import DEFAULT_LOCALE, t
+from mynovel.product_components import (
+    render_accepted_result,
+    render_canon_gate_aside,
+    render_canon_gate_main,
+    render_chapter_production_aside,
+    render_chapter_production_main,
+    render_impact_scope,
+    render_model_setup_content,
+    render_review_tabs,
+)
 from mynovel.ui_shell import PipelineStep, render_app_page, render_pipeline, render_project_sidebar
 from mynovel.workflows.open_book import title_options_from_blueprint
 
@@ -43,6 +53,25 @@ def render_home(
         bottom=_render_start_pipeline(None, locale),
         locale=locale,
         db_path=db_path,
+    )
+
+
+def render_model_setup_page(
+    db_path: Path,
+    provider_config: ProviderConfig | None,
+    message: str | None = None,
+    locale: str = DEFAULT_LOCALE,
+) -> str:
+    return _page(
+        title=t("model.title", locale),
+        active="create",
+        main=render_model_setup_content(db_path, provider_config, locale),
+        message=message,
+        bottom=_render_start_pipeline(None, locale),
+        locale=locale,
+        db_path=db_path,
+        eyebrow=t("model.title", locale),
+        content_class="content-grid model-setup-layout",
     )
 
 
@@ -255,24 +284,20 @@ def render_trusted_state_page(
     message: str | None = None,
     locale: str = DEFAULT_LOCALE,
 ) -> str:
+    book_id = book.id or 0
     main = f"""
       {_render_book_sidebar(book, chapters, locale)}
-      <section class="main-panel">
+      <section class="main-panel canon-gate-main">
         <div class="panel-head">
           <div>
-            <h1>{t("trusted_state.title", locale)}</h1>
+            <h1>开书定盘</h1>
             <p>{t("trusted_state.page_copy", locale)}</p>
           </div>
-          <a class="button secondary" href="/book/{book.id}">{t("action.back_to_project", locale)}</a>
+          <span class="status-pill pending">Canon 提案 · 待确认</span>
         </div>
-        {_render_trusted_state_sections(canon, locale)}
+        {render_canon_gate_main(canon)}
       </section>
-      <aside class="right-panel">
-        <h2>{t("trusted_state.guard_title", locale)}</h2>
-        <p>{t("trusted_state.guard_copy", locale)}</p>
-        <h2>{t("trusted_state.current_version_short", locale)}</h2>
-        <div class="setup-card"><strong>{canon.version if canon else 0}</strong><span>{t("trusted_state.version_unit", locale)}</span></div>
-      </aside>
+      {render_canon_gate_aside(book_id, canon)}
 """
     return _page(
         title=t("trusted_state.title", locale),
@@ -281,6 +306,8 @@ def render_trusted_state_page(
         message=message,
         bottom=_render_production_pipeline(None, locale),
         locale=locale,
+        eyebrow="开书定盘",
+        content_class="content-grid canon-gate-layout",
     )
 
 
@@ -292,6 +319,23 @@ def render_chapter_review(
     message: str | None = None,
     locale: str = DEFAULT_LOCALE,
 ) -> str:
+    if chapter.status == ChapterStatus.RUNNING:
+        main = f"""
+      {_render_book_sidebar(book, chapters, locale)}
+      {render_chapter_production_main(chapter)}
+      {render_chapter_production_aside(chapter)}
+"""
+        return _page(
+            title=chapter.title,
+            active="create",
+            main=main,
+            message=message,
+            bottom=_render_production_pipeline(chapter.status, locale),
+            locale=locale,
+            eyebrow="章节生产",
+            content_class="content-grid production-layout",
+        )
+
     main = f"""
       {_render_book_sidebar(book, chapters, locale)}
       <section class="reader-panel">
@@ -375,12 +419,18 @@ def _render_empty_home(
         <h2>{t("model.status", locale)}</h2>
         <div class="setup-card">
           <strong>{status}</strong>
-          <a class="button secondary" href="#model-form">{t("model.configure", locale)}</a>
+          <a class="button secondary" href="/provider-config">{t("model.configure", locale)}</a>
+        </div>
+        <h2>快速上手</h2>
+        <div class="stack-list home-quickstart">
+          <p>了解创作流程 <span>›</span></p>
+          <p>创建第一个世界观 <span>›</span></p>
+          <p>导入已有项目 <span>›</span></p>
         </div>
         <h2>{t("trusted_state.title", locale)}</h2>
         <p>{t("trusted_state.empty_hint", locale)}</p>
       </aside>
-      <aside class="right-panel model-form" id="model-form">
+      <aside class="right-panel model-form hidden-model-form" id="model-form" aria-hidden="true">
         <h2>{t("model.title", locale)}</h2>
         {_render_provider_form(provider_config, locale)}
       </aside>
@@ -696,30 +746,34 @@ def _render_review_inspector(chapter: Chapter, canon: Canon | None, locale: str)
             <label class="inline-check"><input name="allow_major_changes" type="checkbox" value="1">{t("review.confirm_major_change", locale)}</label>
 """
         action = f"""
+          <div class="review-action-stack">
           <form method="post" action="/repair-chapter" class="compact-form action-form">
             <input type="hidden" name="chapter_id" value="{chapter.id}">
-            <label>{t("chapter.repair_note", locale)}<textarea name="reviewer_note" placeholder="{t("chapter.repair_placeholder", locale)}"></textarea></label>
+            <input type="hidden" name="reviewer_note" value="">
             <button class="secondary" type="submit">{t("action.repair_with_ai", locale)}</button>
           </form>
           <form method="post" action="/request-revision" class="compact-form action-form">
             <input type="hidden" name="chapter_id" value="{chapter.id}">
-            <label>{t("chapter.reviewer_note", locale)}<textarea name="reviewer_note" placeholder="{t("chapter.note_placeholder", locale)}"></textarea></label>
+            <input type="hidden" name="reviewer_note" value="">
             <button class="secondary" type="submit">{t("action.return_for_revision", locale)}</button>
           </form>
           <form id="approve-form" method="post" action="/approve-chapter" class="compact-form action-form">
             <input type="hidden" name="chapter_id" value="{chapter.id}">
-            <label>{t("chapter.accept_note", locale)}<textarea name="reviewer_note" placeholder="{t("chapter.accept_placeholder", locale)}"></textarea></label>
+            <input type="hidden" name="reviewer_note" value="">
             {major_confirmation}
             <button type="submit">{t("action.accept_to_trusted_state", locale)}</button>
           </form>
+          </div>
 """
     elif chapter.status == ChapterStatus.ACCEPTED:
         action = f"""
+          {render_accepted_result(chapter)}
           <div class="actions">
             <a class="button" href="/chapter/{chapter.id}/export">{t("action.export_chapter", locale)}</a>
           </div>
 """
     return f"""
+      {render_review_tabs()}
       <h2>{t("review.audit_issues", locale)}</h2>
       <ul class="review-list">{issue_rows}</ul>
       <h2>{t("review.state_delta", locale)}</h2>
@@ -727,6 +781,7 @@ def _render_review_inspector(chapter: Chapter, canon: Canon | None, locale: str)
       {f"<p class='danger'>{t('review.major_change_count', locale, count=len(major_changes))}</p>" if major_changes else ""}
       <ul class="review-list">{delta_rows}</ul>
       {action}
+      {render_impact_scope(chapter)}
 """
 
 

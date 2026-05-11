@@ -14,6 +14,7 @@ from mynovel.domain.models import (
 from mynovel.product_views import (
     render_book_workspace,
     render_chapter_review,
+    render_model_setup_page,
     render_trusted_state_page,
 )
 
@@ -76,6 +77,31 @@ def test_model_setup_page_keeps_required_fields_but_labels_them_in_chinese() -> 
     assert "LLM" not in page
     assert "API Key" not in page
     assert "Base URL" not in page
+
+
+def test_model_setup_page_uses_dedicated_configuration_dashboard() -> None:
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_api_key="local-demo-key",
+        llm_model="gpt-4o-mini",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-3-small",
+        rerank_use_llm_credentials=True,
+        rerank_base_url="",
+        rerank_model="bge-reranker-v2-m3",
+    )
+
+    page = render_model_setup_page(Path(".mynovel/dev.sqlite"), provider_config)
+
+    assert "model-setup-layout" in page
+    assert "连接你的 AI 模型" in page
+    assert "服务类型" in page
+    assert "OpenAI-compatible" in page
+    assert "setup-checklist" in page
+    assert "准备创建书籍" in page
+    assert "本地数据库" in page
+    assert "测试连接" in page
 
 
 def test_blueprint_page_translates_structured_model_keys() -> None:
@@ -146,6 +172,40 @@ def test_review_page_exposes_revision_repair_accept_and_export_actions() -> None
     assert "/chapter/9/export" in page
 
 
+def test_running_chapter_page_exposes_production_control_panels() -> None:
+    book = Book(
+        id=1,
+        title="幽谷回声",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapters = [
+        Chapter(
+            id=1,
+            book_id=1,
+            number=1,
+            title="召唤",
+            status=ChapterStatus.RUNNING,
+            context_package={"canon": "已收集", "characters": "6 人相关"},
+            draft_text="罗斯沿着隐秘小径继续向前。",
+            state_delta={"changes": []},
+            word_count=1248,
+        )
+    ]
+
+    page = render_chapter_review(
+        book, chapters, chapters[0], Canon(id=1, book_id=1, version=1, content={})
+    )
+
+    assert "production-stage-grid" in page
+    assert "下一步风控 Gate" in page
+    assert "当前正在" in page
+    assert "成本" in page
+    assert "恢复点" in page
+    assert "继续运行" in page
+
+
 def test_review_page_exposes_manual_edit_and_major_change_confirmation() -> None:
     book = Book(
         id=1,
@@ -182,6 +242,9 @@ def test_review_page_exposes_manual_edit_and_major_change_confirmation() -> None
     assert 'name="manual_text"' in page
     assert "重大变化" in page
     assert 'name="allow_major_changes"' in page
+    assert "review-tabs" in page
+    assert "StateDelta 待验证" in page
+    assert "影响范围" in page
 
 
 def test_trusted_state_page_shows_full_state_sections_without_raw_keys() -> None:
@@ -219,6 +282,37 @@ def test_trusted_state_page_shows_full_state_sections_without_raw_keys() -> None
     assert "幽谷" in page
     assert "relationships：" not in page
     assert "state_history：" not in page
+
+
+def test_trusted_state_page_exposes_canon_lock_gate() -> None:
+    book = Book(
+        id=1,
+        title="幽谷回声",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.CANON_LOCKED,
+    )
+    canon = Canon(
+        id=1,
+        book_id=1,
+        version=1,
+        content={
+            "world_rules": [{"name": "雾墙规则", "detail": "幽谷边界危险。"}],
+            "characters": [{"name": "罗斯", "detail": "石匠学徒。"}],
+            "locations": [{"name": "幽谷", "detail": "旧王朝遗迹。"}],
+            "relationships": [{"from": "罗斯", "to": "莉拉", "detail": "临时同盟"}],
+            "foreshadowing": ["第二枚符号尚未解释"],
+            "chapter_summaries": [{"chapter": 1, "title": "召唤", "summary": "进入幽谷"}],
+        },
+    )
+
+    page = render_trusted_state_page(book, canon, [])
+
+    assert "canon-gate-layout" in page
+    assert "审计风险" in page
+    assert "强制 Gate" in page
+    assert "前 10 章节奏" in page
+    assert "锁定可信设定并开始生产" in page
 
 
 def test_book_workspace_links_to_trusted_state_page() -> None:

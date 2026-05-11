@@ -13,6 +13,7 @@ dist/
 
 # Local environments and generated lock state
 .pixi/
+.tool/
 .venv/
 venv/
 pixi.lock

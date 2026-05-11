@@ -36,6 +36,7 @@ from mynovel.product_views import (
     render_blueprint_page,
     render_chapter_review,
     render_home,
+    render_model_setup_page,
     render_new_book_page,
     render_trusted_state_page,
 )
@@ -121,6 +122,11 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 return
             if parsed.path == "/books/new":
                 self._send_html(render_new_book_page(_load_provider_config(state.db_path)))
+                return
+            if parsed.path == "/provider-config":
+                self._send_html(
+                    render_model_setup_page(state.db_path, _load_provider_config(state.db_path))
+                )
                 return
             if parsed.path.startswith("/book/") and parsed.path.endswith("/state"):
                 self._send_trusted_state_page(state.db_path, _parse_book_state_id(parsed.path))
