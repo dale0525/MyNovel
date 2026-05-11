@@ -64,6 +64,10 @@ class ChapterStageError(RuntimeError):
         self.error = error
 
 
+class ChapterJsonStageFormatError(ValueError):
+    pass
+
+
 TRACE_STAGES = [
     ("plan", "规划本章", "chapter_plan"),
     ("context", "编译上下文", "chapter_context"),
@@ -305,18 +309,26 @@ def _run_model_pipeline(
         "draft",
         _build_draft_messages(book_title, chapter),
     )
-    chapter.state_delta = _complete_json_stage(
-        model_client,
-        "extract_state",
-        _build_extract_state_messages(chapter),
-        {"chapter", "changes"},
+    chapter.state_delta = _normalize_state_delta(
+        chapter.number,
+        _complete_json_stage(
+            model_client,
+            "extract_state",
+            _build_extract_state_messages(chapter),
+            {"chapter", "changes"},
+        ),
     )
-    chapter.audit_report = _complete_json_stage(
-        model_client,
-        "audit",
-        _build_audit_messages(chapter),
-        {"risk_level", "issues", "suggestions"},
-    )
+    try:
+        chapter.audit_report = _complete_json_stage(
+            model_client,
+            "audit",
+            _build_audit_messages(chapter),
+            {"risk_level", "issues", "suggestions"},
+        )
+    except ChapterStageError as error:
+        if not _is_recoverable_json_stage_error(error):
+            raise
+        chapter.audit_report = _fallback_audit_report(error)
     chapter.revised_text = _complete_text_stage(
         model_client,
         "revise",
@@ -332,13 +344,87 @@ def _complete_json_stage(
 ) -> dict[str, Any]:
     try:
         raw = model_client.complete(stage, messages, "json")
+    except Exception as error:  # noqa: BLE001
+        raise ChapterStageError(stage, error) from error
+    try:
         data = _parse_json_object(raw)
         missing = sorted(required_fields - set(data))
         if missing:
-            raise ValueError(f"Chapter stage {stage} missing fields: {', '.join(missing)}")
+            raise ChapterJsonStageFormatError(
+                f"Chapter stage {stage} missing fields: {', '.join(missing)}"
+            )
         return data
-    except Exception as error:  # noqa: BLE001
-        raise ChapterStageError(stage, error) from error
+    except (json.JSONDecodeError, ValueError) as error:
+        raise ChapterStageError(stage, ChapterJsonStageFormatError(str(error))) from error
+
+
+def _normalize_state_delta(chapter_number: int, state_delta: dict[str, Any]) -> dict[str, Any]:
+    raw_chapter = state_delta.get("chapter")
+    if raw_chapter == chapter_number:
+        normalized_chapter = chapter_number
+    elif isinstance(raw_chapter, dict) and raw_chapter.get("number") == chapter_number:
+        normalized_chapter = chapter_number
+    else:
+        normalized_chapter = chapter_number
+
+    changes = []
+    for raw_change in state_delta.get("changes", []):
+        if isinstance(raw_change, str):
+            text = raw_change.strip()
+            if text:
+                changes.append(
+                    {
+                        "type": "状态变化",
+                        "target": "待确认",
+                        "change": text,
+                        "risk": "low",
+                    }
+                )
+            continue
+        if not isinstance(raw_change, dict):
+            continue
+        change_type = str(raw_change.get("type") or raw_change.get("category") or "状态变化").strip()
+        target = str(raw_change.get("target") or raw_change.get("subject") or "待确认").strip()
+        change = str(raw_change.get("change") or raw_change.get("content") or "").strip()
+        if not change:
+            continue
+        changes.append(
+            {
+                "type": change_type,
+                "target": target,
+                "change": change,
+                "risk": str(raw_change.get("risk") or "low").strip() or "low",
+            }
+        )
+    if not changes:
+        changes.append(
+            {
+                "type": "章节进展",
+                "target": f"第 {chapter_number:02d} 章",
+                "change": "本章已生成，未能自动提取明确状态变化，请人工确认是否写入可信设定。",
+                "risk": "medium",
+            }
+        )
+    return {"chapter": normalized_chapter, "changes": changes}
+
+
+def _fallback_audit_report(error: ChapterStageError) -> dict[str, Any]:
+    return {
+        "risk_level": "medium",
+        "issues": [
+            {
+                "severity": "medium",
+                "title": "AI 审计返回格式异常，请人工重点检查本章",
+                "resolved": False,
+                "detail": str(error.error),
+            }
+        ],
+        "suggestions": ["人工检查正文、状态变化与章节结尾钩子后再批准。"],
+    }
+
+
+def _is_recoverable_json_stage_error(error: ChapterStageError) -> bool:
+    return isinstance(error.error, ChapterJsonStageFormatError)
 
 
 def _complete_text_stage(
@@ -356,11 +442,26 @@ def _complete_text_stage(
 
 
 def _parse_json_object(raw_text: str) -> dict[str, Any]:
-    text = _strip_code_fence(raw_text.strip())
+    text = _json_object_text(_strip_code_fence(raw_text.strip()))
     data = json.loads(text)
     if not isinstance(data, dict):
         raise ValueError("Chapter model response must be a JSON object.")
     return data
+
+
+def _json_object_text(text: str) -> str:
+    if text.startswith("{"):
+        return text
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            _, end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        return text[index : index + end]
+    return text
 
 
 def _strip_code_fence(text: str) -> str:
@@ -715,6 +816,8 @@ def _append_structured_state_change(
     detail = str(change.get("change") or change.get("detail") or "").strip()
     if not target and not detail:
         return
+    if _is_low_information_state_change(target, detail):
+        return
 
     content.setdefault(bucket, []).append(
         {
@@ -722,8 +825,6 @@ def _append_structured_state_change(
             "detail": detail,
             "type": str(change.get("type") or "").strip(),
             "chapter": chapter.number,
-            "chapter_title": chapter.title,
-            "updated_at": utc_now().isoformat(),
         }
     )
 
@@ -743,6 +844,27 @@ def _state_bucket_for_change(change: dict[str, Any]) -> str | None:
     if any(term in text for term in ("伏笔", "线索", "信息")):
         return "foreshadowing"
     return None
+
+
+def _is_low_information_state_change(target: str, detail: str) -> bool:
+    if target != "待确认":
+        return False
+    return detail in {
+        "人物",
+        "关系",
+        "地点",
+        "资源",
+        "伏笔",
+        "信息暴露",
+        "characters",
+        "relationships",
+        "locations",
+        "resources",
+        "foreshadowing",
+        "information_exposure",
+        "foreshadowing_and_info",
+        "foreshadowing_and_information",
+    }
 
 
 def _index_accepted_chapter(

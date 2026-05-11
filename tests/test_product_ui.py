@@ -52,6 +52,29 @@ def test_home_page_uses_product_language_without_exposed_english_terms() -> None
         assert term not in page
 
 
+def test_empty_home_keeps_latest_blueprint_entry_visible() -> None:
+    blueprint = OpenBookBlueprint(
+        id=7,
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={},
+        raw_response="{}",
+    )
+
+    page = render_home(
+        Path(".mynovel/dev.sqlite"),
+        books=[],
+        provider_config=None,
+        blueprints=[blueprint],
+        message=None,
+    )
+
+    assert "开书方案" in page
+    assert "/blueprint/7" in page
+    assert "生成完成" in page
+
+
 def test_model_setup_page_keeps_required_fields_but_labels_them_in_chinese() -> None:
     provider_config = ProviderConfig(
         llm_base_url="https://api.example.test/v1",
@@ -102,7 +125,16 @@ def test_model_setup_page_uses_dedicated_configuration_dashboard() -> None:
     assert "setup-checklist" in page
     assert "准备创建书籍" in page
     assert "本地数据库" in page
-    assert "测试连接" in page
+    assert "测试连接" not in page
+
+
+def test_model_setup_page_associates_labels_with_inputs() -> None:
+    page = render_model_setup_page(Path(".mynovel/dev.sqlite"), None)
+
+    assert '<label for="llm_base_url">接口地址</label>' in page
+    assert '<input id="llm_base_url" name="llm_base_url"' in page
+    assert '<label for="llm_api_key">访问密钥</label>' in page
+    assert '<input id="llm_api_key" name="llm_api_key"' in page
 
 
 def test_new_book_page_requires_only_idea_and_uses_optional_presets() -> None:
@@ -293,10 +325,23 @@ def test_trusted_state_page_shows_full_state_sections_without_raw_keys() -> None
         book_id=1,
         version=3,
         content={
-            "characters": [{"name": "莉拉", "detail": "能读懂古代符号"}],
+            "world_rules": [{"name": "街尾蛇城", "rules": "历史守恒"}],
+            "characters": [
+                {"name": "林墨", "identity": "纸质档案修复师", "role": "档案修复师", "trait": "触觉共感"},
+                {
+                    "name": "莉拉",
+                    "detail": "能读懂古代符号",
+                    "chapter_title": "离开的召唤",
+                    "updated_at": "2026-05-11T18:00:00+00:00",
+                },
+                {"name": "待确认", "detail": "人物", "type": "状态变化", "chapter": 2},
+            ],
             "locations": [{"name": "幽谷", "detail": "旧王朝遗迹"}],
             "relationships": [{"from": "莉拉", "to": "罗文", "detail": "临时同盟"}],
-            "foreshadowing": ["第二枚符号仍未解释"],
+            "foreshadowing": [
+                "第二枚符号仍未解释",
+                {"name": "待确认", "detail": "真实线索被照片证明。", "type": "信息暴露"},
+            ],
             "chapter_summaries": [{"chapter": 1, "title": "离开的召唤", "summary": "离村"}],
             "state_history": [{"chapter": 1, "changes": [{"type": "人物状态", "target": "莉拉"}]}],
         },
@@ -306,15 +351,28 @@ def test_trusted_state_page_shows_full_state_sections_without_raw_keys() -> None
 
     assert "可信设定" in page
     assert "人物" in page
+    assert "规则：历史守恒" in page
+    assert "身份：纸质档案修复师" in page
+    assert "定位：档案修复师" in page
+    assert "特质：触觉共感" in page
     assert "地点" in page
     assert "关系" in page
     assert "伏笔账本" in page
+    assert "真实线索被照片证明" in page
     assert "章节摘要" in page
     assert "变化历史" in page
     assert "莉拉" in page
     assert "幽谷" in page
+    assert "名称：待确认；内容：人物" not in page
+    assert "名称：待确认" not in page
     assert "relationships：" not in page
     assert "state_history：" not in page
+    assert "rules：" not in page
+    assert "identity：" not in page
+    assert "role：" not in page
+    assert "trait：" not in page
+    assert "chapter_title" not in page
+    assert "updated_at" not in page
 
 
 def test_trusted_state_page_exposes_canon_lock_gate() -> None:
@@ -501,6 +559,7 @@ def test_book_workspace_exposes_batch_chapter_production_action() -> None:
     assert "连续生产" in page
     assert 'action="/run-chapter-batch"' in page
     assert 'name="limit"' in page
+    assert 'name="limit" type="number" min="1" max="10" value="2"' in page
     assert 'name="book_id" value="1"' in page
 
 

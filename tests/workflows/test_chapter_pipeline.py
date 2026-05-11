@@ -94,6 +94,34 @@ def test_approve_chapter_writes_state_delta_to_latest_canon(tmp_path) -> None:
     assert canon.version == 2
     assert canon.content["chapter_summaries"][0]["title"] == "离开的召唤"
     assert canon.content["state_history"][0]["chapter"] == 1
+    for bucket in ("characters", "locations", "foreshadowing"):
+        for item in canon.content.get(bucket, []):
+            if isinstance(item, dict):
+                assert "chapter_title" not in item
+                assert "updated_at" not in item
+
+
+def test_approve_chapter_does_not_write_low_information_state_items(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        lock_canon_foundation(session, book.id)
+        chapter = list_chapters_for_book(session, book.id)[0]
+        reviewed = run_chapter_pipeline(session, chapter.id)
+        reviewed.state_delta = {
+            "chapter": reviewed.number,
+            "changes": [{"type": "状态变化", "target": "待确认", "change": "人物"}],
+        }
+        session.add(reviewed)
+        session.commit()
+
+        approve_chapter(session, reviewed.id)
+        canon = get_latest_canon(session, book.id)
+
+    assert canon is not None
+    assert all(item.get("name") != "待确认" for item in canon.content.get("characters", []))
 
 
 def _blueprint() -> OpenBookBlueprint:

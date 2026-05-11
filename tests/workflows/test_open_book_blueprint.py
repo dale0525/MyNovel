@@ -75,6 +75,15 @@ def test_build_blueprint_messages_ask_ai_to_fill_missing_open_book_context() -> 
     assert "自行生成" in joined
 
 
+def test_build_blueprint_messages_require_ten_single_chapter_directions() -> None:
+    messages = build_blueprint_messages(idea="一句灵感：失意档案员重建禁书馆")
+
+    joined = "\n".join(message["content"] for message in messages)
+
+    assert "chapter_directions 必须恰好 10 项" in joined
+    assert "不要使用第1-3章" in joined
+
+
 def test_blueprint_versions_round_trip_through_sqlite(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)

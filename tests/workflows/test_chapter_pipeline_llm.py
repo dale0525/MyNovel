@@ -117,6 +117,113 @@ def test_run_chapter_pipeline_uses_model_client_for_each_generation_stage(tmp_pa
     assert traces[0].metadata_["prompt_source"] == "original"
 
 
+def test_run_chapter_pipeline_normalizes_model_state_delta_shape(tmp_path) -> None:
+    class LooseStateDeltaModel(FakeChapterModel):
+        def complete(self, stage: str, messages, response_format: str) -> str:
+            if stage == "extract_state":
+                self.calls.append(stage)
+                self.messages_by_stage[stage] = messages
+                return """
+                {
+                  "chapter": {"number": 1, "title": "离开的召唤"},
+                  "changes": [
+                    {
+                      "category": "人物",
+                      "content": "莉拉主动离开村庄追查真相。"
+                    }
+                  ]
+                }
+                """
+            return super().complete(stage, messages, response_format)
+
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = LooseStateDeltaModel()
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+
+        reviewed = run_chapter_pipeline(
+            session,
+            chapter.id,
+            model_client=model,
+            model_name="章节模型",
+        )
+
+    assert reviewed.state_delta["chapter"] == 1
+    assert reviewed.state_delta["changes"] == [
+        {
+            "type": "人物",
+            "target": "待确认",
+            "change": "莉拉主动离开村庄追查真相。",
+            "risk": "low",
+        }
+    ]
+
+
+def test_run_chapter_pipeline_accepts_json_wrapped_in_model_explanation(tmp_path) -> None:
+    class WrappedAuditModel(FakeChapterModel):
+        def complete(self, stage: str, messages, response_format: str) -> str:
+            if stage == "audit":
+                self.calls.append(stage)
+                self.messages_by_stage[stage] = messages
+                return """
+                审计结果如下：
+                {
+                  "risk_level": "low",
+                  "issues": [],
+                  "suggestions": []
+                }
+                """
+            return super().complete(stage, messages, response_format)
+
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = WrappedAuditModel()
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+
+        reviewed = run_chapter_pipeline(
+            session,
+            chapter.id,
+            model_client=model,
+            model_name="章节模型",
+        )
+
+    assert reviewed.audit_report["risk_level"] == "low"
+
+
+def test_run_chapter_pipeline_falls_back_when_audit_json_is_unusable(tmp_path) -> None:
+    class EmptyAuditModel(FakeChapterModel):
+        def complete(self, stage: str, messages, response_format: str) -> str:
+            if stage == "audit":
+                self.calls.append(stage)
+                self.messages_by_stage[stage] = messages
+                return ""
+            return super().complete(stage, messages, response_format)
+
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = EmptyAuditModel()
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+
+        reviewed = run_chapter_pipeline(
+            session,
+            chapter.id,
+            model_client=model,
+            model_name="章节模型",
+        )
+
+    assert reviewed.status.value == "awaiting_review"
+    assert reviewed.audit_report["issues"][0]["title"] == "AI 审计返回格式异常，请人工重点检查本章"
+
+
 def test_chapter_plan_prompt_includes_saved_chapter_word_budget(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)

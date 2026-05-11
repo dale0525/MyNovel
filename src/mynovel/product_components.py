@@ -23,7 +23,9 @@ def render_model_setup_content(
         embedding_model="",
         rerank_use_llm_credentials=True,
     )
-    llm_ready = bool(config.llm_base_url.strip() and config.llm_model.strip())
+    llm_base_ready = bool(config.llm_base_url.strip())
+    llm_model_ready = bool(config.llm_model.strip())
+    llm_ready = bool(llm_base_ready and llm_model_ready)
     key_ready = bool(config.llm_api_key)
     embedding_ready = bool(config.embedding_model.strip())
     rerank_ready = bool(config.rerank_model and config.rerank_model.strip())
@@ -53,11 +55,11 @@ def render_model_setup_content(
             <div class="select-shell"><span class="check-dot">✓</span><span>OpenAI-compatible</span><span>⌄</span></div>
             <p>目前仅支持 OpenAI-compatible 接口（包括 OpenAI 官方与兼容服务）</p>
           </div>
-          {_input("llm_base_url", "接口地址", "https://api.example.com/v1", _field(config.llm_base_url), True, "✓")}
-          {_input("llm_api_key", "API Key", "", _field(config.llm_api_key), False, "✓", "password")}
+          {_input("llm_base_url", "接口地址", "https://api.example.com/v1", _field(config.llm_base_url), True, "✓" if llm_base_ready else "")}
+          {_input("llm_api_key", "访问密钥", "", _field(config.llm_api_key), False, "✓" if key_ready else "", "password")}
           <div class="model-divider"></div>
-          {_input("llm_model", "聊天模型", "gpt-4o-mini", _field(config.llm_model), True, "✓")}
-          {_input("embedding_model", "Embedding（可选）", "text-embedding-3-small", _field(config.embedding_model), True, "✓")}
+          {_input("llm_model", "聊天模型", "gpt-4o-mini", _field(config.llm_model), True, "✓" if llm_model_ready else "")}
+          {_input("embedding_model", "Embedding（可选）", "text-embedding-3-small", _field(config.embedding_model), True, "✓" if embedding_ready else "")}
           <input type="hidden" name="embedding_use_llm_credentials" value="{"1" if config.embedding_use_llm_credentials else "0"}">
           <input type="hidden" name="embedding_base_url" value="{_field(config.embedding_base_url)}">
           <input type="hidden" name="embedding_api_key" value="{_field(config.embedding_api_key)}">
@@ -66,7 +68,6 @@ def render_model_setup_content(
           <input type="hidden" name="rerank_base_url" value="{_field(config.rerank_base_url)}">
           <input type="hidden" name="rerank_api_key" value="{_field(config.rerank_api_key)}">
           <div class="model-actions">
-            <button class="secondary" type="submit">测试连接</button>
             <button type="submit">保存配置</button>
             <a class="button secondary" href="/provider-config">高级选项 ›</a>
           </div>
@@ -319,8 +320,8 @@ def _input(
 ) -> str:
     suffix_html = f"<span class='field-status'>{html.escape(suffix)}</span>" if suffix else ""
     return (
-        f'<div class="model-field"><label>{label}</label><div class="input-shell">'
-        f'<input name="{name}" type="{input_type}" value="{value}" '
+        f'<div class="model-field"><label for="{name}">{label}</label><div class="input-shell">'
+        f'<input id="{name}" name="{name}" type="{input_type}" value="{value}" '
         f'placeholder="{html.escape(placeholder, quote=True)}"{" required" if required else ""}>'
         f"{suffix_html}</div></div>"
     )
@@ -420,9 +421,14 @@ def _risk_item(level: str, title: str, copy: str, href: str = "#") -> str:
 
 def _render_value(value: Any) -> str:
     if isinstance(value, list):
-        if not value:
+        visible_items = [item for item in value if not _is_low_information_state_item(item)]
+        if not visible_items:
             return "<p>—</p>"
-        return "<ul>" + "".join(f"<li>{_render_nested(item)}</li>" for item in value[:6]) + "</ul>"
+        return (
+            "<ul>"
+            + "".join(f"<li>{_render_nested(item)}</li>" for item in visible_items[:6])
+            + "</ul>"
+        )
     if isinstance(value, dict):
         return (
             "<dl>"
@@ -439,10 +445,52 @@ def _render_value(value: Any) -> str:
 
 def _render_nested(value: Any) -> str:
     if isinstance(value, dict):
-        return "；".join(f"{_label_key(k)}：{_short_text(v)}" for k, v in value.items())
+        concise = _unknown_target_detail(value)
+        if concise:
+            return _short_text(concise)
+        return "；".join(
+            f"{_label_key(k)}：{_short_text(v)}"
+            for k, v in value.items()
+            if not _is_internal_state_key(k)
+        )
     if isinstance(value, list):
         return "、".join(_short_text(item) for item in value)
     return _short_text(value)
+
+
+def _is_internal_state_key(key: object) -> bool:
+    return str(key) in {"chapter_title", "updated_at", "accepted_at"}
+
+
+def _unknown_target_detail(value: dict) -> str:
+    if str(value.get("name") or value.get("target") or "").strip() != "待确认":
+        return ""
+    return str(value.get("detail") or value.get("change") or "").strip()
+
+
+def _is_low_information_state_item(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if str(value.get("name") or value.get("target") or "").strip() != "待确认":
+        return False
+    detail = str(value.get("detail") or value.get("change") or "").strip()
+    low_information_values = {
+        "人物",
+        "关系",
+        "地点",
+        "资源",
+        "伏笔",
+        "信息暴露",
+        "characters",
+        "relationships",
+        "locations",
+        "resources",
+        "foreshadowing",
+        "information_exposure",
+        "foreshadowing_and_info",
+        "foreshadowing_and_information",
+    }
+    return detail in low_information_values
 
 
 def _label_key(key: object) -> str:
@@ -453,12 +501,20 @@ def _label_key(key: object) -> str:
         "direction": "方向",
         "from": "起点",
         "goal": "目标",
+        "identity": "身份",
         "impact": "影响",
+        "mechanism": "机制",
+        "motivation": "动机",
         "name": "名称",
+        "personality": "性格",
+        "role": "定位",
+        "rules": "规则",
+        "setting": "背景",
         "summary": "摘要",
         "target": "对象",
         "title": "标题",
         "to": "终点",
+        "trait": "特质",
         "type": "类型",
     }
     return html.escape(labels.get(str(key), str(key)))

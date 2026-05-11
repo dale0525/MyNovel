@@ -47,6 +47,8 @@ def build_blueprint_messages(
         "JSON 字段必须包含：title_options, genre, audience, selling_points, protagonist, "
         "world, central_conflict, reader_promises, chapter_directions。"
         "title_options、selling_points、reader_promises、chapter_directions 使用数组；"
+        "chapter_directions 必须恰好 10 项，分别对应第1章到第10章，"
+        "每项使用 {title, goal} 对象，不要使用第1-3章、第4-8章这类范围规划；"
         "protagonist 和 world 使用对象。"
         "如果用户没有明确题材、目标读者或卖点，请根据一句灵感自行生成，不要反问。"
         "如果用户提供全书目标字数或单章目标字数，必须把它们作为规划约束。"

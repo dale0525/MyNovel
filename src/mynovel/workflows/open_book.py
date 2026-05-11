@@ -192,15 +192,25 @@ def _volume_plan_from_blueprint(book_id: int, content: dict) -> VolumePlan:
 def _chapter_title_and_goal(number: int, raw_direction: object) -> tuple[str, str]:
     fallback_title = f"第 {number:02d} 章"
     if isinstance(raw_direction, dict):
-        title = str(
-            raw_direction.get("title") or raw_direction.get("chapter") or fallback_title
-        ).strip()
+        raw_title = raw_direction.get("title")
+        raw_chapter = str(raw_direction.get("chapter") or "").strip()
+        title = str(raw_title or "").strip()
+        if not title:
+            title = raw_chapter if _is_single_chapter_heading(raw_chapter) else fallback_title
         goal = str(raw_direction.get("goal") or raw_direction.get("direction") or title).strip()
         return title, goal
     if raw_direction:
         text = str(raw_direction).strip()
-        return text[:24] or fallback_title, text
+        title = text[:24] if _is_single_chapter_heading(text) else fallback_title
+        return title or fallback_title, text
     return fallback_title, "按照开书方向推进主线，并保留章节结尾钩子。"
+
+
+def _is_single_chapter_heading(value: str) -> bool:
+    if not value:
+        return False
+    range_markers = ("-", "—", "–", "~", "～", "至", "到")
+    return not any(marker in value for marker in range_markers)
 
 
 def _list_values(value: object) -> list:
@@ -213,5 +223,5 @@ def _list_values(value: object) -> list:
 
 def _mapping_or_text_list(value: object) -> list:
     if isinstance(value, dict):
-        return [{"name": str(key), "detail": item} for key, item in value.items()]
+        return [value]
     return _list_values(value)

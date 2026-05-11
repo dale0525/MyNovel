@@ -18,6 +18,7 @@ from mynovel.domain.models import (
     RunTrace,
     VolumePlan,
 )
+from mynovel.home_views import render_empty_home, render_project_home
 from mynovel.i18n import DEFAULT_LOCALE, t
 from mynovel.product_components import (
     render_accepted_result,
@@ -66,9 +67,9 @@ def render_home(
     blueprints = blueprints or []
     configured = is_provider_config_complete(provider_config)
     if books:
-        main = _render_project_home(books, blueprints, configured, locale)
+        main = render_project_home(books, blueprints, configured, locale)
     else:
-        main = _render_empty_home(provider_config, configured, locale)
+        main = render_empty_home(provider_config, blueprints, configured, locale)
     return _page(
         title=t("app.title", locale),
         active="workspace",
@@ -419,110 +420,6 @@ def _page(
     )
 
 
-def _render_empty_home(
-    provider_config: ProviderConfig | None,
-    configured: bool,
-    locale: str,
-) -> str:
-    status = t("model.ready", locale) if configured else t("model.not_ready", locale)
-    return f"""
-      <section class="empty-hero">
-        <div class="book-mark">◇</div>
-        <h1>{t("home.empty_title", locale)}</h1>
-        <p>{t("home.empty_copy", locale)}</p>
-        <div class="actions center">
-          <a class="button" href="/books/new">{t("home.create_first", locale)}</a>
-          <a class="button secondary" href="/">{t("home.import_project", locale)}</a>
-        </div>
-        <div class="local-note"><strong>{t("home.local_first", locale)}</strong><span>{t("home.local_copy", locale)}</span></div>
-      </section>
-      <aside class="right-panel">
-        <h2>{t("home.recent_projects", locale)}</h2>
-        <div class="empty-box">{t("home.empty_recent", locale)}</div>
-        <h2>{t("model.status", locale)}</h2>
-        <div class="setup-card">
-          <strong>{status}</strong>
-          <a class="button secondary" href="/provider-config">{t("model.configure", locale)}</a>
-        </div>
-        <h2>快速上手</h2>
-        <div class="stack-list home-quickstart">
-          <p>了解创作流程 <span>›</span></p>
-          <p>创建第一个世界观 <span>›</span></p>
-          <p>导入已有项目 <span>›</span></p>
-        </div>
-        <h2>{t("trusted_state.title", locale)}</h2>
-        <p>{t("trusted_state.empty_hint", locale)}</p>
-      </aside>
-      <aside class="right-panel model-form hidden-model-form" id="model-form" aria-hidden="true">
-        <h2>{t("model.title", locale)}</h2>
-        {_render_provider_form(provider_config, locale)}
-      </aside>
-"""
-
-
-def _render_project_home(
-    books: list[Book],
-    blueprints: list[OpenBookBlueprint],
-    configured: bool,
-    locale: str,
-) -> str:
-    rows = "".join(
-        f"<a class='project-row' href='/book/{book.id}'><strong>{html.escape(book.title)}</strong>"
-        f"<span>{_book_status_label(book.status, locale)}</span></a>"
-        for book in books
-    )
-    blueprint_note = ""
-    if blueprints:
-        latest = blueprints[0]
-        blueprint_note = (
-            f"<a class='project-row' href='/blueprint/{latest.id}'><strong>{t('blueprint.review_title', locale)}</strong>"
-            f"<span>{blueprint_status_label(latest.status, locale)}</span></a>"
-        )
-    model_status = t("model.ready", locale) if configured else t("model.not_ready", locale)
-    return f"""
-      <section class="main-panel single">
-        <div class="panel-head">
-          <div>
-            <h1>{t("home.workspace_title", locale)}</h1>
-            <p>{t("home.workspace_copy", locale)}</p>
-          </div>
-          <a class="button" href="/books/new">{t("home.create_first", locale)}</a>
-        </div>
-        <div class="project-list">{rows}{blueprint_note}</div>
-        <div class="setup-card"><strong>{model_status}</strong><a class="button secondary" href="/provider-config">AI API 设置</a></div>
-      </section>
-"""
-
-
-def _render_provider_form(config: ProviderConfig | None, locale: str) -> str:
-    config = config or ProviderConfig(
-        llm_base_url="",
-        llm_model="",
-        embedding_use_llm_credentials=True,
-        embedding_base_url="",
-        embedding_model="",
-        rerank_use_llm_credentials=True,
-    )
-    embedding_checked = " checked" if config.embedding_use_llm_credentials else ""
-    rerank_checked = " checked" if config.rerank_use_llm_credentials else ""
-    return f"""
-      <form method="post" action="/provider-config" class="compact-form">
-        {_input("llm_base_url", t("provider.llm_base_url", locale), "填写服务接口地址", _field(config.llm_base_url), True)}
-        {_input("llm_api_key", t("provider.llm_api_key", locale), "", _field(config.llm_api_key), False, "password")}
-        {_input("llm_model", t("provider.llm_model", locale), "填写对话模型名称", _field(config.llm_model), True)}
-        {_input("embedding_model", t("provider.embedding_model", locale), "填写检索模型名称", _field(config.embedding_model), True)}
-        <label class="inline-check"><input name="embedding_use_llm_credentials" type="checkbox" value="1"{embedding_checked}>{t("provider.embedding_use_llm", locale)}</label>
-        {_input("embedding_base_url", t("provider.embedding_base_url", locale), "可留空复用上方接口", _field(config.embedding_base_url))}
-        {_input("embedding_api_key", t("provider.embedding_api_key", locale), "", _field(config.embedding_api_key), False, "password")}
-        {_input("rerank_model", t("provider.rerank_model", locale), "可选", _field(config.rerank_model))}
-        <label class="inline-check"><input name="rerank_use_llm_credentials" type="checkbox" value="1"{rerank_checked}>{t("provider.rerank_use_llm", locale)}</label>
-        {_input("rerank_base_url", t("provider.rerank_base_url", locale), "可选", _field(config.rerank_base_url))}
-        {_input("rerank_api_key", t("provider.rerank_api_key", locale), "", _field(config.rerank_api_key), False, "password")}
-        <button type="submit">{t("provider.save", locale)}</button>
-      </form>
-"""
-
-
 def _render_blueprint_review(
     blueprint: OpenBookBlueprint, content: dict[str, Any], locale: str
 ) -> str:
@@ -700,7 +597,7 @@ def _render_batch_action(book: Book, chapter: Chapter | None, locale: str) -> st
     return f"""
       <form method="post" action="/run-chapter-batch" class="compact-form">
         <input type="hidden" name="book_id" value="{book.id}">
-        <label>{t("batch.limit", locale)}<input name="limit" type="number" min="1" max="10" value="5"></label>
+        <label>{t("batch.limit", locale)}<input name="limit" type="number" min="1" max="10" value="2"></label>
         <button type="submit">{t("batch.run", locale)}</button>
       </form>
 """
@@ -899,9 +796,14 @@ def _field(value: str | None) -> str:
 
 def _render_value(value: Any) -> str:
     if isinstance(value, list):
-        if not value:
+        visible_items = [item for item in value if not _is_low_information_state_item(item)]
+        if not visible_items:
             return "<p>—</p>"
-        return "<ul>" + "".join(f"<li>{_render_nested(item)}</li>" for item in value[:6]) + "</ul>"
+        return (
+            "<ul>"
+            + "".join(f"<li>{_render_nested(item)}</li>" for item in visible_items[:6])
+            + "</ul>"
+        )
     if isinstance(value, dict):
         return (
             "<dl>"
@@ -918,10 +820,52 @@ def _render_value(value: Any) -> str:
 
 def _render_nested(value: Any) -> str:
     if isinstance(value, dict):
-        return "；".join(f"{_label_key(k)}：{html.escape(str(v))}" for k, v in value.items())
+        concise = _unknown_target_detail(value)
+        if concise:
+            return html.escape(concise)
+        return "；".join(
+            f"{_label_key(k)}：{html.escape(str(v))}"
+            for k, v in value.items()
+            if not _is_internal_state_key(k)
+        )
     if isinstance(value, list):
         return "、".join(html.escape(str(item)) for item in value)
     return html.escape(str(value))
+
+
+def _is_internal_state_key(key: object) -> bool:
+    return str(key) in {"chapter_title", "updated_at", "accepted_at"}
+
+
+def _unknown_target_detail(value: dict) -> str:
+    if str(value.get("name") or value.get("target") or "").strip() != "待确认":
+        return ""
+    return str(value.get("detail") or value.get("change") or "").strip()
+
+
+def _is_low_information_state_item(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if str(value.get("name") or value.get("target") or "").strip() != "待确认":
+        return False
+    detail = str(value.get("detail") or value.get("change") or "").strip()
+    low_information_values = {
+        "人物",
+        "关系",
+        "地点",
+        "资源",
+        "伏笔",
+        "信息暴露",
+        "characters",
+        "relationships",
+        "locations",
+        "resources",
+        "foreshadowing",
+        "information_exposure",
+        "foreshadowing_and_info",
+        "foreshadowing_and_information",
+    }
+    return detail in low_information_values
 
 
 def _label_key(key: object) -> str:
@@ -934,9 +878,17 @@ def _label_key(key: object) -> str:
         "goal": "目标",
         "name": "名称",
         "hook": "钩子",
+        "identity": "身份",
         "impact": "影响",
+        "mechanism": "机制",
+        "motivation": "动机",
+        "personality": "性格",
         "premise": "前提",
+        "role": "定位",
+        "rules": "规则",
+        "setting": "背景",
         "detail": "内容",
+        "trait": "特质",
         "audience": "目标读者",
         "genre": "题材",
         "summary": "摘要",

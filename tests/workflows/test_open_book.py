@@ -3,7 +3,11 @@ from sqlmodel import Session
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import BlueprintStatus, ChapterStatus, OpenBookBlueprint
-from mynovel.domain.repositories import list_chapters_for_book, list_volume_plans_for_book
+from mynovel.domain.repositories import (
+    get_latest_canon,
+    list_chapters_for_book,
+    list_volume_plans_for_book,
+)
 from mynovel.workflows.open_book import (
     create_draft_book,
     create_draft_book_from_blueprint,
@@ -105,6 +109,63 @@ def test_create_draft_book_from_blueprint_keeps_target_word_counts(tmp_path) -> 
 
     assert chapters[0].plan["word_budget"] == 3200
     assert chapters[-1].plan["word_budget"] == 3200
+
+
+def test_create_draft_book_from_blueprint_does_not_use_range_as_chapter_title(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    blueprint = OpenBookBlueprint(
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜图书馆"],
+            "genre": "玄幻",
+            "audience": "男频网文读者",
+            "chapter_directions": [
+                {"chapter": "第1-3章：引子", "direction": "林墨接到第一份异常档案。"}
+            ],
+        },
+        raw_response="{}",
+    )
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, blueprint, selected_title="长夜图书馆")
+        chapters = list_chapters_for_book(session, book.id)
+
+    assert chapters[0].title == "第 01 章"
+    assert chapters[0].plan["goal"] == "林墨接到第一份异常档案。"
+
+
+def test_create_draft_book_from_blueprint_keeps_blueprint_objects_readable_in_canon(
+    tmp_path,
+) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    blueprint = OpenBookBlueprint(
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜图书馆"],
+            "genre": "玄幻",
+            "audience": "男频网文读者",
+            "world": {"name": "街尾蛇城", "rules": "历史守恒"},
+            "protagonist": {"name": "林墨", "role": "档案修复师", "trait": "触觉共感"},
+        },
+        raw_response="{}",
+    )
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, blueprint, selected_title="长夜图书馆")
+        canon = get_latest_canon(session, book.id)
+
+    assert canon is not None
+    assert canon.book_id == book.id
+    assert canon.content["world_rules"] == [{"name": "街尾蛇城", "rules": "历史守恒"}]
+    assert canon.content["characters"] == [
+        {"name": "林墨", "role": "档案修复师", "trait": "触觉共感"}
+    ]
 
 
 def test_create_draft_book_from_blueprint_creates_volume_plan(tmp_path) -> None:
