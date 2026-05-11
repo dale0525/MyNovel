@@ -3,6 +3,7 @@ import tomllib
 
 from mynovel.dev_server import (
     _chapter_model_client_from_provider_config,
+    _parse_batch_limit,
     _parse_book_state_id,
     _parse_book_export,
     build_health_payload,
@@ -98,6 +99,13 @@ def test_book_export_route_parser_extracts_book_id_and_format() -> None:
     assert _parse_book_export("/book/42/export.md") == (42, "markdown")
     assert _parse_book_export("/book/42/export.json") == (42, "json")
     assert _parse_book_export("/book/42/export.pdf") == (0, "")
+
+
+def test_parse_batch_limit_clamps_to_safe_range() -> None:
+    assert _parse_batch_limit({"limit": "5"}) == 5
+    assert _parse_batch_limit({"limit": "0"}) == 1
+    assert _parse_batch_limit({"limit": "99"}) == 10
+    assert _parse_batch_limit({"limit": "bad"}) == 1
 
 
 def test_home_page_keeps_language_product_focused_with_blueprints_present() -> None:

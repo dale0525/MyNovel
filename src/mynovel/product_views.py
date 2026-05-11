@@ -226,6 +226,8 @@ def render_book_workspace(
       <aside class="right-panel">
         <h2>{t("dashboard.next_action", locale)}</h2>
         {_render_next_action(active_chapter, locale)}
+        <h2>{t("batch.title", locale)}</h2>
+        {_render_batch_action(book, active_chapter, locale)}
         <h2>{t("dashboard.recent_trace", locale)}</h2>
         {_render_trace_list(traces, locale)}
       </aside>
@@ -587,6 +589,20 @@ def _render_next_action(chapter: Chapter | None, locale: str) -> str:
       <form method="post" action="/run-chapter">
         <input type="hidden" name="chapter_id" value="{chapter.id}">
         <button type="submit">{t("action.run_chapter", locale)}</button>
+      </form>
+"""
+
+
+def _render_batch_action(book: Book, chapter: Chapter | None, locale: str) -> str:
+    if book.status == BookStatus.PAUSED:
+        return f"<p>{t('batch.paused', locale)}</p>"
+    if chapter is None or book.id is None:
+        return f"<p>{t('dashboard.all_done', locale)}</p>"
+    return f"""
+      <form method="post" action="/run-chapter-batch" class="compact-form">
+        <input type="hidden" name="book_id" value="{book.id}">
+        <label>{t("batch.limit", locale)}<input name="limit" type="number" min="1" max="10" value="5"></label>
+        <button type="submit">{t("batch.run", locale)}</button>
       </form>
 """
 

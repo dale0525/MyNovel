@@ -37,6 +37,7 @@ from mynovel.product_views import (
     render_new_book_page,
     render_trusted_state_page,
 )
+from mynovel.workflows.chapter_batch import run_chapter_batch
 from mynovel.workflows.chapter_pipeline import (
     OpenAIChapterModelClient,
     approve_chapter,
@@ -166,6 +167,9 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 return
             if parsed.path == "/run-chapter":
                 self._run_chapter(state.db_path)
+                return
+            if parsed.path == "/run-chapter-batch":
+                self._run_chapter_batch(state.db_path)
                 return
             if parsed.path == "/request-revision":
                 self._request_revision(state.db_path)
@@ -434,6 +438,28 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     return
             self._redirect(f"/chapter/{chapter.id}")
 
+        def _run_chapter_batch(self, db_path: Path) -> None:
+            form = self._read_form()
+            book_id = int(form.get("book_id", "0"))
+            limit = _parse_batch_limit(form)
+            provider_config = _load_provider_config(db_path)
+            model_client, model_name = _chapter_model_client_from_provider_config(provider_config)
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                try:
+                    run_chapter_batch(
+                        session,
+                        book_id,
+                        limit,
+                        model_client=model_client,
+                        model_name=model_name,
+                    )
+                except ValueError:
+                    self.send_error(HTTPStatus.BAD_REQUEST)
+                    return
+            self._redirect(f"/book/{book_id}")
+
         def _request_revision(self, db_path: Path) -> None:
             form = self._read_form()
             chapter_id = int(form.get("chapter_id", "0"))
@@ -662,6 +688,14 @@ def _parse_book_export(path: str) -> tuple[int, str]:
         return int(parts[1]), export_format
     except ValueError:
         return 0, ""
+
+
+def _parse_batch_limit(form: dict[str, str]) -> int:
+    try:
+        value = int(form.get("limit", "1"))
+    except ValueError:
+        return 1
+    return min(10, max(1, value))
 
 
 def _chapter_model_client_from_provider_config(

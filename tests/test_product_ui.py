@@ -250,3 +250,53 @@ def test_book_workspace_exposes_whole_book_export_actions() -> None:
     assert "导出整本书" in page
     assert "/book/1/export.md" in page
     assert "/book/1/export.json" in page
+
+
+def test_book_workspace_exposes_batch_chapter_production_action() -> None:
+    book = Book(
+        id=1,
+        title="幽谷回声",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapters = [
+        Chapter(
+            id=1,
+            book_id=1,
+            number=1,
+            title="离开的召唤",
+            status=ChapterStatus.PLANNED,
+        )
+    ]
+
+    page = render_book_workspace(book, chapters, Canon(id=1, book_id=1, version=1, content={}), [])
+
+    assert "连续生产" in page
+    assert 'action="/run-chapter-batch"' in page
+    assert 'name="limit"' in page
+    assert 'name="book_id" value="1"' in page
+
+
+def test_book_workspace_hides_batch_action_when_book_is_paused() -> None:
+    book = Book(
+        id=1,
+        title="幽谷回声",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PAUSED,
+    )
+    chapters = [
+        Chapter(
+            id=1,
+            book_id=1,
+            number=1,
+            title="离开的召唤",
+            status=ChapterStatus.AWAITING_REVIEW,
+        )
+    ]
+
+    page = render_book_workspace(book, chapters, Canon(id=1, book_id=1, version=1, content={}), [])
+
+    assert "等待人工审核" in page
+    assert 'action="/run-chapter-batch"' not in page
