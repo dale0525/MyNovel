@@ -54,7 +54,7 @@ def render_app_page(
         {render_nav_item("/", "角色", "♙", active == "characters")}
         {render_nav_item("/", "世界观", "◎", active == "world")}
         {render_nav_item("/", "分析", "▥", active == "analysis")}
-        {render_nav_item("/", t("nav.review", locale), "✓", active == "review")}
+        {render_nav_item("/review", t("nav.review", locale), "✓", active == "review")}
       </div>
       <div class="nav-bottom">
         {render_nav_item("/provider-config", "模型配置", "◈", active == "model")}

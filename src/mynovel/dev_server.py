@@ -42,6 +42,7 @@ from mynovel.product_views import (
     render_trusted_state_page,
 )
 from mynovel.quality_views import render_quality_center
+from mynovel.review_navigation import review_destination as _review_destination
 from mynovel.update_server import handle_check_update, handle_stage_update
 from mynovel.update_views import render_update_page
 from mynovel.word_target_server import save_book_word_targets_from_form
@@ -63,7 +64,7 @@ from mynovel.workflows.chapter_pipeline import (
     run_chapter_pipeline,
 )
 from mynovel.workflows.book_export import export_book_json, export_book_markdown
-from mynovel.workflows.open_book import create_draft_book_from_blueprint
+from mynovel.workflows.open_book import create_review_book_from_blueprint
 from mynovel.workflows.open_book_blueprint import (
     build_blueprint_messages,
     create_blueprint_job,
@@ -130,6 +131,8 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     render_model_setup_page(state.db_path, _load_provider_config(state.db_path))
                 )
                 return
+            if parsed.path == "/review":
+                return self._redirect(_review_destination(state.db_path))
             if parsed.path.startswith("/book/") and parsed.path.endswith("/state"):
                 self._send_trusted_state_page(state.db_path, _parse_book_state_id(parsed.path))
                 return
@@ -453,6 +456,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             blueprint_id = int(form.get("blueprint_id", "0"))
             selected_title = form.get("selected_title", "")
             provider_config = _load_provider_config(db_path)
+            model_client, model_name = _chapter_model_client_from_provider_config(provider_config)
             engine = create_engine_for_path(db_path)
             create_db_and_tables(engine)
             with Session(engine) as session:
@@ -464,10 +468,12 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     self.send_error(HTTPStatus.BAD_REQUEST)
                     return
                 try:
-                    book = create_draft_book_from_blueprint(
+                    _book, chapter = create_review_book_from_blueprint(
                         session,
                         blueprint,
                         selected_title=selected_title,
+                        model_client=model_client,
+                        model_name=model_name,
                     )
                 except ValueError:
                     self._send_html(
@@ -480,7 +486,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                         status=HTTPStatus.BAD_REQUEST,
                     )
                     return
-            self._redirect(f"/book/{book.id}")
+            self._redirect(f"/chapter/{chapter.id or 0}")
 
         def _run_chapter(self, db_path: Path) -> None:
             chapter_id = int(self._read_form().get("chapter_id", "0"))

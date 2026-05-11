@@ -345,7 +345,49 @@ def test_trusted_state_page_exposes_canon_lock_gate() -> None:
     assert "审计风险" in page
     assert "强制 Gate" in page
     assert "前 10 章节奏" in page
-    assert "锁定可信设定并开始生产" in page
+    assert "可信设定已锁定" in page
+    assert "当前状态：<strong>已锁定</strong>" in page
+    assert "当前为可信设定提案（未锁定）" not in page
+    assert "Canon 提案 · 待确认" not in page
+    assert "锁定可信设定并开始生产" not in page
+
+
+def test_trusted_state_page_uses_current_book_audit_risks() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+    canon = Canon(id=1, book_id=1, version=1, content={})
+    chapters = [
+        Chapter(
+            id=7,
+            book_id=1,
+            number=1,
+            title="离开的召唤",
+            status=ChapterStatus.AWAITING_REVIEW,
+            audit_report={
+                "risk_level": "medium",
+                "issues": [
+                    {
+                        "severity": "medium",
+                        "title": "钩子偏弱",
+                        "detail": "结尾问题不足以推动下一章。",
+                        "resolved": False,
+                    }
+                ],
+            },
+        )
+    ]
+
+    page = render_trusted_state_page(book, canon, chapters)
+
+    assert "中 1" in page
+    assert "钩子偏弱" in page
+    assert "第 01 章《离开的召唤》" in page
+    assert "世界规则边界模糊" not in page
 
 
 def test_book_workspace_links_to_trusted_state_page() -> None:
@@ -361,6 +403,7 @@ def test_book_workspace_links_to_trusted_state_page() -> None:
 
     assert "查看可信设定" in page
     assert "/book/1/state" in page
+    assert 'href="/review"' in page
     assert "质量增强" in page
     assert "/book/1/quality" in page
 

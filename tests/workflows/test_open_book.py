@@ -2,9 +2,13 @@ import pytest
 from sqlmodel import Session
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import BlueprintStatus, OpenBookBlueprint
+from mynovel.domain.models import BlueprintStatus, ChapterStatus, OpenBookBlueprint
 from mynovel.domain.repositories import list_chapters_for_book, list_volume_plans_for_book
-from mynovel.workflows.open_book import create_draft_book, create_draft_book_from_blueprint
+from mynovel.workflows.open_book import (
+    create_draft_book,
+    create_draft_book_from_blueprint,
+    create_review_book_from_blueprint,
+)
 
 
 def test_create_draft_book(tmp_path) -> None:
@@ -137,6 +141,35 @@ def test_create_draft_book_from_blueprint_creates_volume_plan(tmp_path) -> None:
     assert volume_plans[0].core_conflict == "主角必须在追捕者到来前恢复禁书馆。"
     assert volume_plans[0].pacing_curve == ["开局钩子", "中段反转", "卷末危机"]
     assert volume_plans[0].commitments == ["持续禁书谜题", "关系信任逐章推进"]
+
+
+def test_create_review_book_from_blueprint_runs_first_chapter_to_review(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    blueprint = OpenBookBlueprint(
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜图书馆"],
+            "genre": "玄幻",
+            "audience": "男频网文读者",
+            "chapter_directions": [{"title": "残页召唤", "goal": "主角得到第一张残页。"}],
+        },
+        raw_response="{}",
+    )
+
+    with Session(engine) as session:
+        book, chapter = create_review_book_from_blueprint(
+            session,
+            blueprint,
+            selected_title="长夜图书馆",
+        )
+
+    assert book.title == "长夜图书馆"
+    assert chapter.number == 1
+    assert chapter.status == ChapterStatus.AWAITING_REVIEW
+    assert chapter.audit_report["issues"]
 
 
 def test_create_draft_book_from_blueprint_requires_selected_title(tmp_path) -> None:

@@ -3,7 +3,13 @@ from typing import Any
 from sqlmodel import Session
 
 from mynovel.domain.models import Book, BookStatus, Canon, Chapter, OpenBookBlueprint, VolumePlan
-from mynovel.domain.repositories import add_book, add_canon, add_chapter, add_volume_plan
+from mynovel.domain.repositories import (
+    add_book,
+    add_canon,
+    add_chapter,
+    add_volume_plan,
+    list_chapters_for_book,
+)
 from mynovel.word_targets import CHAPTER_WORD_COUNT_KEY, target_word_counts_from_text
 
 
@@ -72,6 +78,33 @@ def create_draft_book_from_blueprint(
 
     session.refresh(book)
     return book
+
+
+def create_review_book_from_blueprint(
+    session: Session,
+    blueprint: OpenBookBlueprint,
+    selected_title: str,
+    model_client: Any | None = None,
+    model_name: str | None = None,
+) -> tuple[Book, Chapter]:
+    book = create_draft_book_from_blueprint(session, blueprint, selected_title)
+    if book.id is None:
+        raise ValueError("Book must be persisted before starting production.")
+    chapters = list_chapters_for_book(session, book.id)
+    first_chapter = chapters[0] if chapters else None
+    if first_chapter is None or first_chapter.id is None:
+        raise ValueError("Book must have at least one planned chapter.")
+
+    from mynovel.workflows.chapter_pipeline import run_chapter_pipeline
+
+    chapter = run_chapter_pipeline(
+        session,
+        first_chapter.id,
+        model_client=model_client,
+        model_name=model_name,
+    )
+    session.refresh(book)
+    return book, chapter
 
 
 def title_options_from_blueprint(content: dict) -> list[str]:

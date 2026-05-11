@@ -304,19 +304,23 @@ def render_trusted_state_page(
     locale: str = DEFAULT_LOCALE,
 ) -> str:
     book_id = book.id or 0
+    locked = book.status in {BookStatus.CANON_LOCKED, BookStatus.PRODUCING, BookStatus.PAUSED}
+    status_label = t("trusted_state.locked", locale) if locked else "Canon 提案 · 待确认"
+    status_class = "trusted" if locked else "pending"
+    page_title = t("trusted_state.title", locale) if locked else "开书定盘"
     main = f"""
       {_render_book_sidebar(book, chapters, locale)}
       <section class="main-panel canon-gate-main">
         <div class="panel-head">
           <div>
-            <h1>开书定盘</h1>
+            <h1>{page_title}</h1>
             <p>{t("trusted_state.page_copy", locale)}</p>
           </div>
-          <span class="status-pill pending">Canon 提案 · 待确认</span>
+          <span class="status-pill {status_class}">{status_label}</span>
         </div>
-        {render_canon_gate_main(canon)}
+        {render_canon_gate_main(canon, locked)}
       </section>
-      {render_canon_gate_aside(book_id, canon)}
+      {render_canon_gate_aside(book_id, canon, chapters, locked)}
 """
     return _page(
         title=t("trusted_state.title", locale),

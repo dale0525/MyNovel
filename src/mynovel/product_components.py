@@ -100,7 +100,7 @@ def render_model_setup_content(
 """
 
 
-def render_canon_gate_main(canon: Canon | None) -> str:
+def render_canon_gate_main(canon: Canon | None, locked: bool = False) -> str:
     if canon is None:
         return "<p>还没有可信设定。</p>"
     content = canon.content
@@ -114,48 +114,84 @@ def render_canon_gate_main(canon: Canon | None) -> str:
         ("章节摘要", content.get("chapter_summaries", [])),
         ("变化历史", content.get("state_history", [])),
     ]
+    warning = (
+        (
+            f'<div class="canon-warning">当前可信设定已锁定：版本 {canon.version} 是生产线事实源，'
+            "只有通过审核的章节变化才能继续写入。</div>"
+        )
+        if locked
+        else (
+            '<div class="canon-warning">当前为可信设定提案（未锁定）：该内容为 AI 生成的初始设定，仅供参考。'
+            "只有在你确认并锁定后，才会成为可信事实源。</div>"
+        )
+    )
     return (
-        '<div class="canon-warning">当前为可信设定提案（未锁定）：该内容为 AI 生成的初始设定，仅供参考。'
-        "只有在你确认并锁定后，才会成为可信事实源。</div>"
-        "<div class='state-sections canon-state-grid'>"
+        warning
+        + "<div class='state-sections canon-state-grid'>"
         + "".join(
             f"<section class='data-card'><h2>{label}</h2>{_render_value(value)}</section>"
             for label, value in cards
         )
         + "</div>"
-        f"<section class='table-card rhythm-board'><h2>前 10 章节奏</h2>{_render_chapter_rhythm(content)}</section>"
+        + f"<section class='table-card rhythm-board'><h2>前 10 章节奏</h2>{_render_chapter_rhythm(content)}</section>"
     )
 
 
-def render_canon_gate_aside(book_id: int, canon: Canon | None) -> str:
+def render_canon_gate_aside(
+    book_id: int,
+    canon: Canon | None,
+    chapters: list[Chapter],
+    locked: bool = False,
+) -> str:
     _ = canon
+    risk_items = _audit_risk_items(chapters)
+    counts = {"high": 0, "medium": 0, "low": 0, "tip": 0}
+    for item in risk_items:
+        counts[item["level_key"]] += 1
+    risk_rows = (
+        "".join(
+            _risk_item(item["level"], item["title"], item["copy"], item["href"])
+            for item in risk_items[:6]
+        )
+        if risk_items
+        else "<p>暂无未处理审计风险。</p>"
+    )
+    status = "已锁定" if locked else "尚未锁定"
+    gate_copy = (
+        "可信设定已经锁定，后续只能通过章节审核写入新的状态变化。"
+        if locked
+        else "必须由作者确认并锁定可信设定，生产线才能解锁。"
+    )
+    actions = (
+        f"""
+          <a class="button secondary" href="/book/{book_id}">返回项目</a>
+          <a class="button" href="/review">进入审核</a>
+"""
+        if locked
+        else f"""
+          <a class="button secondary" href="/book/{book_id}">返回修改</a>
+          <a class="button secondary" href="/book/{book_id}/state">让 AI 修复</a>
+          <a class="button" href="/book/{book_id}">锁定可信设定并开始生产</a>
+"""
+    )
     return f"""
       <aside class="right-panel audit-risk-panel">
         <section>
           <h2>审计风险 <span class="muted">(AI + 规则检测)</span></h2>
           <div class="risk-summary">
-            <span class="risk high">高 3</span>
-            <span class="risk medium">中 2</span>
-            <span class="risk low">低 2</span>
-            <span>提示 3</span>
+            <span class="risk high">高 {counts["high"]}</span>
+            <span class="risk medium">中 {counts["medium"]}</span>
+            <span class="risk low">低 {counts["low"]}</span>
+            <span>提示 {counts["tip"]}</span>
           </div>
-          <div class="risk-list">
-            {_risk_item("高", "世界规则边界模糊", "时间法则与生死规则在部分情境下可能冲突。")}
-            {_risk_item("高", "势力动机不清", "灰烬教团的核心目标与手段尚未明确。")}
-            {_risk_item("中", "角色动机跳跃", "主角加入队伍的动机过弱，缺少关键触发。")}
-            {_risk_item("低", "地点名称一致性提示", "黑石峡谷曾出现多种写法。")}
-          </div>
+          <div class="risk-list">{risk_rows}</div>
         </section>
         <section class="force-gate">
           <h2>强制 Gate</h2>
-          <p>必须由作者确认并锁定可信设定，生产线才能解锁。</p>
-          <p>当前状态：<strong>尚未锁定</strong></p>
+          <p>{gate_copy}</p>
+          <p>当前状态：<strong>{status}</strong></p>
         </section>
-        <div class="gate-actions">
-          <a class="button secondary" href="/book/{book_id}">返回修改</a>
-          <a class="button secondary" href="/book/{book_id}/state">让 AI 修复</a>
-          <a class="button" href="/book/{book_id}">锁定可信设定并开始生产</a>
-        </div>
+        <div class="gate-actions">{actions}</div>
       </aside>
 """
 
@@ -326,12 +362,56 @@ def _render_chapter_rhythm(content: dict[str, Any]) -> str:
     return "<table><tbody>" + "".join(rows) + "</tbody></table>"
 
 
-def _risk_item(level: str, title: str, copy: str) -> str:
+def _audit_risk_items(chapters: list[Chapter]) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for chapter in chapters:
+        report = chapter.audit_report or {}
+        issues = report.get("issues", [])
+        if not isinstance(issues, list):
+            continue
+        for issue in issues:
+            if not isinstance(issue, dict) or issue.get("resolved"):
+                continue
+            level, level_key = _risk_level(issue.get("severity") or report.get("risk_level"))
+            title = str(issue.get("title") or issue.get("type") or "未命名审计风险").strip()
+            detail = str(
+                issue.get("detail")
+                or issue.get("description")
+                or issue.get("message")
+                or issue.get("suggested_fix")
+                or "需要人工确认。"
+            ).strip()
+            source = f"第 {chapter.number:02d} 章《{chapter.title}》"
+            items.append(
+                {
+                    "level": level,
+                    "level_key": level_key,
+                    "title": title,
+                    "copy": f"{source}：{detail}",
+                    "href": f"/chapter/{chapter.id or 0}",
+                }
+            )
+    order = {"high": 0, "medium": 1, "low": 2, "tip": 3}
+    return sorted(items, key=lambda item: order[item["level_key"]])
+
+
+def _risk_level(value: object) -> tuple[str, str]:
+    normalized = str(value or "").lower()
+    if normalized in {"high", "高"}:
+        return "高", "high"
+    if normalized in {"medium", "mid", "中"}:
+        return "中", "medium"
+    if normalized in {"low", "低"}:
+        return "低", "low"
+    return "提示", "tip"
+
+
+def _risk_item(level: str, title: str, copy: str, href: str = "#") -> str:
     level_class = {"高": "high", "中": "medium", "低": "low"}.get(level, "low")
     return (
         f'<article><span class="risk-badge {level_class}">{html.escape(level)}</span>'
         f"<div><strong>{html.escape(title)}</strong><p>{html.escape(copy)}</p></div>"
-        '<a class="button secondary" href="#">查看</a></article>'
+        f'<a class="button secondary" href="{html.escape(href, quote=True)}">查看</a></article>'
     )
 
 

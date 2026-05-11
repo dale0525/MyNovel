@@ -8,6 +8,7 @@ from mynovel.dev_server import (
     _parse_book_export,
     _parse_book_quality_id,
     _parse_book_state_id,
+    _review_destination,
     build_health_payload,
     render_blueprint_page,
     render_home,
@@ -15,8 +16,16 @@ from mynovel.dev_server import (
 )
 from sqlmodel import Session, select
 
-from mynovel.db import create_engine_for_path
-from mynovel.domain.models import Book, BlueprintStatus, OpenBookBlueprint, ProviderConfig
+from mynovel.db import create_db_and_tables, create_engine_for_path
+from mynovel.domain.models import (
+    Book,
+    BookStatus,
+    BlueprintStatus,
+    Chapter,
+    ChapterStatus,
+    OpenBookBlueprint,
+    ProviderConfig,
+)
 from mynovel.i18n import t
 
 
@@ -110,6 +119,34 @@ def test_book_export_route_parser_extracts_book_id_and_format() -> None:
     assert _parse_book_export("/book/42/export.md") == (42, "markdown")
     assert _parse_book_export("/book/42/export.json") == (42, "json")
     assert _parse_book_export("/book/42/export.pdf") == (0, "")
+
+
+def test_review_destination_prefers_current_awaiting_review_chapter(tmp_path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = Book(
+            title="长夜图书馆",
+            genre="奇幻",
+            audience="连载读者",
+            status=BookStatus.PRODUCING,
+        )
+        session.add(book)
+        session.commit()
+        session.refresh(book)
+        session.add(
+            Chapter(
+                id=9,
+                book_id=book.id,
+                number=1,
+                title="离开的召唤",
+                status=ChapterStatus.AWAITING_REVIEW,
+            )
+        )
+        session.commit()
+
+    assert _review_destination(db_path) == "/chapter/9"
 
 
 def test_parse_batch_limit_clamps_to_safe_range() -> None:
