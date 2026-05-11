@@ -171,7 +171,10 @@ def render_canon_gate_aside(
         else f"""
           <a class="button secondary" href="/book/{book_id}">返回修改</a>
           <a class="button secondary" href="/book/{book_id}/state">让 AI 修复</a>
-          <a class="button" href="/book/{book_id}">锁定可信设定并开始生产</a>
+          <form method="post" action="/lock-canon" class="compact-form">
+            <input type="hidden" name="book_id" value="{book_id}">
+            <button type="submit">锁定可信设定并开始生产</button>
+          </form>
 """
     )
     return f"""

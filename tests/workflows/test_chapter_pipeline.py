@@ -4,7 +4,7 @@ from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import BookStatus, BlueprintStatus, ChapterStatus, OpenBookBlueprint
 from mynovel.domain.repositories import get_latest_canon, list_chapters_for_book
 from mynovel.workflows.chapter_pipeline import approve_chapter, run_chapter_pipeline
-from mynovel.workflows.open_book import create_draft_book_from_blueprint
+from mynovel.workflows.open_book import create_draft_book_from_blueprint, lock_canon_foundation
 
 
 def test_accepting_blueprint_creates_locked_foundation_and_ten_chapters(tmp_path) -> None:
@@ -30,12 +30,36 @@ def test_accepting_blueprint_creates_locked_foundation_and_ten_chapters(tmp_path
     assert chapters[0].status == ChapterStatus.PLANNED
 
 
+def test_chapter_pipeline_requires_locked_foundation(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(
+            session,
+            _blueprint(),
+            selected_title="长夜图书馆",
+            lock_foundation=False,
+        )
+        chapter = list_chapters_for_book(session, book.id)[0]
+
+        try:
+            run_chapter_pipeline(session, chapter.id)
+        except ValueError as error:
+            message = str(error)
+        else:
+            message = ""
+
+    assert "Trusted state must be locked" in message
+
+
 def test_run_chapter_pipeline_prepares_human_review(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
 
     with Session(engine) as session:
         book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        lock_canon_foundation(session, book.id)
         chapter = list_chapters_for_book(session, book.id)[0]
 
         reviewed = run_chapter_pipeline(session, chapter.id)
@@ -56,6 +80,7 @@ def test_approve_chapter_writes_state_delta_to_latest_canon(tmp_path) -> None:
 
     with Session(engine) as session:
         book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        lock_canon_foundation(session, book.id)
         chapter = list_chapters_for_book(session, book.id)[0]
         reviewed = run_chapter_pipeline(session, chapter.id)
 

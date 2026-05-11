@@ -2,13 +2,22 @@ from typing import Any
 
 from sqlmodel import Session
 
-from mynovel.domain.models import Book, BookStatus, Canon, Chapter, OpenBookBlueprint, VolumePlan
+from mynovel.domain.models import (
+    Book,
+    BookStatus,
+    Canon,
+    Chapter,
+    OpenBookBlueprint,
+    VolumePlan,
+    utc_now,
+)
 from mynovel.domain.repositories import (
     add_book,
     add_canon,
     add_chapter,
     add_volume_plan,
-    list_chapters_for_book,
+    get_book,
+    get_latest_canon,
 )
 from mynovel.word_targets import CHAPTER_WORD_COUNT_KEY, target_word_counts_from_text
 
@@ -35,6 +44,7 @@ def create_draft_book_from_blueprint(
     session: Session,
     blueprint: OpenBookBlueprint,
     selected_title: str,
+    lock_foundation: bool = True,
 ) -> Book:
     title = selected_title.strip()
     if not title:
@@ -52,7 +62,7 @@ def create_draft_book_from_blueprint(
         genre=_blueprint_text(blueprint.content.get("genre")),
         audience=_blueprint_text(blueprint.content.get("audience")),
     )
-    book.status = BookStatus.CANON_LOCKED
+    book.status = BookStatus.CANON_LOCKED if lock_foundation else BookStatus.DRAFT
     book.constraints = {
         "selling_points": blueprint.content.get("selling_points", []),
         "reader_promises": blueprint.content.get("reader_promises", []),
@@ -80,31 +90,21 @@ def create_draft_book_from_blueprint(
     return book
 
 
-def create_review_book_from_blueprint(
-    session: Session,
-    blueprint: OpenBookBlueprint,
-    selected_title: str,
-    model_client: Any | None = None,
-    model_name: str | None = None,
-) -> tuple[Book, Chapter]:
-    book = create_draft_book_from_blueprint(session, blueprint, selected_title)
-    if book.id is None:
-        raise ValueError("Book must be persisted before starting production.")
-    chapters = list_chapters_for_book(session, book.id)
-    first_chapter = chapters[0] if chapters else None
-    if first_chapter is None or first_chapter.id is None:
-        raise ValueError("Book must have at least one planned chapter.")
+def lock_canon_foundation(session: Session, book_id: int | None) -> Book:
+    if book_id is None:
+        raise ValueError("Book id is required.")
+    book = get_book(session, book_id)
+    if book is None:
+        raise ValueError("Book not found.")
+    if get_latest_canon(session, book_id) is None:
+        raise ValueError("Trusted state proposal is required before locking canon.")
 
-    from mynovel.workflows.chapter_pipeline import run_chapter_pipeline
-
-    chapter = run_chapter_pipeline(
-        session,
-        first_chapter.id,
-        model_client=model_client,
-        model_name=model_name,
-    )
+    book.status = BookStatus.CANON_LOCKED
+    book.updated_at = utc_now()
+    session.add(book)
+    session.commit()
     session.refresh(book)
-    return book, chapter
+    return book
 
 
 def title_options_from_blueprint(content: dict) -> list[str]:

@@ -149,6 +149,24 @@ def test_review_destination_prefers_current_awaiting_review_chapter(tmp_path) ->
     assert _review_destination(db_path) == "/chapter/9"
 
 
+def test_review_destination_routes_draft_book_to_foundation_gate(tmp_path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = Book(
+            title="长夜图书馆",
+            genre="奇幻",
+            audience="连载读者",
+            status=BookStatus.DRAFT,
+        )
+        session.add(book)
+        session.commit()
+        session.refresh(book)
+
+    assert _review_destination(db_path) == f"/book/{book.id}/state"
+
+
 def test_parse_batch_limit_clamps_to_safe_range() -> None:
     assert _parse_batch_limit({"limit": "5"}) == 5
     assert _parse_batch_limit({"limit": "0"}) == 1

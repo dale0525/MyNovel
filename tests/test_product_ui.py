@@ -352,6 +352,30 @@ def test_trusted_state_page_exposes_canon_lock_gate() -> None:
     assert "锁定可信设定并开始生产" not in page
 
 
+def test_trusted_state_page_keeps_unlocked_foundation_as_review_gate() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.DRAFT,
+    )
+    canon = Canon(
+        id=1,
+        book_id=1,
+        version=1,
+        content={"world_rules": [{"name": "雾墙规则", "detail": "幽谷边界危险。"}]},
+    )
+
+    page = render_trusted_state_page(book, canon, [])
+
+    assert "Canon 提案 · 待确认" in page
+    assert "当前状态：<strong>尚未锁定</strong>" in page
+    assert 'action="/lock-canon"' in page
+    assert 'name="book_id" value="1"' in page
+    assert "锁定可信设定并开始生产" in page
+
+
 def test_trusted_state_page_uses_current_book_audit_risks() -> None:
     book = Book(
         id=1,

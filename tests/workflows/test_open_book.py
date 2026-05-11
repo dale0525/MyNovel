@@ -7,7 +7,7 @@ from mynovel.domain.repositories import list_chapters_for_book, list_volume_plan
 from mynovel.workflows.open_book import (
     create_draft_book,
     create_draft_book_from_blueprint,
-    create_review_book_from_blueprint,
+    lock_canon_foundation,
 )
 
 
@@ -143,7 +143,9 @@ def test_create_draft_book_from_blueprint_creates_volume_plan(tmp_path) -> None:
     assert volume_plans[0].commitments == ["持续禁书谜题", "关系信任逐章推进"]
 
 
-def test_create_review_book_from_blueprint_runs_first_chapter_to_review(tmp_path) -> None:
+def test_create_draft_book_from_blueprint_can_leave_foundation_waiting_for_review(
+    tmp_path,
+) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
     blueprint = OpenBookBlueprint(
@@ -160,16 +162,45 @@ def test_create_review_book_from_blueprint_runs_first_chapter_to_review(tmp_path
     )
 
     with Session(engine) as session:
-        book, chapter = create_review_book_from_blueprint(
+        book = create_draft_book_from_blueprint(
             session,
             blueprint,
             selected_title="长夜图书馆",
+            lock_foundation=False,
         )
+        chapters = list_chapters_for_book(session, book.id)
 
     assert book.title == "长夜图书馆"
-    assert chapter.number == 1
-    assert chapter.status == ChapterStatus.AWAITING_REVIEW
-    assert chapter.audit_report["issues"]
+    assert book.status.value == "draft"
+    assert chapters[0].number == 1
+    assert chapters[0].status == ChapterStatus.PLANNED
+
+
+def test_lock_canon_foundation_allows_chapter_production_after_review(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    blueprint = OpenBookBlueprint(
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜图书馆"],
+            "genre": "玄幻",
+            "audience": "男频网文读者",
+        },
+        raw_response="{}",
+    )
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(
+            session,
+            blueprint,
+            selected_title="长夜图书馆",
+            lock_foundation=False,
+        )
+        locked = lock_canon_foundation(session, book.id)
+
+    assert locked.status.value == "canon_locked"
 
 
 def test_create_draft_book_from_blueprint_requires_selected_title(tmp_path) -> None:

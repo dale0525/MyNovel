@@ -6,7 +6,7 @@ from typing import Any, cast
 from sqlmodel import Session, select
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import Book, ChapterStatus
+from mynovel.domain.models import Book, BookStatus, ChapterStatus
 from mynovel.domain.repositories import list_chapters_for_book
 
 
@@ -20,6 +20,8 @@ def review_destination(db_path: Path) -> str:
         for book in books:
             if book.id is None:
                 continue
+            if book.status == BookStatus.DRAFT:
+                return f"/book/{book.id}/state"
             chapters = list_chapters_for_book(session, book.id)
             for status in (
                 ChapterStatus.AWAITING_REVIEW,

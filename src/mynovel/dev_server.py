@@ -13,6 +13,13 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from sqlmodel import Session, select
 
+from mynovel.blueprint_acceptance import (
+    BlueprintNotFoundError,
+    BlueprintNotReadyError,
+    BlueprintTitleSelectionError,
+    accept_blueprint_for_foundation_review,
+    lock_canon_from_form,
+)
 from mynovel.blueprint_revision import create_revision_blueprint_job, revision_notes_from_form
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import Book, BlueprintStatus, OpenBookBlueprint, ProviderConfig, utc_now
@@ -64,7 +71,6 @@ from mynovel.workflows.chapter_pipeline import (
     run_chapter_pipeline,
 )
 from mynovel.workflows.book_export import export_book_json, export_book_markdown
-from mynovel.workflows.open_book import create_review_book_from_blueprint
 from mynovel.workflows.open_book_blueprint import (
     build_blueprint_messages,
     create_blueprint_job,
@@ -196,6 +202,8 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if parsed.path == "/accept-blueprint":
                 self._accept_blueprint(state.db_path)
                 return
+            if parsed.path == "/lock-canon":
+                return self._lock_canon(state.db_path)
             if parsed.path == "/run-chapter":
                 self._run_chapter(state.db_path)
                 return
@@ -453,40 +461,32 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
 
         def _accept_blueprint(self, db_path: Path) -> None:
             form = self._read_form()
-            blueprint_id = int(form.get("blueprint_id", "0"))
-            selected_title = form.get("selected_title", "")
             provider_config = _load_provider_config(db_path)
-            model_client, model_name = _chapter_model_client_from_provider_config(provider_config)
-            engine = create_engine_for_path(db_path)
-            create_db_and_tables(engine)
-            with Session(engine) as session:
-                blueprint = get_open_book_blueprint(session, blueprint_id)
-                if blueprint is None:
-                    self.send_error(HTTPStatus.NOT_FOUND)
-                    return
-                if blueprint.status != BlueprintStatus.SUCCEEDED:
-                    self.send_error(HTTPStatus.BAD_REQUEST)
-                    return
-                try:
-                    _book, chapter = create_review_book_from_blueprint(
-                        session,
-                        blueprint,
-                        selected_title=selected_title,
-                        model_client=model_client,
-                        model_name=model_name,
-                    )
-                except ValueError:
-                    self._send_html(
-                        render_blueprint_page(
-                            db_path,
-                            provider_config,
-                            blueprint,
-                            t("blueprint.title_required"),
-                        ),
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-            self._redirect(f"/chapter/{chapter.id or 0}")
+            try:
+                book = accept_blueprint_for_foundation_review(db_path, form)
+            except (BlueprintNotFoundError, BlueprintNotReadyError) as error:
+                status = HTTPStatus.NOT_FOUND if isinstance(error, BlueprintNotFoundError) else HTTPStatus.BAD_REQUEST
+                self.send_error(status)
+                return
+            except BlueprintTitleSelectionError as error:
+                self._send_html(
+                    render_blueprint_page(
+                        db_path,
+                        provider_config,
+                        error.blueprint,
+                        t("blueprint.title_required"),
+                    ),
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            self._redirect(f"/book/{book.id or 0}/state")
+
+        def _lock_canon(self, db_path: Path) -> None:
+            try:
+                book = lock_canon_from_form(db_path, self._read_form())
+            except ValueError:
+                return self.send_error(HTTPStatus.BAD_REQUEST)
+            return self._redirect(f"/book/{book.id or 0}")
 
         def _run_chapter(self, db_path: Path) -> None:
             chapter_id = int(self._read_form().get("chapter_id", "0"))

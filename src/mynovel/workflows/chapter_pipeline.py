@@ -87,6 +87,8 @@ def run_chapter_pipeline(
     volume_plan = get_active_volume_plan(session, chapter.book_id)
     if book is None or canon is None:
         raise ValueError("Chapter must belong to a book with trusted state.")
+    if book.status == BookStatus.DRAFT:
+        raise ValueError("Trusted state must be locked before chapter production.")
 
     chapter.status = ChapterStatus.RUNNING
     model_label = model_name or "本地演示模型"
