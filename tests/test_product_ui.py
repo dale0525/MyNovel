@@ -234,3 +234,19 @@ def test_book_workspace_links_to_trusted_state_page() -> None:
 
     assert "查看可信设定" in page
     assert "/book/1/state" in page
+
+
+def test_book_workspace_exposes_whole_book_export_actions() -> None:
+    book = Book(
+        id=1,
+        title="幽谷回声",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+
+    page = render_book_workspace(book, [], Canon(id=1, book_id=1, version=1, content={}), [])
+
+    assert "导出整本书" in page
+    assert "/book/1/export.md" in page
+    assert "/book/1/export.json" in page

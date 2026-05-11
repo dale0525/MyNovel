@@ -126,6 +126,8 @@ TRANSLATIONS = {
         "trusted_state.chapter_summaries": "章节摘要",
         "trusted_state.state_history": "变化历史",
         "trusted_state.current_version": "当前可信设定版本：{version}",
+        "export.markdown": "导出整本书",
+        "export.json": "导出数据",
         "dashboard.accepted": "已批准章节",
         "dashboard.reviewing": "待审核章节",
         "dashboard.chapter_plan": "章节计划",

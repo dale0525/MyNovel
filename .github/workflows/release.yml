@@ -1,0 +1,22 @@
+name: Release
+
+"on":
+  push:
+    tags: ["v*"]
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.8
+      - run: pixi run pytest
+      - run: pixi run ruff check src tests
+      - name: Prepare release metadata
+        run: |
+          mkdir -p dist
+          printf '{"channel":"stable","tag":"%s","notes":"生成更新元数据"}\n' "${GITHUB_REF_NAME}" > dist/update.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata
+          path: dist/update.json

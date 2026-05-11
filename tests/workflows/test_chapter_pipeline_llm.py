@@ -269,6 +269,31 @@ def test_repair_chapter_with_ai_revises_text_and_reopens_review(tmp_path) -> Non
     assert traces[-1].model == "章节模型"
 
 
+def test_run_chapter_pipeline_records_failure_and_leaves_chapter_retryable(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = FakeFailingChapterModel()
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        chapter = book_chapter(session, book.id, 1)
+
+        failed = run_chapter_pipeline(
+            session,
+            chapter.id,
+            model_client=model,
+            model_name="章节模型",
+        )
+        traces = list_run_traces_for_book(session, book.id)
+
+    assert failed.status.value == "needs_revision"
+    assert failed.reviewer_note == "生成失败：模型审计失败"
+    assert traces[-1].stage == "生产失败"
+    assert traces[-1].model == "章节模型"
+    assert traces[-1].metadata_["failed_stage"] == "audit"
+    assert traces[-1].metadata_["retryable"] is True
+
+
 class FakeRepairModel:
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -277,6 +302,13 @@ class FakeRepairModel:
         self.calls.append(stage)
         assert response_format == "text"
         return "莉拉保留离村动作，结尾处第二枚符号在雾中回应。"
+
+
+class FakeFailingChapterModel(FakeChapterModel):
+    def complete(self, stage: str, messages, response_format: str) -> str:
+        if stage == "audit":
+            raise RuntimeError("模型审计失败")
+        return super().complete(stage, messages, response_format)
 
 
 def book_chapter(session: Session, book_id: int, number: int):

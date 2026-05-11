@@ -217,6 +217,8 @@ def render_book_workspace(
         </div>
         <div class="actions state-link">
           <a class="button secondary" href="/book/{book.id}/state">{t("trusted_state.open", locale)}</a>
+          <a class="button secondary" href="/book/{book.id}/export.md">{t("export.markdown", locale)}</a>
+          <a class="button secondary" href="/book/{book.id}/export.json">{t("export.json", locale)}</a>
         </div>
         {_render_foundation_board(canon, locale)}
         {_render_chapter_table(chapters, locale)}

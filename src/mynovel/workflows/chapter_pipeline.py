@@ -48,6 +48,13 @@ class ReviewGateError(ValueError):
     pass
 
 
+class ChapterStageError(RuntimeError):
+    def __init__(self, stage: str, error: Exception) -> None:
+        super().__init__(str(error))
+        self.stage = stage
+        self.error = error
+
+
 TRACE_STAGES = [
     ("plan", "规划本章", "chapter_plan"),
     ("context", "编译上下文", "chapter_context"),
@@ -73,10 +80,14 @@ def run_chapter_pipeline(
 
     chapter.status = ChapterStatus.RUNNING
     model_label = model_name or "本地演示模型"
-    if model_client is None:
-        _run_simulated_pipeline(book.title, canon, chapter)
-    else:
-        _run_model_pipeline(book.title, canon, chapter, model_client)
+    try:
+        if model_client is None:
+            _run_simulated_pipeline(book.title, canon, chapter)
+        else:
+            _run_model_pipeline(book.title, canon, chapter, model_client)
+    except Exception as error:  # noqa: BLE001
+        failed_stage = error.stage if isinstance(error, ChapterStageError) else "unknown"
+        return _record_pipeline_failure(session, chapter, model_label, failed_stage, error)
     chapter.summary = _summarize_chapter(chapter)
     chapter.word_count = len(chapter.revised_text)
     chapter.status = ChapterStatus.AWAITING_REVIEW
@@ -290,12 +301,15 @@ def _complete_json_stage(
     messages: list[dict[str, str]],
     required_fields: set[str],
 ) -> dict[str, Any]:
-    raw = model_client.complete(stage, messages, "json")
-    data = _parse_json_object(raw)
-    missing = sorted(required_fields - set(data))
-    if missing:
-        raise ValueError(f"Chapter stage {stage} missing fields: {', '.join(missing)}")
-    return data
+    try:
+        raw = model_client.complete(stage, messages, "json")
+        data = _parse_json_object(raw)
+        missing = sorted(required_fields - set(data))
+        if missing:
+            raise ValueError(f"Chapter stage {stage} missing fields: {', '.join(missing)}")
+        return data
+    except Exception as error:  # noqa: BLE001
+        raise ChapterStageError(stage, error) from error
 
 
 def _complete_text_stage(
@@ -303,10 +317,13 @@ def _complete_text_stage(
     stage: str,
     messages: list[dict[str, str]],
 ) -> str:
-    text = model_client.complete(stage, messages, "text").strip()
-    if not text:
-        raise ValueError(f"Chapter stage {stage} returned empty text.")
-    return text
+    try:
+        text = model_client.complete(stage, messages, "text").strip()
+        if not text:
+            raise ValueError(f"Chapter stage {stage} returned empty text.")
+        return text
+    except Exception as error:  # noqa: BLE001
+        raise ChapterStageError(stage, error) from error
 
 
 def _parse_json_object(raw_text: str) -> dict[str, Any]:
@@ -478,6 +495,38 @@ def _add_pipeline_traces(session: Session, chapter: Chapter, model_name: str) ->
                 },
             )
         )
+
+
+def _record_pipeline_failure(
+    session: Session,
+    chapter: Chapter,
+    model_name: str,
+    failed_stage: str,
+    error: Exception,
+) -> Chapter:
+    root_error = error.error if isinstance(error, ChapterStageError) else error
+    chapter.status = ChapterStatus.NEEDS_REVISION
+    chapter.reviewer_note = f"生成失败：{root_error}"
+    chapter.updated_at = utc_now()
+    session.add(chapter)
+    session.add(
+        RunTrace(
+            book_id=chapter.book_id,
+            stage="生产失败",
+            model=model_name,
+            cost={"estimated": 0},
+            metadata_={
+                "chapter": chapter.number,
+                "status": chapter.status.value,
+                "failed_stage": failed_stage,
+                "error": str(root_error),
+                "retryable": True,
+            },
+        )
+    )
+    session.commit()
+    session.refresh(chapter)
+    return chapter
 
 
 def _generate_draft_text(book_title: str, chapter: Chapter) -> str:

@@ -46,6 +46,7 @@ from mynovel.workflows.chapter_pipeline import (
     return_chapter_for_revision,
     run_chapter_pipeline,
 )
+from mynovel.workflows.book_export import export_book_json, export_book_markdown
 from mynovel.workflows.open_book import create_draft_book_from_blueprint
 from mynovel.workflows.open_book_blueprint import (
     build_blueprint_messages,
@@ -108,6 +109,12 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 return
             if parsed.path.startswith("/book/") and parsed.path.endswith("/state"):
                 self._send_trusted_state_page(state.db_path, _parse_book_state_id(parsed.path))
+                return
+            if parsed.path.startswith("/book/") and (
+                parsed.path.endswith("/export.md") or parsed.path.endswith("/export.json")
+            ):
+                book_id, export_format = _parse_book_export(parsed.path)
+                self._send_book_export(state.db_path, book_id, export_format)
                 return
             if parsed.path.startswith("/book/"):
                 self._send_book_page(state.db_path, _parse_numeric_id(parsed.path))
@@ -203,6 +210,28 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     _load_chapters_for_book(db_path, book_id),
                 )
             )
+
+        def _send_book_export(self, db_path: Path, book_id: int, export_format: str) -> None:
+            book = _load_book(db_path, book_id)
+            if book is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            chapters = _load_chapters_for_book(db_path, book_id)
+            canon = _load_latest_canon(db_path, book_id)
+            if export_format == "markdown":
+                payload = export_book_markdown(book, chapters).encode("utf-8")
+                content_type = "text/markdown; charset=utf-8"
+            elif export_format == "json":
+                payload = export_book_json(book, canon, chapters).encode("utf-8")
+                content_type = "application/json; charset=utf-8"
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
 
         def _send_chapter_page(self, db_path: Path, chapter_id: int) -> None:
             chapter = _load_chapter(db_path, chapter_id)
@@ -617,6 +646,22 @@ def _parse_book_state_id(path: str) -> int:
         return int(parts[1])
     except ValueError:
         return 0
+
+
+def _parse_book_export(path: str) -> tuple[int, str]:
+    parts = path.strip("/").split("/")
+    if len(parts) != 3 or parts[0] != "book":
+        return 0, ""
+    if parts[2] == "export.md":
+        export_format = "markdown"
+    elif parts[2] == "export.json":
+        export_format = "json"
+    else:
+        return 0, ""
+    try:
+        return int(parts[1]), export_format
+    except ValueError:
+        return 0, ""
 
 
 def _chapter_model_client_from_provider_config(
