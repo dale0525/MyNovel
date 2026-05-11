@@ -35,10 +35,12 @@ from mynovel.product_views import (
     render_chapter_review,
     render_home,
     render_new_book_page,
+    render_trusted_state_page,
 )
 from mynovel.workflows.chapter_pipeline import (
     OpenAIChapterModelClient,
     approve_chapter,
+    apply_manual_chapter_edit,
     export_chapter_text,
     repair_chapter_with_ai,
     return_chapter_for_revision,
@@ -104,6 +106,9 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if parsed.path == "/books/new":
                 self._send_html(render_new_book_page(_load_provider_config(state.db_path)))
                 return
+            if parsed.path.startswith("/book/") and parsed.path.endswith("/state"):
+                self._send_trusted_state_page(state.db_path, _parse_book_state_id(parsed.path))
+                return
             if parsed.path.startswith("/book/"):
                 self._send_book_page(state.db_path, _parse_numeric_id(parsed.path))
                 return
@@ -161,6 +166,9 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if parsed.path == "/repair-chapter":
                 self._repair_chapter(state.db_path)
                 return
+            if parsed.path == "/edit-chapter-text":
+                self._edit_chapter_text(state.db_path)
+                return
             if parsed.path == "/approve-chapter":
                 self._approve_chapter(state.db_path)
                 return
@@ -180,6 +188,19 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     _load_chapters_for_book(db_path, book_id),
                     _load_latest_canon(db_path, book_id),
                     _load_run_traces_for_book(db_path, book_id),
+                )
+            )
+
+        def _send_trusted_state_page(self, db_path: Path, book_id: int) -> None:
+            book = _load_book(db_path, book_id)
+            if book is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self._send_html(
+                render_trusted_state_page(
+                    book,
+                    _load_latest_canon(db_path, book_id),
+                    _load_chapters_for_book(db_path, book_id),
                 )
             )
 
@@ -422,6 +443,24 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     return
             self._redirect(f"/chapter/{chapter.id}")
 
+        def _edit_chapter_text(self, db_path: Path) -> None:
+            form = self._read_form()
+            chapter_id = int(form.get("chapter_id", "0"))
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                try:
+                    chapter = apply_manual_chapter_edit(
+                        session,
+                        chapter_id,
+                        form.get("manual_text", ""),
+                        form.get("reviewer_note") or None,
+                    )
+                except ValueError:
+                    self.send_error(HTTPStatus.BAD_REQUEST)
+                    return
+            self._redirect(f"/chapter/{chapter.id}")
+
         def _approve_chapter(self, db_path: Path) -> None:
             form = self._read_form()
             chapter_id = int(form.get("chapter_id", "0"))
@@ -433,6 +472,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                         session,
                         chapter_id,
                         form.get("reviewer_note") or None,
+                        allow_major_changes=form.get("allow_major_changes") == "1",
                     )
                 except ValueError:
                     self.send_error(HTTPStatus.BAD_REQUEST)
@@ -562,6 +602,16 @@ def _parse_numeric_id(path: str) -> int:
 def _parse_chapter_export_id(path: str) -> int:
     parts = path.strip("/").split("/")
     if len(parts) != 3 or parts[0] != "chapter" or parts[2] != "export":
+        return 0
+    try:
+        return int(parts[1])
+    except ValueError:
+        return 0
+
+
+def _parse_book_state_id(path: str) -> int:
+    parts = path.strip("/").split("/")
+    if len(parts) != 3 or parts[0] != "book" or parts[2] != "state":
         return 0
     try:
         return int(parts[1])

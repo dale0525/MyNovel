@@ -7,6 +7,7 @@ from mynovel.domain.repositories import get_latest_canon, list_run_traces_for_bo
 from mynovel.workflows.chapter_pipeline import (
     ReviewGateError,
     approve_chapter,
+    apply_manual_chapter_edit,
     export_chapter_text,
     repair_chapter_with_ai,
     return_chapter_for_revision,
@@ -142,6 +143,76 @@ def test_export_chapter_text_returns_only_accepted_final_text(tmp_path) -> None:
         accepted = approve_chapter(session, reviewed.id)
 
     assert export_chapter_text(accepted) == accepted.final_text
+
+
+def test_manual_chapter_edit_replaces_review_candidate_without_updating_trusted_state(
+    tmp_path,
+) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        chapter = book_chapter(session, book.id, 1)
+        reviewed = run_chapter_pipeline(session, chapter.id)
+
+        edited = apply_manual_chapter_edit(
+            session,
+            reviewed.id,
+            "莉拉握紧发热的符号，主动踏入雾谷深处。",
+            "补强主动性。",
+        )
+        edited_status = edited.status.value
+        edited_text = edited.revised_text
+        edited_word_count = edited.word_count
+        edited_note = edited.reviewer_note
+        canon_before_approval = get_latest_canon(session, book.id)
+        canon_before_version = canon_before_approval.version if canon_before_approval else 0
+        traces = list_run_traces_for_book(session, book.id)
+        latest_trace_stage = traces[-1].stage
+        accepted = approve_chapter(session, edited.id)
+        canon_after_approval = get_latest_canon(session, book.id)
+        canon_after_version = canon_after_approval.version if canon_after_approval else 0
+
+    assert edited_status == "awaiting_review"
+    assert edited_text == "莉拉握紧发热的符号，主动踏入雾谷深处。"
+    assert edited_word_count == len("莉拉握紧发热的符号，主动踏入雾谷深处。")
+    assert edited_note == "补强主动性。"
+    assert canon_before_version == 1
+    assert latest_trace_stage == "人工修正"
+    assert accepted.final_text == "莉拉握紧发热的符号，主动踏入雾谷深处。"
+    assert canon_after_version == 2
+
+
+def test_approve_chapter_requires_explicit_major_change_confirmation(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        chapter = book_chapter(session, book.id, 1)
+        reviewed = run_chapter_pipeline(session, chapter.id)
+        reviewed.audit_report = {"risk_level": "low", "issues": [], "suggestions": []}
+        reviewed.state_delta = {
+            "chapter": 1,
+            "changes": [
+                {
+                    "type": "角色死亡",
+                    "target": "罗文",
+                    "change": "罗文为保护莉拉牺牲",
+                    "impact": "major",
+                }
+            ],
+        }
+        session.add(reviewed)
+        session.commit()
+
+        with pytest.raises(ReviewGateError, match="重大变化"):
+            approve_chapter(session, reviewed.id)
+
+        accepted = approve_chapter(session, reviewed.id, allow_major_changes=True)
+
+    assert accepted.status.value == "accepted"
 
 
 def test_return_chapter_for_revision_does_not_update_trusted_state(tmp_path) -> None:

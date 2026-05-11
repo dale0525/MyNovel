@@ -3,6 +3,7 @@ import tomllib
 
 from mynovel.dev_server import (
     _chapter_model_client_from_provider_config,
+    _parse_book_state_id,
     build_health_payload,
     render_blueprint_page,
     render_home,
@@ -85,6 +86,11 @@ def test_chapter_generation_uses_saved_dialogue_model_config() -> None:
     assert client.model == "chapter-model"
     assert client.client.base_url == "https://api.example.test/v1"
     assert model_name == "chapter-model"
+
+
+def test_book_state_route_parser_extracts_book_id() -> None:
+    assert _parse_book_state_id("/book/42/state") == 42
+    assert _parse_book_state_id("/book/not-a-number/state") == 0
 
 
 def test_home_page_keeps_language_product_focused_with_blueprints_present() -> None:

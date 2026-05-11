@@ -91,14 +91,19 @@ def run_chapter_pipeline(
     return chapter
 
 
-def approve_chapter(session: Session, chapter_id: int, reviewer_note: str | None = None) -> Chapter:
+def approve_chapter(
+    session: Session,
+    chapter_id: int,
+    reviewer_note: str | None = None,
+    allow_major_changes: bool = False,
+) -> Chapter:
     chapter = _required_chapter(session, chapter_id)
     latest = get_latest_canon(session, chapter.book_id)
     if latest is None:
         raise ValueError("Trusted state is required before accepting a chapter.")
     if chapter.status != ChapterStatus.AWAITING_REVIEW:
         raise ValueError("Only chapters waiting for human review can be accepted.")
-    _assert_review_gate_passed(chapter)
+    _assert_review_gate_passed(chapter, allow_major_changes)
 
     chapter.status = ChapterStatus.ACCEPTED
     chapter.final_text = chapter.revised_text or chapter.draft_text
@@ -115,6 +120,39 @@ def approve_chapter(session: Session, chapter_id: int, reviewer_note: str | None
             model=None,
             cost={"estimated": 0},
             metadata_={"chapter": chapter.number, "trusted_state_version": latest.version + 1},
+        )
+    )
+    session.commit()
+    session.refresh(chapter)
+    return chapter
+
+
+def apply_manual_chapter_edit(
+    session: Session,
+    chapter_id: int,
+    revised_text: str,
+    reviewer_note: str | None = None,
+) -> Chapter:
+    chapter = _required_chapter(session, chapter_id)
+    text = revised_text.strip()
+    if not text:
+        raise ValueError("Manual chapter text cannot be empty.")
+    if chapter.status not in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}:
+        raise ValueError("Only review-stage chapters can be edited.")
+
+    chapter.revised_text = text
+    chapter.word_count = len(text)
+    chapter.status = ChapterStatus.AWAITING_REVIEW
+    chapter.reviewer_note = reviewer_note
+    chapter.updated_at = utc_now()
+    session.add(chapter)
+    session.add(
+        RunTrace(
+            book_id=chapter.book_id,
+            stage="人工修正",
+            model=None,
+            cost={"estimated": 0},
+            metadata_={"chapter": chapter.number, "status": chapter.status.value},
         )
     )
     session.commit()
@@ -502,7 +540,7 @@ def _summarize_chapter(chapter: Chapter) -> str:
     return f"第 {chapter.number:02d} 章《{chapter.title}》完成本章目标，并留下新的遗迹线索。"
 
 
-def _assert_review_gate_passed(chapter: Chapter) -> None:
+def _assert_review_gate_passed(chapter: Chapter, allow_major_changes: bool) -> None:
     audit_report = chapter.audit_report or {}
     if str(audit_report.get("risk_level", "")).lower() == "high":
         raise ReviewGateError("高风险问题未解决，不能写入可信设定。")
@@ -512,6 +550,26 @@ def _assert_review_gate_passed(chapter: Chapter) -> None:
         severity = str(issue.get("severity", "")).lower()
         if severity == "high" and not issue.get("resolved"):
             raise ReviewGateError("高风险问题未解决，不能写入可信设定。")
+    major_changes = _major_state_changes(chapter)
+    if major_changes and not allow_major_changes:
+        raise ReviewGateError("存在重大变化，需要人工显式确认后才能写入可信设定。")
+
+
+def _major_state_changes(chapter: Chapter) -> list[dict[str, Any]]:
+    return [
+        change
+        for change in chapter.state_delta.get("changes", [])
+        if isinstance(change, dict) and _is_major_state_change(change)
+    ]
+
+
+def _is_major_state_change(change: dict[str, Any]) -> bool:
+    impact = str(change.get("impact", "")).lower()
+    if impact in {"major", "critical", "high"}:
+        return True
+    text = " ".join(str(change.get(key, "")) for key in ("type", "target", "change"))
+    major_terms = ("角色死亡", "人物死亡", "死亡", "牺牲", "退场", "核心设定", "改写设定")
+    return any(term in text for term in major_terms)
 
 
 def _content_with_accepted_chapter(content: dict, chapter: Chapter) -> dict:

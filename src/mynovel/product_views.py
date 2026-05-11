@@ -215,6 +215,9 @@ def render_book_workspace(
           <div><strong>{len([c for c in chapters if c.status == ChapterStatus.AWAITING_REVIEW])}</strong><span>{t("dashboard.reviewing", locale)}</span></div>
           <div><strong>{len(chapters)}</strong><span>{t("dashboard.chapter_plan", locale)}</span></div>
         </div>
+        <div class="actions state-link">
+          <a class="button secondary" href="/book/{book.id}/state">{t("trusted_state.open", locale)}</a>
+        </div>
         {_render_foundation_board(canon, locale)}
         {_render_chapter_table(chapters, locale)}
       </section>
@@ -228,6 +231,42 @@ def render_book_workspace(
     return _page(
         title=book.title,
         active="create",
+        main=main,
+        message=message,
+        bottom=_render_production_pipeline(None, locale),
+        locale=locale,
+    )
+
+
+def render_trusted_state_page(
+    book: Book,
+    canon: Canon | None,
+    chapters: list[Chapter],
+    message: str | None = None,
+    locale: str = DEFAULT_LOCALE,
+) -> str:
+    main = f"""
+      {_render_book_sidebar(book, chapters, locale)}
+      <section class="main-panel">
+        <div class="panel-head">
+          <div>
+            <h1>{t("trusted_state.title", locale)}</h1>
+            <p>{t("trusted_state.page_copy", locale)}</p>
+          </div>
+          <a class="button secondary" href="/book/{book.id}">{t("action.back_to_project", locale)}</a>
+        </div>
+        {_render_trusted_state_sections(canon, locale)}
+      </section>
+      <aside class="right-panel">
+        <h2>{t("trusted_state.guard_title", locale)}</h2>
+        <p>{t("trusted_state.guard_copy", locale)}</p>
+        <h2>{t("trusted_state.current_version_short", locale)}</h2>
+        <div class="setup-card"><strong>{canon.version if canon else 0}</strong><span>{t("trusted_state.version_unit", locale)}</span></div>
+      </aside>
+"""
+    return _page(
+        title=t("trusted_state.title", locale),
+        active="review",
         main=main,
         message=message,
         bottom=_render_production_pipeline(None, locale),
@@ -502,6 +541,29 @@ def _render_foundation_board(canon: Canon | None, locale: str) -> str:
     )
 
 
+def _render_trusted_state_sections(canon: Canon | None, locale: str) -> str:
+    if canon is None:
+        return f"<p>{t('trusted_state.missing', locale)}</p>"
+    content = canon.content
+    sections = [
+        ("trusted_state.world_rules", content.get("world_rules", [])),
+        ("trusted_state.characters", content.get("characters", [])),
+        ("trusted_state.locations", content.get("locations", [])),
+        ("trusted_state.relationships", content.get("relationships", [])),
+        ("trusted_state.foreshadowing", content.get("foreshadowing", [])),
+        ("trusted_state.chapter_summaries", content.get("chapter_summaries", [])),
+        ("trusted_state.state_history", content.get("state_history", [])),
+    ]
+    return (
+        "<div class='state-sections'>"
+        + "".join(
+            f"<section class='data-card'><h2>{t(label, locale)}</h2>{_render_value(value)}</section>"
+            for label, value in sections
+        )
+        + "</div>"
+    )
+
+
 def _render_chapter_table(chapters: list[Chapter], locale: str) -> str:
     rows = "".join(
         f"<tr><td>{chapter.number:02d}</td><td><a href='/chapter/{chapter.id}'>{html.escape(chapter.title)}</a></td>"
@@ -552,8 +614,19 @@ def _render_chapter_body(chapter: Chapter, locale: str) -> str:
           </div>
 """
     text = chapter.final_text or chapter.revised_text or chapter.draft_text
+    edit_form = ""
+    if chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}:
+        edit_form = f"""
+      <form method="post" action="/edit-chapter-text" class="manual-edit">
+        <input type="hidden" name="chapter_id" value="{chapter.id}">
+        <label>{t("chapter.manual_text", locale)}<textarea name="manual_text">{html.escape(text)}</textarea></label>
+        <label>{t("chapter.reviewer_note", locale)}<textarea name="reviewer_note" placeholder="{t("chapter.manual_note_placeholder", locale)}"></textarea></label>
+        <button class="secondary" type="submit">{t("action.save_manual_edit", locale)}</button>
+      </form>
+"""
     return f"""
       <article class="chapter-text">{html.escape(text).replace(chr(10), "<br>")}</article>
+      {edit_form}
 """
 
 
@@ -570,9 +643,16 @@ def _render_review_inspector(chapter: Chapter, canon: Canon | None, locale: str)
         for change in chapter.state_delta.get("changes", [])
         if isinstance(change, dict)
     )
+    major_changes = _major_state_changes(chapter)
     canon_version = canon.version if canon else 0
     action = ""
     if chapter.status == ChapterStatus.AWAITING_REVIEW:
+        major_confirmation = ""
+        if major_changes:
+            major_confirmation = f"""
+            <p class="danger">{t("review.major_change_warning", locale)}</p>
+            <label class="inline-check"><input name="allow_major_changes" type="checkbox" value="1">{t("review.confirm_major_change", locale)}</label>
+"""
         action = f"""
           <form method="post" action="/repair-chapter" class="compact-form action-form">
             <input type="hidden" name="chapter_id" value="{chapter.id}">
@@ -587,6 +667,7 @@ def _render_review_inspector(chapter: Chapter, canon: Canon | None, locale: str)
           <form id="approve-form" method="post" action="/approve-chapter" class="compact-form action-form">
             <input type="hidden" name="chapter_id" value="{chapter.id}">
             <label>{t("chapter.accept_note", locale)}<textarea name="reviewer_note" placeholder="{t("chapter.accept_placeholder", locale)}"></textarea></label>
+            {major_confirmation}
             <button type="submit">{t("action.accept_to_trusted_state", locale)}</button>
           </form>
 """
@@ -601,6 +682,7 @@ def _render_review_inspector(chapter: Chapter, canon: Canon | None, locale: str)
       <ul class="review-list">{issue_rows}</ul>
       <h2>{t("review.state_delta", locale)}</h2>
       <p>{t("trusted_state.current_version", locale, version=canon_version)}</p>
+      {f"<p class='danger'>{t('review.major_change_count', locale, count=len(major_changes))}</p>" if major_changes else ""}
       <ul class="review-list">{delta_rows}</ul>
       {action}
 """
@@ -703,19 +785,42 @@ def _render_nested(value: Any) -> str:
 def _label_key(key: object) -> str:
     labels = {
         "chapter": "章节",
+        "changes": "变化",
         "direction": "方向",
+        "from": "起点",
         "title": "标题",
         "goal": "目标",
         "name": "名称",
         "hook": "钩子",
+        "impact": "影响",
         "premise": "前提",
         "detail": "内容",
         "audience": "目标读者",
         "genre": "题材",
         "summary": "摘要",
+        "target": "对象",
+        "to": "终点",
+        "type": "类型",
         "word_count": "字数",
     }
     return html.escape(labels.get(str(key), str(key)))
+
+
+def _major_state_changes(chapter: Chapter) -> list[dict[str, Any]]:
+    return [
+        change
+        for change in chapter.state_delta.get("changes", [])
+        if isinstance(change, dict) and _is_major_state_change(change)
+    ]
+
+
+def _is_major_state_change(change: dict[str, Any]) -> bool:
+    impact = str(change.get("impact", "")).lower()
+    if impact in {"major", "critical", "high"}:
+        return True
+    text = " ".join(str(change.get(key, "")) for key in ("type", "target", "change"))
+    major_terms = ("角色死亡", "人物死亡", "死亡", "牺牲", "退场", "核心设定", "改写设定")
+    return any(term in text for term in major_terms)
 
 
 def _next_chapter(chapters: list[Chapter]) -> Chapter | None:
@@ -762,9 +867,9 @@ def _css() -> str:
     label{display:grid;gap:6px;color:var(--muted);font-size:13px}input,textarea{width:100%;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);font:inherit;min-height:42px;padding:9px 11px}textarea{min-height:90px;resize:vertical}.inline-check{display:flex;align-items:center;gap:8px;color:var(--ink)}.inline-check input{width:auto;min-height:auto}
     .status-pill{display:inline-flex;align-items:center;border-radius:999px;padding:5px 10px;font-size:13px;background:#f4efe4;color:var(--warn)}.status-pill.trusted{background:var(--accent-2);color:var(--accent)}.pending{color:var(--warn)}.danger{color:var(--danger)}.local-note,.setup-card,.empty-box{border:1px solid var(--line);border-radius:8px;padding:14px;background:#fbfcf8}.local-note{display:grid;gap:4px;margin-top:24px;max-width:360px}.setup-card{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
     .step-list{margin:24px 0;padding-left:20px;color:var(--muted)}.step-list li{margin:14px 0}.step-list .active{color:var(--accent);font-weight:700}.stack-list{display:grid;gap:8px}.stack-list p,.project-row{border:1px solid var(--line);border-radius:8px;background:#fff;padding:12px}.project-list{display:grid;gap:10px}.project-row{display:flex;justify-content:space-between;align-items:center}
-    .card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.data-card,.table-card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:14px}.data-card h3{margin-top:0;color:var(--ink);font-size:15px}ul{margin:0;padding-left:20px}li{margin:5px 0;line-height:1.5}dl{display:grid;grid-template-columns:96px 1fr;gap:8px 12px}dt{color:var(--muted)}dd{margin:0}
+    .card-grid,.state-sections{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.state-link{margin-bottom:12px}.data-card,.table-card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:14px}.data-card h3{margin-top:0;color:var(--ink);font-size:15px}ul{margin:0;padding-left:20px}li{margin:5px 0;line-height:1.5}dl{display:grid;grid-template-columns:96px 1fr;gap:8px 12px}dt{color:var(--muted)}dd{margin:0}
     .metric-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}.metric-grid div{border:1px solid var(--line);border-radius:8px;background:#fff;padding:12px}.metric-grid strong{font-size:26px;display:block}.metric-grid span{color:var(--muted);font-size:13px}.chapter-list{display:grid;gap:6px}.chapter-row{display:grid;grid-template-columns:36px 1fr auto;gap:8px;align-items:center;border-radius:8px;padding:10px;color:var(--muted)}.chapter-row:hover,.chapter-row.awaiting_review,.chapter-row.accepted{background:var(--accent-2);color:var(--accent)}.chapter-row em{font-style:normal;font-size:12px}
-    table{width:100%;border-collapse:collapse;font-size:14px}td{border-bottom:1px solid var(--line);padding:10px 8px;vertical-align:top}.reader-panel{grid-column:2 / 3}.chapter-text{min-height:560px;border-top:1px solid var(--line);padding:28px 64px;font-size:19px;line-height:2;color:#222;white-space:normal}.note-box{border-top:1px solid var(--line);padding-top:14px}.review-list{display:grid;gap:8px;padding:0;list-style:none}.review-list li{border:1px solid var(--line);border-radius:8px;background:#fff;padding:10px;display:grid;gap:4px}.review-list em{font-style:normal;color:var(--muted);font-size:12px}
+    table{width:100%;border-collapse:collapse;font-size:14px}td{border-bottom:1px solid var(--line);padding:10px 8px;vertical-align:top}.reader-panel{grid-column:2 / 3}.chapter-text{min-height:560px;border-top:1px solid var(--line);padding:28px 64px;font-size:19px;line-height:2;color:#222;white-space:normal}.manual-edit{border-top:1px solid var(--line);padding-top:14px;display:grid;gap:12px}.manual-edit textarea[name=manual_text]{min-height:260px;font-size:17px;line-height:1.8}.note-box{border-top:1px solid var(--line);padding-top:14px}.review-list{display:grid;gap:8px;padding:0;list-style:none}.review-list li{border:1px solid var(--line);border-radius:8px;background:#fff;padding:10px;display:grid;gap:4px}.review-list em{font-style:normal;color:var(--muted);font-size:12px}
     .choice-list{display:grid;gap:8px}.choice{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:11px;color:var(--ink)}.choice input{width:auto;min-height:auto}.action-form{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}.pipeline{height:92px;border-top:1px solid var(--line);background:#fffefa;display:flex;align-items:center;gap:16px;padding:0 24px;overflow:auto}.pipe-step{white-space:nowrap;border:1px solid var(--line);border-radius:999px;padding:8px 14px;color:var(--muted)}.pipe-step.active{border-color:var(--warn);color:var(--warn);background:#fff7ea}
     @media(max-width:1100px){.app-shell{grid-template-columns:82px 1fr}.rail strong{font-size:14px}.content-grid{grid-template-columns:1fr}.empty-hero,.reader-panel{grid-column:auto}.form-grid,.card-grid,.split{grid-template-columns:1fr}}
     """

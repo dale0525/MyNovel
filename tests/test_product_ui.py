@@ -11,7 +11,11 @@ from mynovel.domain.models import (
     OpenBookBlueprint,
     ProviderConfig,
 )
-from mynovel.product_views import render_chapter_review
+from mynovel.product_views import (
+    render_book_workspace,
+    render_chapter_review,
+    render_trusted_state_page,
+)
 
 
 def test_home_page_uses_product_language_without_exposed_english_terms() -> None:
@@ -140,3 +144,93 @@ def test_review_page_exposes_revision_repair_accept_and_export_actions() -> None
 
     assert "导出正文" in page
     assert "/chapter/9/export" in page
+
+
+def test_review_page_exposes_manual_edit_and_major_change_confirmation() -> None:
+    book = Book(
+        id=1,
+        title="幽谷回声",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=9,
+        book_id=1,
+        number=1,
+        title="离开的召唤",
+        status=ChapterStatus.AWAITING_REVIEW,
+        revised_text="莉拉离开村庄。",
+        audit_report={"risk_level": "low", "issues": []},
+        state_delta={
+            "changes": [
+                {
+                    "type": "角色死亡",
+                    "target": "罗文",
+                    "change": "罗文牺牲",
+                    "impact": "major",
+                }
+            ]
+        },
+    )
+    canon = Canon(id=1, book_id=1, version=1, content={})
+
+    page = render_chapter_review(book, [chapter], chapter, canon)
+
+    assert "手动修正文" in page
+    assert 'action="/edit-chapter-text"' in page
+    assert 'name="manual_text"' in page
+    assert "重大变化" in page
+    assert 'name="allow_major_changes"' in page
+
+
+def test_trusted_state_page_shows_full_state_sections_without_raw_keys() -> None:
+    book = Book(
+        id=1,
+        title="幽谷回声",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+    canon = Canon(
+        id=1,
+        book_id=1,
+        version=3,
+        content={
+            "characters": [{"name": "莉拉", "detail": "能读懂古代符号"}],
+            "locations": [{"name": "幽谷", "detail": "旧王朝遗迹"}],
+            "relationships": [{"from": "莉拉", "to": "罗文", "detail": "临时同盟"}],
+            "foreshadowing": ["第二枚符号仍未解释"],
+            "chapter_summaries": [{"chapter": 1, "title": "离开的召唤", "summary": "离村"}],
+            "state_history": [{"chapter": 1, "changes": [{"type": "人物状态", "target": "莉拉"}]}],
+        },
+    )
+
+    page = render_trusted_state_page(book, canon, [])
+
+    assert "可信设定" in page
+    assert "人物" in page
+    assert "地点" in page
+    assert "关系" in page
+    assert "伏笔账本" in page
+    assert "章节摘要" in page
+    assert "变化历史" in page
+    assert "莉拉" in page
+    assert "幽谷" in page
+    assert "relationships：" not in page
+    assert "state_history：" not in page
+
+
+def test_book_workspace_links_to_trusted_state_page() -> None:
+    book = Book(
+        id=1,
+        title="幽谷回声",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+
+    page = render_book_workspace(book, [], Canon(id=1, book_id=1, version=1, content={}), [])
+
+    assert "查看可信设定" in page
+    assert "/book/1/state" in page
