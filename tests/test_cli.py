@@ -49,7 +49,7 @@ def _seed_book(db_path) -> None:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
-        create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
 
 
 def _blueprint() -> OpenBookBlueprint:
@@ -59,7 +59,7 @@ def _blueprint() -> OpenBookBlueprint:
         version=1,
         status=BlueprintStatus.SUCCEEDED,
         content={
-            "title_options": ["幽谷回声"],
+            "title_options": ["长夜图书馆"],
             "genre": "奇幻连载",
             "audience": "喜欢成长冒险的连载读者",
             "selling_points": ["每章揭开一条旧王朝线索"],

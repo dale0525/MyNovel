@@ -15,14 +15,14 @@ def test_export_book_markdown_includes_only_accepted_chapters_in_order(tmp_path)
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapters = list_chapters_for_book(session, book.id)
         first = approve_chapter(session, run_chapter_pipeline(session, chapters[0].id).id)
         second = run_chapter_pipeline(session, chapters[1].id)
 
         markdown = export_book_markdown(book, list_chapters_for_book(session, book.id))
 
-    assert markdown.startswith("# 幽谷回声")
+    assert markdown.startswith("# 长夜图书馆")
     assert f"## 第 01 章 {first.title}" in markdown
     assert first.final_text in markdown
     assert second.title not in markdown
@@ -33,7 +33,7 @@ def test_export_book_json_includes_metadata_trusted_state_and_accepted_chapters(
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapter = list_chapters_for_book(session, book.id)[0]
         accepted = approve_chapter(session, run_chapter_pipeline(session, chapter.id).id)
         canon = get_latest_canon(session, book.id)
@@ -42,7 +42,7 @@ def test_export_book_json_includes_metadata_trusted_state_and_accepted_chapters(
             export_book_json(book, canon, list_chapters_for_book(session, book.id))
         )
 
-    assert payload["book"]["title"] == "幽谷回声"
+    assert payload["book"]["title"] == "长夜图书馆"
     assert payload["trusted_state"]["version"] == 2
     assert payload["chapters"] == [
         {
@@ -61,7 +61,7 @@ def _blueprint() -> OpenBookBlueprint:
         version=1,
         status=BlueprintStatus.SUCCEEDED,
         content={
-            "title_options": ["幽谷回声"],
+            "title_options": ["长夜图书馆"],
             "genre": "奇幻连载",
             "audience": "喜欢成长冒险的连载读者",
             "selling_points": ["每章揭开一条旧王朝线索"],

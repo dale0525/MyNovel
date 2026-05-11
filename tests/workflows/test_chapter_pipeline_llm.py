@@ -74,7 +74,7 @@ def test_run_chapter_pipeline_uses_model_client_for_each_generation_stage(tmp_pa
     model = FakeChapterModel()
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapter = book_chapter(session, book.id, 1)
 
         reviewed = run_chapter_pipeline(
@@ -120,7 +120,7 @@ def test_approve_chapter_blocks_high_risk_unresolved_issues(tmp_path) -> None:
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapter = book_chapter(session, book.id, 1)
         reviewed = run_chapter_pipeline(session, chapter.id)
         reviewed.audit_report = {
@@ -140,7 +140,7 @@ def test_export_chapter_text_returns_only_accepted_final_text(tmp_path) -> None:
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapter = book_chapter(session, book.id, 1)
         reviewed = run_chapter_pipeline(session, chapter.id)
 
@@ -156,7 +156,7 @@ def test_manual_chapter_edit_replaces_review_candidate_without_updating_trusted_
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapter = book_chapter(session, book.id, 1)
         reviewed = run_chapter_pipeline(session, chapter.id)
 
@@ -193,7 +193,7 @@ def test_approve_chapter_requires_explicit_major_change_confirmation(tmp_path) -
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapter = book_chapter(session, book.id, 1)
         reviewed = run_chapter_pipeline(session, chapter.id)
         reviewed.audit_report = {"risk_level": "low", "issues": [], "suggestions": []}
@@ -224,7 +224,7 @@ def test_return_chapter_for_revision_does_not_update_trusted_state(tmp_path) -> 
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapter = book_chapter(session, book.id, 1)
         reviewed = run_chapter_pipeline(session, chapter.id)
 
@@ -245,7 +245,7 @@ def test_repair_chapter_with_ai_revises_text_and_reopens_review(tmp_path) -> Non
     model = FakeRepairModel()
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapter = book_chapter(session, book.id, 1)
         reviewed = run_chapter_pipeline(session, chapter.id)
         reviewed.audit_report = {
@@ -279,7 +279,7 @@ def test_run_chapter_pipeline_records_failure_and_leaves_chapter_retryable(tmp_p
     model = FakeFailingChapterModel()
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapter = book_chapter(session, book.id, 1)
 
         failed = run_chapter_pipeline(
@@ -330,7 +330,7 @@ def _blueprint() -> OpenBookBlueprint:
         version=1,
         status=BlueprintStatus.SUCCEEDED,
         content={
-            "title_options": ["幽谷回声"],
+            "title_options": ["长夜图书馆"],
             "genre": "奇幻连载",
             "audience": "喜欢成长冒险的连载读者",
             "selling_points": ["每章揭开一条旧王朝线索"],

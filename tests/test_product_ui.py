@@ -162,7 +162,7 @@ def test_blueprint_page_translates_structured_model_keys() -> None:
 def test_review_page_exposes_revision_repair_accept_and_export_actions() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,
@@ -202,7 +202,7 @@ def test_review_page_exposes_revision_repair_accept_and_export_actions() -> None
 def test_running_chapter_page_exposes_production_control_panels() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,
@@ -236,7 +236,7 @@ def test_running_chapter_page_exposes_production_control_panels() -> None:
 def test_review_page_exposes_manual_edit_and_major_change_confirmation() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,
@@ -277,7 +277,7 @@ def test_review_page_exposes_manual_edit_and_major_change_confirmation() -> None
 def test_trusted_state_page_shows_full_state_sections_without_raw_keys() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,
@@ -314,7 +314,7 @@ def test_trusted_state_page_shows_full_state_sections_without_raw_keys() -> None
 def test_trusted_state_page_exposes_canon_lock_gate() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.CANON_LOCKED,
@@ -345,7 +345,7 @@ def test_trusted_state_page_exposes_canon_lock_gate() -> None:
 def test_book_workspace_links_to_trusted_state_page() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,
@@ -362,7 +362,7 @@ def test_book_workspace_links_to_trusted_state_page() -> None:
 def test_book_workspace_exposes_whole_book_export_actions() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,
@@ -378,7 +378,7 @@ def test_book_workspace_exposes_whole_book_export_actions() -> None:
 def test_book_workspace_exposes_batch_chapter_production_action() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,
@@ -404,7 +404,7 @@ def test_book_workspace_exposes_batch_chapter_production_action() -> None:
 def test_project_surfaces_expose_ai_api_settings_entry() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,
@@ -420,7 +420,7 @@ def test_project_surfaces_expose_ai_api_settings_entry() -> None:
 def test_book_workspace_hides_batch_action_when_book_is_paused() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PAUSED,
@@ -444,7 +444,7 @@ def test_book_workspace_hides_batch_action_when_book_is_paused() -> None:
 def test_application_shell_uses_icon_navigation_and_project_context() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,
@@ -472,7 +472,7 @@ def test_application_shell_uses_icon_navigation_and_project_context() -> None:
 def test_pipeline_renders_stateful_steps_with_icons_and_connectors() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,

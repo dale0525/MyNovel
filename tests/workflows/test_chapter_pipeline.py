@@ -16,7 +16,7 @@ def test_accepting_blueprint_creates_locked_foundation_and_ten_chapters(tmp_path
         book = create_draft_book_from_blueprint(
             session,
             blueprint,
-            selected_title="幽谷回声",
+            selected_title="长夜图书馆",
         )
         canon = get_latest_canon(session, book.id)
         chapters = list_chapters_for_book(session, book.id)
@@ -24,7 +24,7 @@ def test_accepting_blueprint_creates_locked_foundation_and_ten_chapters(tmp_path
     assert book.status == BookStatus.CANON_LOCKED
     assert canon is not None
     assert canon.version == 1
-    assert canon.content["book"]["title"] == "幽谷回声"
+    assert canon.content["book"]["title"] == "长夜图书馆"
     assert len(chapters) == 10
     assert chapters[0].title == "离开的召唤"
     assert chapters[0].status == ChapterStatus.PLANNED
@@ -35,7 +35,7 @@ def test_run_chapter_pipeline_prepares_human_review(tmp_path) -> None:
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapter = list_chapters_for_book(session, book.id)[0]
 
         reviewed = run_chapter_pipeline(session, chapter.id)
@@ -55,7 +55,7 @@ def test_approve_chapter_writes_state_delta_to_latest_canon(tmp_path) -> None:
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapter = list_chapters_for_book(session, book.id)[0]
         reviewed = run_chapter_pipeline(session, chapter.id)
 
@@ -78,7 +78,7 @@ def _blueprint() -> OpenBookBlueprint:
         version=1,
         status=BlueprintStatus.SUCCEEDED,
         content={
-            "title_options": ["幽谷回声", "雾谷遗书"],
+            "title_options": ["长夜图书馆", "雾谷遗书"],
             "genre": "奇幻连载",
             "audience": "喜欢成长冒险的连载读者",
             "selling_points": ["每章揭开一条旧王朝线索", "角色关系随真相推进变化"],

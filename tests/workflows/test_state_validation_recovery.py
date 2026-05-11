@@ -15,7 +15,7 @@ def test_approve_chapter_rejects_invalid_state_delta(tmp_path) -> None:
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapter = run_chapter_pipeline(session, _chapter_id(session, book.id, 1))
         chapter.state_delta = {"chapter": 1, "changes": [{"type": "人物状态"}]}
         session.add(chapter)
@@ -30,7 +30,7 @@ def test_restore_to_latest_accepted_point_clears_unaccepted_chapter_state(tmp_pa
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         first = approve_chapter(
             session, run_chapter_pipeline(session, _chapter_id(session, book.id, 1)).id
         )
@@ -65,7 +65,7 @@ def _blueprint() -> OpenBookBlueprint:
         version=1,
         status=BlueprintStatus.SUCCEEDED,
         content={
-            "title_options": ["幽谷回声"],
+            "title_options": ["长夜图书馆"],
             "genre": "奇幻连载",
             "audience": "喜欢成长冒险的连载读者",
             "selling_points": ["每章揭开一条旧王朝线索"],

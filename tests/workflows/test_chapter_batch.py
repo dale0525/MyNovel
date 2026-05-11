@@ -71,7 +71,7 @@ def test_batch_runs_next_chapters_into_review_queue_without_accepting(tmp_path) 
     model = FakeBatchChapterModel(["low", "medium"])
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
 
         result = run_chapter_batch(
             session,
@@ -112,7 +112,7 @@ def test_batch_pauses_book_on_high_risk_and_leaves_later_chapters_planned(tmp_pa
     model = FakeBatchChapterModel(["low", "high", "low"])
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
 
         result = run_chapter_batch(
             session,
@@ -148,7 +148,7 @@ def _blueprint() -> OpenBookBlueprint:
         version=1,
         status=BlueprintStatus.SUCCEEDED,
         content={
-            "title_options": ["幽谷回声"],
+            "title_options": ["长夜图书馆"],
             "genre": "奇幻连载",
             "audience": "喜欢成长冒险的连载读者",
             "selling_points": ["每章揭开一条旧王朝线索"],

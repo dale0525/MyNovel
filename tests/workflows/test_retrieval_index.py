@@ -13,7 +13,7 @@ def test_local_retrieval_index_ranks_matching_context(tmp_path) -> None:
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         index_text(
             session,
             book_id=book.id,
@@ -42,7 +42,7 @@ def test_accepted_chapter_updates_structured_state_and_rebuildable_index(tmp_pat
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         chapter = run_chapter_pipeline(session, _first_chapter_id(session, book.id))
         chapter.state_delta = {
             "chapter": 1,
@@ -83,7 +83,7 @@ def _blueprint() -> OpenBookBlueprint:
         version=1,
         status=BlueprintStatus.SUCCEEDED,
         content={
-            "title_options": ["幽谷回声"],
+            "title_options": ["长夜图书馆"],
             "genre": "奇幻连载",
             "audience": "喜欢成长冒险的连载读者",
             "selling_points": ["每章揭开一条旧王朝线索"],

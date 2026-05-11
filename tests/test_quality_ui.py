@@ -5,7 +5,7 @@ from mynovel.quality_views import render_quality_center
 def test_quality_center_renders_v3_assets_analysis_and_cost_strategy() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,
@@ -62,7 +62,7 @@ def test_quality_center_renders_v3_assets_analysis_and_cost_strategy() -> None:
 def test_quality_center_uses_the_main_application_shell() -> None:
     book = Book(
         id=1,
-        title="幽谷回声",
+        title="长夜图书馆",
         genre="奇幻连载",
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,

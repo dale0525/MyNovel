@@ -22,7 +22,7 @@ def test_style_asset_and_deconstruction_study_are_persisted(tmp_path) -> None:
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
 
         style = create_style_asset(
             session,
@@ -60,7 +60,7 @@ def test_quality_snapshot_and_cost_strategy_use_chapters_and_traces(tmp_path) ->
     create_db_and_tables(engine)
 
     with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="幽谷回声")
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
         first = run_chapter_pipeline(session, _chapter_id(session, book.id, 1))
         approve_chapter(session, first.id)
         second = run_chapter_pipeline(session, _chapter_id(session, book.id, 2))
@@ -105,7 +105,7 @@ def _blueprint() -> OpenBookBlueprint:
         version=1,
         status=BlueprintStatus.SUCCEEDED,
         content={
-            "title_options": ["幽谷回声"],
+            "title_options": ["长夜图书馆"],
             "genre": "奇幻连载",
             "audience": "喜欢成长冒险的连载读者",
             "selling_points": ["每章揭开一条旧王朝线索"],

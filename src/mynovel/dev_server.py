@@ -28,6 +28,7 @@ from mynovel.domain.repositories import (
     save_provider_config,
 )
 from mynovel.i18n import t
+from mynovel.legacy_cleanup import remove_legacy_placeholder_data
 from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
 from mynovel.product_views import (
     is_provider_config_complete,
@@ -84,6 +85,7 @@ def build_health_payload(db_path: Path) -> dict[str, str]:
 def run_server(host: str, port: int, db_path: Path) -> None:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
+    remove_legacy_placeholder_data(engine)
 
     state = DevServerState(db_path=db_path)
     server = ThreadingHTTPServer((host, port), _make_handler(state))
