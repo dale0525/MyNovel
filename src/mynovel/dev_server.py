@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from sqlmodel import Session, select
 
+from mynovel import __version__
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import Book, BlueprintStatus, OpenBookBlueprint, ProviderConfig, utc_now
 from mynovel.domain.repositories import (
@@ -38,6 +39,8 @@ from mynovel.product_views import (
     render_trusted_state_page,
 )
 from mynovel.quality_views import render_quality_center
+from mynovel.update import check_for_update, fetch_update_manifest
+from mynovel.update_views import render_update_page
 from mynovel.workflows.quality_enhancement import (
     create_style_asset,
     deconstruct_reference_text,
@@ -139,6 +142,9 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if parsed.path.startswith("/blueprint/"):
                 self._send_blueprint_page(state.db_path, _parse_numeric_id(parsed.path))
                 return
+            if parsed.path == "/updates":
+                self._send_html(render_update_page())
+                return
             if parsed.path != "/":
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
@@ -201,6 +207,9 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 return
             if parsed.path == "/quality-snapshot":
                 self._create_quality_snapshot(state.db_path)
+                return
+            if parsed.path == "/check-update":
+                self._check_update()
                 return
             self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -609,6 +618,24 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     self.send_error(HTTPStatus.BAD_REQUEST)
                     return
             self._redirect(f"/book/{book_id}/quality")
+
+        def _check_update(self) -> None:
+            form = self._read_form()
+            manifest_url = form.get("manifest_url", "")
+            try:
+                manifest = fetch_update_manifest(manifest_url)
+                result = check_for_update(
+                    __version__,
+                    manifest,
+                    skipped_version=form.get("skipped_version") or None,
+                )
+            except Exception as error:  # noqa: BLE001
+                self._send_html(
+                    render_update_page(message=str(error), manifest_url=manifest_url),
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            self._send_html(render_update_page(result, manifest_url=manifest_url))
 
         def _read_form(self) -> dict[str, str]:
             length = int(self.headers.get("Content-Length", "0"))

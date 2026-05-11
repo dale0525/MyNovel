@@ -10,7 +10,7 @@ def test_desktop_entrypoint_and_build_task_are_configured() -> None:
 
     assert project["project"]["scripts"]["mynovel-desktop"] == "mynovel.desktop:main"
     assert "pyinstaller" in pixi["pypi-dependencies"]
-    assert "mynovel-desktop" in pixi["tasks"]["desktop-build"]
+    assert "src/mynovel/desktop.py" in pixi["tasks"]["desktop-build"]
 
 
 def test_release_workflow_builds_desktop_artifact_and_update_metadata() -> None:
@@ -20,4 +20,4 @@ def test_release_workflow_builds_desktop_artifact_and_update_metadata() -> None:
     ]
 
     assert "pixi run desktop-build" in commands
-    assert any("update.json" in command and "sha256" in command for command in commands)
+    assert any("update-" in command and "sha256" in command for command in commands)

@@ -354,7 +354,7 @@ def _page(
       {_nav_item("/books/new", t("nav.create", locale), active == "create")}
       {_nav_item("/", t("nav.docs", locale), False)}
       {_nav_item("/", t("nav.review", locale), active == "review")}
-      {_nav_item("/", t("nav.settings", locale), False)}
+      {_nav_item("/updates", t("nav.settings", locale), False)}
     </nav>
     <main class="workspace">
       <header class="topbar">

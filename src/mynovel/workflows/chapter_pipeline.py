@@ -13,6 +13,7 @@ from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
 from mynovel.prompts.registry import load_prompt_by_id, render_prompt_messages
 from mynovel.workflows.open_book_blueprint import extract_chat_content
 from mynovel.workflows.retrieval import index_text
+from mynovel.workflows.state_validation import validate_state_delta
 
 
 class ChapterModelClient(Protocol):
@@ -116,6 +117,7 @@ def approve_chapter(
         raise ValueError("Trusted state is required before accepting a chapter.")
     if chapter.status != ChapterStatus.AWAITING_REVIEW:
         raise ValueError("Only chapters waiting for human review can be accepted.")
+    validate_state_delta(chapter)
     _assert_review_gate_passed(chapter, allow_major_changes)
 
     chapter.status = ChapterStatus.ACCEPTED
