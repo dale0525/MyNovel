@@ -1,7 +1,7 @@
 from sqlmodel import Session
 
-from mynovel.domain.models import Book, BookStatus, Canon, Chapter, OpenBookBlueprint
-from mynovel.domain.repositories import add_book, add_canon, add_chapter
+from mynovel.domain.models import Book, BookStatus, Canon, Chapter, OpenBookBlueprint, VolumePlan
+from mynovel.domain.repositories import add_book, add_canon, add_chapter, add_volume_plan
 
 
 def create_draft_book(
@@ -57,6 +57,7 @@ def create_draft_book_from_blueprint(
     add_canon(
         session, Canon(book_id=book.id, version=1, content=_initial_canon_content(book, blueprint))
     )
+    add_volume_plan(session, _volume_plan_from_blueprint(book.id, blueprint.content))
     for chapter in _chapters_from_blueprint(book.id, blueprint.content):
         add_chapter(session, chapter)
 
@@ -119,6 +120,24 @@ def _chapters_from_blueprint(book_id: int, content: dict) -> list[Chapter]:
             )
         )
     return chapters
+
+
+def _volume_plan_from_blueprint(book_id: int, content: dict) -> VolumePlan:
+    raw_plan = content.get("volume_plan")
+    plan = raw_plan if isinstance(raw_plan, dict) else {}
+    core_conflict = str(
+        plan.get("core_conflict") or content.get("central_conflict") or "推进首卷核心冲突。"
+    ).strip()
+    return VolumePlan(
+        book_id=book_id,
+        volume_number=int(plan.get("volume_number", 1) or 1),
+        title=str(plan.get("title") or "第一卷").strip(),
+        core_conflict=core_conflict,
+        pacing_curve=_list_values(plan.get("pacing_curve") or content.get("chapter_directions")),
+        payoff_distribution=_list_values(plan.get("payoff_distribution")),
+        key_turns=_list_values(plan.get("key_turns")),
+        commitments=_list_values(plan.get("commitments") or content.get("reader_promises")),
+    )
 
 
 def _chapter_title_and_goal(number: int, raw_direction: object) -> tuple[str, str]:

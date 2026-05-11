@@ -46,7 +46,12 @@ def handle_stage_update(form: Mapping[str, str], db_path: Path) -> UpdatePageRes
                     manifest_url=manifest_url,
                 )
             )
-        staged_install = prepare_update_install(manifest, db_path, db_path.parent / "updates")
+        staged_install = prepare_update_install(
+            manifest,
+            db_path,
+            db_path.parent / "updates",
+            current_version=__version__,
+        )
     except Exception as error:  # noqa: BLE001
         return UpdatePageResponse(
             render_update_page(message=str(error), manifest_url=manifest_url),

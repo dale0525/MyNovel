@@ -4,9 +4,11 @@ import sqlite3
 import httpx
 from mynovel.update import (
     UpdateManifest,
+    UpdatePreflightError,
     backup_sqlite_database,
     check_for_update,
     prepare_update_install,
+    preflight_update_install,
     stage_update_install,
     verify_update_artifact,
 )
@@ -104,6 +106,74 @@ def test_prepare_update_install_downloads_verifies_and_backs_up_database(tmp_pat
     assert _read_sqlite_value(tmp_path / "updates" / "backups" / "mynovel.backup.sqlite") == (
         "current data"
     )
+
+
+def test_update_preflight_blocks_incompatible_app_version_before_download(tmp_path) -> None:
+    db_path = tmp_path / "mynovel.sqlite"
+    _create_sqlite_database(db_path, "current data")
+    manifest = UpdateManifest(
+        channel="stable",
+        version="0.3.0",
+        url="https://example.test/MyNovel.dmg",
+        sha256="unused",
+        minimum_app_version="0.2.0",
+    )
+
+    result = preflight_update_install("0.1.0", manifest, current_schema_version=1)
+
+    assert result.compatible is False
+    assert "requires app version 0.2.0" in result.reason
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(500))) as client:
+        try:
+            prepare_update_install(
+                manifest,
+                db_path,
+                workspace_dir=tmp_path / "updates",
+                client=client,
+                current_version="0.1.0",
+                current_schema_version=1,
+            )
+        except UpdatePreflightError as error:
+            assert "requires app version 0.2.0" in str(error)
+        else:
+            raise AssertionError("Expected incompatible update to fail before download.")
+
+
+def test_update_preflight_records_database_migration_in_staged_plan(tmp_path) -> None:
+    payload = b"installer payload"
+    db_path = tmp_path / "mynovel.sqlite"
+    _create_sqlite_database(db_path, "current data")
+    manifest = UpdateManifest(
+        channel="stable",
+        version="0.2.0",
+        url="https://example.test/MyNovel.dmg",
+        sha256=sha256(payload).hexdigest(),
+        database_migration={
+            "required": True,
+            "from_schema_version": 1,
+            "to_schema_version": 2,
+            "notes": "Adds volume planning tables.",
+        },
+    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=payload))
+
+    with httpx.Client(transport=transport) as client:
+        plan = prepare_update_install(
+            manifest,
+            db_path,
+            workspace_dir=tmp_path / "updates",
+            client=client,
+            current_version="0.1.0",
+            current_schema_version=1,
+        )
+
+    assert plan.payload["database_migration"] == {
+        "required": True,
+        "from_schema_version": 1,
+        "to_schema_version": 2,
+        "notes": "Adds volume planning tables.",
+    }
+    assert plan.payload["preflight"]["compatible"] is True
 
 
 def _create_sqlite_database(path, value: str) -> None:

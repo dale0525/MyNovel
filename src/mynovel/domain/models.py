@@ -51,6 +51,20 @@ class Canon(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class VolumePlan(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    book_id: int = Field(index=True, foreign_key="book.id")
+    volume_number: int = Field(default=1, index=True)
+    title: str
+    core_conflict: str
+    pacing_curve: list = Field(default_factory=list, sa_column=Column(JSON))
+    payoff_distribution: list = Field(default_factory=list, sa_column=Column(JSON))
+    key_turns: list = Field(default_factory=list, sa_column=Column(JSON))
+    commitments: list = Field(default_factory=list, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class Chapter(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     book_id: int = Field(index=True, foreign_key="book.id")

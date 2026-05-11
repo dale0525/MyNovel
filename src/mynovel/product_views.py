@@ -14,6 +14,7 @@ from mynovel.domain.models import (
     OpenBookBlueprint,
     ProviderConfig,
     RunTrace,
+    VolumePlan,
 )
 from mynovel.i18n import DEFAULT_LOCALE, t
 from mynovel.workflows.open_book import title_options_from_blueprint
@@ -196,6 +197,7 @@ def render_book_workspace(
     chapters: list[Chapter],
     canon: Canon | None,
     traces: list[RunTrace],
+    volume_plans: list[VolumePlan] | None = None,
     message: str | None = None,
     locale: str = DEFAULT_LOCALE,
 ) -> str:
@@ -222,6 +224,7 @@ def render_book_workspace(
           <a class="button secondary" href="/book/{book.id}/export.json">{t("export.json", locale)}</a>
         </div>
         {_render_foundation_board(canon, locale)}
+        {_render_volume_plan_board(volume_plans or [])}
         {_render_chapter_table(chapters, locale)}
       </section>
       <aside class="right-panel">
@@ -544,6 +547,25 @@ def _render_foundation_board(canon: Canon | None, locale: str) -> str:
         )
         + "</div>"
     )
+
+
+def _render_volume_plan_board(volume_plans: list[VolumePlan]) -> str:
+    if not volume_plans:
+        return ""
+    plan = volume_plans[0]
+    rows = [
+        ("卷级目标", plan.core_conflict),
+        ("节奏曲线", "；".join(str(item) for item in plan.pacing_curve[:4])),
+        ("爽点兑现", "；".join(str(item) for item in plan.payoff_distribution[:4])),
+        ("关键转折", "；".join(str(item) for item in plan.key_turns[:4])),
+        ("阶段承诺", "；".join(str(item) for item in plan.commitments[:4])),
+    ]
+    content = "".join(
+        f"<p><strong>{html.escape(label)}</strong> {html.escape(str(value))}</p>"
+        for label, value in rows
+        if value
+    )
+    return f"<section class='data-card'><h3>{html.escape(plan.title)}</h3>{content}</section>"
 
 
 def _render_trusted_state_sections(canon: Canon | None, locale: str) -> str:

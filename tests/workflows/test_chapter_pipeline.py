@@ -43,6 +43,7 @@ def test_run_chapter_pipeline_prepares_human_review(tmp_path) -> None:
     assert reviewed.status == ChapterStatus.AWAITING_REVIEW
     assert reviewed.plan["goal"]
     assert reviewed.context_package["trusted_state"]
+    assert reviewed.context_package["volume_plan"]["core_conflict"]
     assert reviewed.draft_text
     assert reviewed.revised_text
     assert reviewed.audit_report["issues"]

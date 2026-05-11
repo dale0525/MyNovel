@@ -4,6 +4,8 @@ from sqlalchemy import inspect
 from sqlalchemy.engine import Engine
 from sqlmodel import SQLModel, create_engine
 
+SCHEMA_VERSION = 1
+
 
 def create_engine_for_path(path: Path) -> Engine:
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -9,6 +9,8 @@ import subprocess
 from hashlib import sha256
 from pathlib import Path
 
+from mynovel.db import SCHEMA_VERSION
+
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Create unsigned native MyNovel installer assets.")
@@ -84,6 +86,14 @@ def _write_metadata(dist_dir: Path, artifact: Path, version: str, platform_name:
                 "url": artifact.name,
                 "sha256": digest,
                 "size_bytes": artifact.stat().st_size,
+                "minimum_app_version": "0.1.0",
+                "minimum_schema_version": SCHEMA_VERSION,
+                "database_migration": {
+                    "required": False,
+                    "from_schema_version": SCHEMA_VERSION,
+                    "to_schema_version": SCHEMA_VERSION,
+                    "notes": "",
+                },
                 "notes": "生成更新元数据",
             },
             ensure_ascii=False,

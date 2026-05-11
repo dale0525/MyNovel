@@ -12,6 +12,7 @@ from mynovel.domain.models import (
     RunTrace,
     StyleAsset,
     VectorEntry,
+    VolumePlan,
     utc_now,
 )
 
@@ -43,6 +44,32 @@ def get_latest_canon(session: Session, book_id: int) -> Canon | None:
         select(Canon)
         .where(Canon.book_id == book_id)
         .order_by(_orm(Canon.version).desc(), _orm(Canon.created_at).desc())
+        .limit(1)
+    )
+    return session.exec(statement).first()
+
+
+def add_volume_plan(session: Session, volume_plan: VolumePlan) -> VolumePlan:
+    session.add(volume_plan)
+    session.commit()
+    session.refresh(volume_plan)
+    return volume_plan
+
+
+def list_volume_plans_for_book(session: Session, book_id: int) -> list[VolumePlan]:
+    statement = (
+        select(VolumePlan)
+        .where(VolumePlan.book_id == book_id)
+        .order_by(_orm(VolumePlan.volume_number), _orm(VolumePlan.id))
+    )
+    return list(session.exec(statement))
+
+
+def get_active_volume_plan(session: Session, book_id: int) -> VolumePlan | None:
+    statement = (
+        select(VolumePlan)
+        .where(VolumePlan.book_id == book_id)
+        .order_by(_orm(VolumePlan.volume_number))
         .limit(1)
     )
     return session.exec(statement).first()

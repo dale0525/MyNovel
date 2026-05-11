@@ -24,6 +24,7 @@ from mynovel.domain.repositories import (
     list_chapters_for_book,
     list_open_book_blueprints,
     list_run_traces_for_book,
+    list_volume_plans_for_book,
     save_provider_config,
 )
 from mynovel.i18n import t
@@ -232,6 +233,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     _load_chapters_for_book(db_path, book_id),
                     _load_latest_canon(db_path, book_id),
                     _load_run_traces_for_book(db_path, book_id),
+                    _load_volume_plans_for_book(db_path, book_id),
                 )
             )
 
@@ -698,6 +700,13 @@ def _load_run_traces_for_book(db_path: Path, book_id: int):
     create_db_and_tables(engine)
     with Session(engine) as session:
         return list_run_traces_for_book(session, book_id)
+
+
+def _load_volume_plans_for_book(db_path: Path, book_id: int):
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        return list_volume_plans_for_book(session, book_id)
 
 
 def _render_quality_page_from_db(db_path: Path, book: Book) -> str:

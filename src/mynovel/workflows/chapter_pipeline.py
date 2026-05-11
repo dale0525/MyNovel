@@ -8,7 +8,12 @@ from typing import Any, Protocol
 from sqlmodel import Session
 
 from mynovel.domain.models import BookStatus, Canon, Chapter, ChapterStatus, RunTrace, utc_now
-from mynovel.domain.repositories import get_book, get_chapter, get_latest_canon
+from mynovel.domain.repositories import (
+    get_active_volume_plan,
+    get_book,
+    get_chapter,
+    get_latest_canon,
+)
 from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
 from mynovel.prompts.registry import load_prompt_by_id, render_prompt_messages
 from mynovel.workflows.open_book_blueprint import extract_chat_content
@@ -78,6 +83,7 @@ def run_chapter_pipeline(
     chapter = _required_chapter(session, chapter_id)
     book = get_book(session, chapter.book_id)
     canon = get_latest_canon(session, chapter.book_id)
+    volume_plan = get_active_volume_plan(session, chapter.book_id)
     if book is None or canon is None:
         raise ValueError("Chapter must belong to a book with trusted state.")
 
@@ -85,9 +91,15 @@ def run_chapter_pipeline(
     model_label = model_name or "本地演示模型"
     try:
         if model_client is None:
-            _run_simulated_pipeline(book.title, canon, chapter)
+            _run_simulated_pipeline(book.title, canon, chapter, _volume_plan_payload(volume_plan))
         else:
-            _run_model_pipeline(book.title, canon, chapter, model_client)
+            _run_model_pipeline(
+                book.title,
+                canon,
+                chapter,
+                model_client,
+                _volume_plan_payload(volume_plan),
+            )
     except Exception as error:  # noqa: BLE001
         failed_stage = error.stage if isinstance(error, ChapterStageError) else "unknown"
         return _record_pipeline_failure(session, chapter, model_label, failed_stage, error)
@@ -258,8 +270,13 @@ def _required_chapter(session: Session, chapter_id: int) -> Chapter:
     return chapter
 
 
-def _run_simulated_pipeline(book_title: str, canon: Canon, chapter: Chapter) -> None:
-    chapter.context_package = _build_context_package(canon, chapter)
+def _run_simulated_pipeline(
+    book_title: str,
+    canon: Canon,
+    chapter: Chapter,
+    volume_plan: dict[str, Any],
+) -> None:
+    chapter.context_package = _build_context_package(canon, chapter, volume_plan)
     chapter.draft_text = _generate_draft_text(book_title, chapter)
     chapter.audit_report = _audit_chapter(chapter)
     chapter.revised_text = _revise_text(chapter.draft_text, chapter.audit_report)
@@ -271,14 +288,15 @@ def _run_model_pipeline(
     canon: Canon,
     chapter: Chapter,
     model_client: ChapterModelClient,
+    volume_plan: dict[str, Any],
 ) -> None:
     chapter.plan = _complete_json_stage(
         model_client,
         "plan",
-        _build_plan_messages(book_title, canon, chapter),
+        _build_plan_messages(book_title, canon, chapter, volume_plan),
         {"goal", "must_write", "forbidden_drift", "word_budget", "ending_hook"},
     )
-    chapter.context_package = _build_context_package(canon, chapter)
+    chapter.context_package = _build_context_package(canon, chapter, volume_plan)
     chapter.draft_text = _complete_text_stage(
         model_client,
         "draft",
@@ -353,10 +371,16 @@ def _strip_code_fence(text: str) -> str:
     return text
 
 
-def _build_plan_messages(book_title: str, canon: Canon, chapter: Chapter) -> list[dict[str, str]]:
+def _build_plan_messages(
+    book_title: str,
+    canon: Canon,
+    chapter: Chapter,
+    volume_plan: dict[str, Any],
+) -> list[dict[str, str]]:
     payload = {
         "book_title": book_title,
         "trusted_state": canon.content,
+        "volume_plan": volume_plan,
         "chapter": {
             "number": chapter.number,
             "title": chapter.title,
@@ -471,7 +495,7 @@ def _text_instruction_messages(
     ]
 
 
-def _build_context_package(canon: Canon, chapter: Chapter) -> dict:
+def _build_context_package(canon: Canon, chapter: Chapter, volume_plan: dict[str, Any]) -> dict:
     return {
         "trusted_state": {
             "version": canon.version,
@@ -480,9 +504,24 @@ def _build_context_package(canon: Canon, chapter: Chapter) -> dict:
             "foreshadowing": canon.content.get("foreshadowing", []),
             "chapter_summaries": canon.content.get("chapter_summaries", []),
         },
+        "volume_plan": volume_plan,
         "chapter_goal": chapter.plan.get("goal", ""),
         "must_write": chapter.plan.get("must_write", []),
         "forbidden_drift": ["不要改写已锁定设定", "不要让状态变化绕过人工审核"],
+    }
+
+
+def _volume_plan_payload(volume_plan: Any) -> dict[str, Any]:
+    if volume_plan is None:
+        return {}
+    return {
+        "volume_number": volume_plan.volume_number,
+        "title": volume_plan.title,
+        "core_conflict": volume_plan.core_conflict,
+        "pacing_curve": volume_plan.pacing_curve,
+        "payoff_distribution": volume_plan.payoff_distribution,
+        "key_turns": volume_plan.key_turns,
+        "commitments": volume_plan.commitments,
     }
 
 
