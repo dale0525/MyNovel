@@ -18,6 +18,14 @@ class PipelineStep:
     icon: str = "○"
 
 
+@dataclass(frozen=True)
+class ProjectNavLinks:
+    docs: str
+    characters: str
+    world: str
+    analysis: str
+
+
 def render_app_page(
     *,
     title: str,
@@ -29,7 +37,9 @@ def render_app_page(
     db_path: Path | None = None,
     eyebrow: str | None = None,
     content_class: str = "content-grid",
+    nav_book_id: int | None = None,
 ) -> str:
+    nav_links = project_nav_links(nav_book_id)
     db_hint = (
         f"<span>{t('app.local_database', locale)}：{html.escape(str(db_path))}</span>"
         if db_path
@@ -50,10 +60,10 @@ def render_app_page(
       <div class="nav-stack">
         {render_nav_item("/", t("nav.workspace", locale), "⌂", active == "workspace")}
         {render_nav_item("/books/new", t("nav.create", locale), "▣", active == "create")}
-        {render_nav_item("/", t("nav.docs", locale), "□", active == "docs")}
-        {render_nav_item("/", "角色", "♙", active == "characters")}
-        {render_nav_item("/", "世界观", "◎", active == "world")}
-        {render_nav_item("/", "分析", "▥", active == "analysis")}
+        {render_nav_item(nav_links.docs, t("nav.docs", locale), "□", active == "docs")}
+        {render_nav_item(nav_links.characters, "角色", "♙", active == "characters")}
+        {render_nav_item(nav_links.world, "世界观", "◎", active == "world")}
+        {render_nav_item(nav_links.analysis, "分析", "▥", active == "analysis")}
         {render_nav_item("/review", t("nav.review", locale), "✓", active == "review")}
       </div>
       <div class="nav-bottom">
@@ -82,6 +92,17 @@ def render_app_page(
 </body>
 </html>
 """
+
+
+def project_nav_links(book_id: int | None) -> ProjectNavLinks:
+    if book_id is None:
+        return ProjectNavLinks(docs="/", characters="/review", world="/review", analysis="/review")
+    return ProjectNavLinks(
+        docs=f"/book/{book_id}",
+        characters=f"/book/{book_id}/state#characters",
+        world=f"/book/{book_id}/state#world",
+        analysis=f"/book/{book_id}/quality",
+    )
 
 
 def render_nav_item(href: str, label: str, icon: str, active: bool) -> str:

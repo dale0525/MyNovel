@@ -106,14 +106,14 @@ def render_canon_gate_main(canon: Canon | None, locked: bool = False) -> str:
         return "<p>还没有可信设定。</p>"
     content = canon.content
     cards = [
-        ("世界规则", content.get("world_rules", [])),
-        ("人物", content.get("characters", [])),
-        ("势力", content.get("factions", []) or content.get("organizations", [])),
-        ("地点", content.get("locations", [])),
-        ("关系", content.get("relationships", [])),
-        ("伏笔账本", content.get("foreshadowing", [])),
-        ("章节摘要", content.get("chapter_summaries", [])),
-        ("变化历史", content.get("state_history", [])),
+        ("world", "世界规则", content.get("world_rules", [])),
+        ("characters", "人物", content.get("characters", [])),
+        ("factions", "势力", content.get("factions", []) or content.get("organizations", [])),
+        ("locations", "地点", content.get("locations", [])),
+        ("relationships", "关系", content.get("relationships", [])),
+        ("foreshadowing", "伏笔账本", content.get("foreshadowing", [])),
+        ("chapter-summaries", "章节摘要", content.get("chapter_summaries", [])),
+        ("state-history", "变化历史", content.get("state_history", [])),
     ]
     warning = (
         (
@@ -130,8 +130,9 @@ def render_canon_gate_main(canon: Canon | None, locked: bool = False) -> str:
         warning
         + "<div class='state-sections canon-state-grid'>"
         + "".join(
-            f"<section class='data-card'><h2>{label}</h2>{_render_value(value)}</section>"
-            for label, value in cards
+            f'<section id="{anchor}" class="data-card"><h2>{label}</h2>'
+            f"{_render_value(value)}</section>"
+            for anchor, label, value in cards
         )
         + "</div>"
         + f"<section class='table-card rhythm-board'><h2>前 10 章节奏</h2>{_render_chapter_rhythm(content)}</section>"

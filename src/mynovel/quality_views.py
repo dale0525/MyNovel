@@ -91,6 +91,7 @@ def render_quality_center(
         ),
         message=message,
         eyebrow="质量增强",
+        nav_book_id=book.id,
     )
 
 

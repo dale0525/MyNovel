@@ -78,6 +78,7 @@ def render_home(
         bottom=_render_start_pipeline(None, locale),
         locale=locale,
         db_path=db_path,
+        nav_book_id=books[0].id if books else None,
     )
 
 
@@ -289,11 +290,12 @@ def render_book_workspace(
 """
     return _page(
         title=book.title,
-        active="create",
+        active="docs",
         main=main,
         message=message,
         bottom=_render_production_pipeline(None, locale),
         locale=locale,
+        nav_book_id=book.id,
     )
 
 
@@ -325,13 +327,14 @@ def render_trusted_state_page(
 """
     return _page(
         title=t("trusted_state.title", locale),
-        active="review",
+        active="world",
         main=main,
         message=message,
         bottom=_render_production_pipeline(None, locale),
         locale=locale,
         eyebrow="开书定盘",
         content_class="content-grid canon-gate-layout",
+        nav_book_id=book.id,
     )
 
 
@@ -358,6 +361,7 @@ def render_chapter_review(
             locale=locale,
             eyebrow="章节生产",
             content_class="content-grid production-layout",
+            nav_book_id=book.id,
         )
 
     main = f"""
@@ -383,6 +387,7 @@ def render_chapter_review(
         message=message,
         bottom=_render_production_pipeline(chapter.status, locale),
         locale=locale,
+        nav_book_id=book.id,
     )
 
 
@@ -406,6 +411,7 @@ def _page(
     db_path: Path | None = None,
     eyebrow: str | None = None,
     content_class: str = "content-grid",
+    nav_book_id: int | None = None,
 ) -> str:
     return render_app_page(
         title=title,
@@ -417,6 +423,7 @@ def _page(
         db_path=db_path,
         eyebrow=eyebrow,
         content_class=content_class,
+        nav_book_id=nav_book_id,
     )
 
 

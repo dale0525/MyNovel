@@ -490,6 +490,50 @@ def test_book_workspace_links_to_trusted_state_page() -> None:
     assert "/book/1/quality" in page
 
 
+def test_project_navigation_links_to_current_book_surfaces() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+
+    page = render_book_workspace(book, [], Canon(id=1, book_id=1, version=1, content={}), [])
+
+    assert (
+        '<a class="nav-item active" href="/book/1"><span class="nav-icon" '
+        'aria-hidden="true">□</span><span>文档</span></a>'
+    ) in page
+    assert 'href="/book/1/state#characters"' in page
+    assert 'href="/book/1/state#world"' in page
+    assert 'href="/book/1/quality"' in page
+
+
+def test_trusted_state_page_exposes_character_and_world_anchors() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+    canon = Canon(
+        id=1,
+        book_id=1,
+        version=1,
+        content={
+            "world_rules": [{"name": "雾墙规则", "detail": "幽谷边界危险。"}],
+            "characters": [{"name": "罗斯", "detail": "石匠学徒。"}],
+        },
+    )
+
+    page = render_trusted_state_page(book, canon, [])
+
+    assert 'id="world"' in page
+    assert 'id="characters"' in page
+
+
 def test_book_workspace_exposes_whole_book_export_actions() -> None:
     book = Book(
         id=1,
