@@ -48,3 +48,12 @@ def test_runtime_prompt_registry_loads_and_renders_stage_prompt() -> None:
     assert asset.source_license == "Apache-2.0"
     assert messages[0]["role"] == "system"
     assert "离开的召唤" in messages[1]["content"]
+
+
+def test_canon_proposal_revision_prompt_declares_json_contract() -> None:
+    asset = load_prompt_by_id("canon_proposal_revision")
+
+    assert asset.id == "canon_proposal_revision"
+    assert asset.source_license == "Apache-2.0"
+    assert "changed_sections" in asset.output_schema["required"]
+    assert "blocked_sections" in asset.output_schema["required"]

@@ -1,0 +1,29 @@
+id: canon_proposal_revision
+name: Canon Proposal AI Revision
+version: "0.1.0"
+purpose: Revise unlocked canon proposal sections from short author instructions.
+source: original
+source_license: Apache-2.0
+adaptation_notes: Designed for MyNovel open-book proposal review with reversible section locks.
+model_family_hint: OpenAI-compatible chat models with JSON response-format support.
+input_schema:
+  required:
+    - trusted_state_proposal
+    - target_section
+    - instruction
+    - section_locks
+    - allowed_sections
+    - locked_sections
+output_schema:
+  required:
+    - target_section
+    - changed_sections
+    - blocked_sections
+    - summary
+    - risks
+template: |
+  Revise the trusted-state proposal using the author's instruction.
+  You may replace only sections listed in allowed_sections. Sections listed in
+  locked_sections are immutable constraints and must not appear in changed_sections.
+  changed_sections must contain complete replacement arrays for every changed
+  section, not patches. Return JSON only.

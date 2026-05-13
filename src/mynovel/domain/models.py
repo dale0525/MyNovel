@@ -31,6 +31,13 @@ class BlueprintStatus(StrEnum):
     FAILED = "failed"
 
 
+class CanonProposalRevisionStatus(StrEnum):
+    PENDING = "pending"
+    APPLIED = "applied"
+    DISCARDED = "discarded"
+    STALE = "stale"
+
+
 class Book(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     title: str
@@ -49,6 +56,25 @@ class Canon(SQLModel, table=True):
     version: int = 1
     content: dict = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class CanonProposalRevision(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    book_id: int = Field(index=True, foreign_key="book.id")
+    base_canon_version: int
+    base_content_hash: str
+    base_locks_hash: str
+    target_section: str
+    instruction: str
+    allowed_sections: list = Field(default_factory=list, sa_column=Column(JSON))
+    locked_sections: list = Field(default_factory=list, sa_column=Column(JSON))
+    changed_sections: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    blocked_sections: list = Field(default_factory=list, sa_column=Column(JSON))
+    summary: str = ""
+    risks: list = Field(default_factory=list, sa_column=Column(JSON))
+    status: CanonProposalRevisionStatus = CanonProposalRevisionStatus.PENDING
+    created_at: datetime = Field(default_factory=utc_now)
+    applied_at: datetime | None = None
 
 
 class VolumePlan(SQLModel, table=True):

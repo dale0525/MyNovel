@@ -4,6 +4,8 @@ from typing import Any, cast
 from mynovel.domain.models import (
     Book,
     Canon,
+    CanonProposalRevision,
+    CanonProposalRevisionStatus,
     Chapter,
     DeconstructionStudy,
     OpenBookBlueprint,
@@ -47,6 +49,36 @@ def get_latest_canon(session: Session, book_id: int) -> Canon | None:
         .limit(1)
     )
     return session.exec(statement).first()
+
+
+def add_canon_proposal_revision(
+    session: Session,
+    revision: CanonProposalRevision,
+) -> CanonProposalRevision:
+    session.add(revision)
+    session.commit()
+    session.refresh(revision)
+    return revision
+
+
+def get_canon_proposal_revision(
+    session: Session,
+    revision_id: int,
+) -> CanonProposalRevision | None:
+    return session.get(CanonProposalRevision, revision_id)
+
+
+def list_pending_canon_proposal_revisions_for_book(
+    session: Session,
+    book_id: int,
+) -> list[CanonProposalRevision]:
+    statement = (
+        select(CanonProposalRevision)
+        .where(CanonProposalRevision.book_id == book_id)
+        .where(CanonProposalRevision.status == CanonProposalRevisionStatus.PENDING)
+        .order_by(_orm(CanonProposalRevision.created_at), _orm(CanonProposalRevision.id))
+    )
+    return list(session.exec(statement))
 
 
 def add_volume_plan(session: Session, volume_plan: VolumePlan) -> VolumePlan:
