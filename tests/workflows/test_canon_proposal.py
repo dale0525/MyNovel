@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -102,6 +103,25 @@ class FakeCanonRevisionClient:
         """
 
 
+class TargetSectionClient:
+    def __init__(self, target_section: str | None, *, include_target: bool = True) -> None:
+        self.target_section = target_section
+        self.include_target = include_target
+
+    def complete(self, stage: str, messages: list[dict[str, str]], response_format: str) -> str:
+        assert stage == "canon_proposal_revision"
+        assert response_format == "json"
+        payload: dict[str, object] = {
+            "changed_sections": {"characters": [{"name": "林烬", "trait": "外冷内热"}]},
+            "blocked_sections": [],
+            "summary": "已调整人物。",
+            "risks": [],
+        }
+        if self.include_target:
+            payload["target_section"] = self.target_section
+        return json.dumps(payload, ensure_ascii=False)
+
+
 def test_create_revision_preview_persists_ai_output_with_base_hashes(tmp_path: Path) -> None:
     engine = create_engine_for_path(tmp_path / "test.sqlite")
     create_db_and_tables(engine)
@@ -121,6 +141,40 @@ def test_create_revision_preview_persists_ai_output_with_base_hashes(tmp_path: P
     assert revision.allowed_sections
     assert revision.base_content_hash
     assert revision.changed_sections["relationships"][0]["to"] == "旧王朝"
+
+
+@pytest.mark.parametrize(
+    ("ai_target_section", "include_target", "lock_world_rules"),
+    [
+        (None, False, False),
+        ("unknown", True, False),
+        ("state_history", True, False),
+        ("world_rules", True, True),
+        ("world_rules", True, False),
+    ],
+)
+def test_create_revision_preview_rejects_invalid_ai_target_section(
+    tmp_path: Path,
+    ai_target_section: str | None,
+    include_target: bool,
+    lock_world_rules: bool,
+) -> None:
+    engine = create_engine_for_path(tmp_path / "test.sqlite")
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = add_book(session, Book(title="长夜图书馆", genre="奇幻", audience="连载读者"))
+        add_canon(session, Canon(book_id=book.id or 0, version=1, content={"characters": []}))
+        if lock_world_rules:
+            set_canon_proposal_section_lock(session, book.id, "world_rules", True)
+
+        with pytest.raises(ValueError):
+            create_canon_proposal_revision(
+                session,
+                book.id,
+                "characters",
+                "主角改成外冷内热",
+                TargetSectionClient(ai_target_section, include_target=include_target),
+            )
 
 
 def test_apply_revision_replaces_unlocked_sections_and_appends_history(

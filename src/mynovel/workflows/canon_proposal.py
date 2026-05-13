@@ -133,13 +133,14 @@ def create_canon_proposal_revision(
     )
     raw_response = client.complete("canon_proposal_revision", messages, "json")
     payload = _parse_revision_payload(raw_response)
+    response_target_section = _validated_target_section(payload, target_section, locks)
     changed_sections = _validated_changed_sections(payload, allowed_sections, locks)
     revision = CanonProposalRevision(
         book_id=book.id or 0,
         base_canon_version=canon.version,
         base_content_hash=content_hash(canon.content),
         base_locks_hash=locks_hash(locks),
-        target_section=target_section,
+        target_section=response_target_section,
         instruction=instruction,
         allowed_sections=allowed_sections,
         locked_sections=locked_sections,
@@ -317,6 +318,23 @@ def _parse_revision_payload(raw_response: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("Canon proposal revision response must be a JSON object.")
     return payload
+
+
+def _validated_target_section(
+    payload: dict[str, Any],
+    expected_section: str,
+    locks: dict[str, bool],
+) -> str:
+    raw_target = payload.get("target_section")
+    if not isinstance(raw_target, str) or not raw_target.strip():
+        raise ValueError("Canon proposal revision target_section is required.")
+    target_section = raw_target.strip()
+    _editable_section(target_section)
+    if locks.get(target_section, True):
+        raise ValueError(f"Canon proposal revision targeted a locked section: {target_section}")
+    if target_section != expected_section:
+        raise ValueError("Canon proposal revision target_section does not match request.")
+    return target_section
 
 
 def _validated_changed_sections(
