@@ -13,6 +13,7 @@ from mynovel.domain.models import (
     Canon,
     Chapter,
     ChapterStatus,
+    CanonProposalRevision,
     OpenBookBlueprint,
     ProviderConfig,
     RunTrace,
@@ -303,9 +304,11 @@ def render_trusted_state_page(
     book: Book,
     canon: Canon | None,
     chapters: list[Chapter],
+    proposal_revision: CanonProposalRevision | None = None,
     message: str | None = None,
     locale: str = DEFAULT_LOCALE,
 ) -> str:
+    _ = proposal_revision
     book_id = book.id or 0
     locked = book.status in {BookStatus.CANON_LOCKED, BookStatus.PRODUCING, BookStatus.PAUSED}
     status_label = t("trusted_state.locked", locale) if locked else "Canon 提案 · 待确认"

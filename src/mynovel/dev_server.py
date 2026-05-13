@@ -21,6 +21,7 @@ from mynovel.blueprint_acceptance import (
     lock_canon_from_form,
 )
 from mynovel.blueprint_revision import create_revision_blueprint_job, revision_notes_from_form
+from mynovel import canon_proposal_server as canon_server
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import Book, BlueprintStatus, OpenBookBlueprint, ProviderConfig, utc_now
 from mynovel.domain.repositories import (
@@ -140,7 +141,9 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if parsed.path == "/review":
                 return self._redirect(_review_destination(state.db_path))
             if parsed.path.startswith("/book/") and parsed.path.endswith("/state"):
-                self._send_trusted_state_page(state.db_path, _parse_book_state_id(parsed.path))
+                raw_revision_id = parse_qs(parsed.query).get("revision_id", [""])[0]
+                revision_id = int(raw_revision_id) if raw_revision_id.isdigit() else None
+                self._send_trusted_state_page(state.db_path, _parse_book_state_id(parsed.path), revision_id)
                 return
             if parsed.path.startswith("/book/") and parsed.path.endswith("/quality"):
                 self._send_quality_page(state.db_path, _parse_book_quality_id(parsed.path))
@@ -183,6 +186,13 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
+            if canon_server.is_canon_proposal_post_path(parsed.path):
+                response = canon_server.dispatch_canon_proposal_post(parsed.path, self._read_form(), state.db_path)
+                if response.redirect_to:
+                    self._redirect(response.redirect_to)
+                else:
+                    self._send_html(response.body, status=response.status)
+                return
             if parsed.path == "/init":
                 create_db_and_tables(create_engine_for_path(state.db_path))
                 self._redirect_message(t("provider.saved"))
@@ -267,16 +277,18 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 )
             )
 
-        def _send_trusted_state_page(self, db_path: Path, book_id: int) -> None:
+        def _send_trusted_state_page(self, db_path: Path, book_id: int, revision_id: int | None = None) -> None:
             book = _load_book(db_path, book_id)
             if book is None:
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
+            revision = canon_server.load_pending_canon_proposal_revision_for_book(db_path, book_id, revision_id)
             self._send_html(
                 render_trusted_state_page(
                     book,
                     _load_latest_canon(db_path, book_id),
                     _load_chapters_for_book(db_path, book_id),
+                    proposal_revision=revision,
                 )
             )
 
@@ -686,53 +698,55 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
 
 
 def _load_books(db_path: Path) -> list[Book]:
+    return _read_db(
+        db_path,
+        lambda session: list(
+            session.exec(select(Book).order_by(cast(Any, Book.created_at).desc()).limit(20))
+        ),
+    )
+
+
+def _read_db(db_path: Path, reader):
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
-        statement = select(Book).order_by(cast(Any, Book.created_at).desc()).limit(20)
-        return list(session.exec(statement))
+        return reader(session)
 
 
 def _load_book(db_path: Path, book_id: int) -> Book | None:
-    engine = create_engine_for_path(db_path)
-    create_db_and_tables(engine)
-    with Session(engine) as session:
-        return get_book(session, book_id)
+    return _read_db(db_path, lambda session: get_book(session, book_id))
 
 
 def _load_chapter(db_path: Path, chapter_id: int):
-    engine = create_engine_for_path(db_path)
-    create_db_and_tables(engine)
-    with Session(engine) as session:
-        return get_chapter(session, chapter_id)
+    return _read_db(db_path, lambda session: get_chapter(session, chapter_id))
 
 
 def _load_chapters_for_book(db_path: Path, book_id: int):
-    engine = create_engine_for_path(db_path)
-    create_db_and_tables(engine)
-    with Session(engine) as session:
-        return list_chapters_for_book(session, book_id)
+    return _read_db(db_path, lambda session: list_chapters_for_book(session, book_id))
 
 
 def _load_latest_canon(db_path: Path, book_id: int):
-    engine = create_engine_for_path(db_path)
-    create_db_and_tables(engine)
-    with Session(engine) as session:
-        return get_latest_canon(session, book_id)
+    return _read_db(db_path, lambda session: get_latest_canon(session, book_id))
 
 
 def _load_run_traces_for_book(db_path: Path, book_id: int):
-    engine = create_engine_for_path(db_path)
-    create_db_and_tables(engine)
-    with Session(engine) as session:
-        return list_run_traces_for_book(session, book_id)
+    return _read_db(db_path, lambda session: list_run_traces_for_book(session, book_id))
 
 
 def _load_volume_plans_for_book(db_path: Path, book_id: int):
-    engine = create_engine_for_path(db_path)
-    create_db_and_tables(engine)
-    with Session(engine) as session:
-        return list_volume_plans_for_book(session, book_id)
+    return _read_db(db_path, lambda session: list_volume_plans_for_book(session, book_id))
+
+
+def _load_provider_config(db_path: Path) -> ProviderConfig | None:
+    return _read_db(db_path, get_provider_config)
+
+
+def _load_open_book_blueprints(db_path: Path) -> list[OpenBookBlueprint]:
+    return _read_db(db_path, list_open_book_blueprints)
+
+
+def _load_open_book_blueprint(db_path: Path, blueprint_id: int) -> OpenBookBlueprint | None:
+    return _read_db(db_path, lambda session: get_open_book_blueprint(session, blueprint_id))
 
 
 def _render_quality_page_from_db(db_path: Path, book: Book) -> str:
@@ -759,13 +773,6 @@ def _render_quality_page_from_db(db_path: Path, book: Book) -> str:
         )
 
 
-def _load_provider_config(db_path: Path) -> ProviderConfig | None:
-    engine = create_engine_for_path(db_path)
-    create_db_and_tables(engine)
-    with Session(engine) as session:
-        return get_provider_config(session)
-
-
 def _provider_config_from_form(form: dict[str, str]) -> ProviderConfig:
     return ProviderConfig(
         llm_base_url=form.get("llm_base_url", ""),
@@ -780,20 +787,6 @@ def _provider_config_from_form(form: dict[str, str]) -> ProviderConfig:
         rerank_api_key=form.get("rerank_api_key") or None,
         rerank_model=form.get("rerank_model") or None,
     )
-
-
-def _load_open_book_blueprints(db_path: Path) -> list[OpenBookBlueprint]:
-    engine = create_engine_for_path(db_path)
-    create_db_and_tables(engine)
-    with Session(engine) as session:
-        return list_open_book_blueprints(session)
-
-
-def _load_open_book_blueprint(db_path: Path, blueprint_id: int) -> OpenBookBlueprint | None:
-    engine = create_engine_for_path(db_path)
-    create_db_and_tables(engine)
-    with Session(engine) as session:
-        return get_open_book_blueprint(session, blueprint_id)
 
 
 def _parse_numeric_id(path: str) -> int:
