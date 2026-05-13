@@ -19,6 +19,7 @@ from mynovel.domain.repositories import (
     get_book,
     get_latest_canon,
 )
+from mynovel.workflows.canon_proposal import finalize_canon_proposal_for_lock
 from mynovel.word_targets import CHAPTER_WORD_COUNT_KEY, target_word_counts_from_text
 
 
@@ -96,9 +97,11 @@ def lock_canon_foundation(session: Session, book_id: int | None) -> Book:
     book = get_book(session, book_id)
     if book is None:
         raise ValueError("Book not found.")
-    if get_latest_canon(session, book_id) is None:
+    canon = get_latest_canon(session, book_id)
+    if canon is None:
         raise ValueError("Trusted state proposal is required before locking canon.")
 
+    finalize_canon_proposal_for_lock(session, book, canon)
     book.status = BookStatus.CANON_LOCKED
     book.updated_at = utc_now()
     session.add(book)
@@ -132,6 +135,7 @@ def _initial_canon_content(book: Book, blueprint: OpenBookBlueprint) -> dict:
         },
         "world_rules": _mapping_or_text_list(blueprint.content.get("world")),
         "characters": _mapping_or_text_list(blueprint.content.get("protagonist")),
+        "factions": [],
         "relationships": [],
         "locations": [],
         "foreshadowing": _list_values(blueprint.content.get("reader_promises")),

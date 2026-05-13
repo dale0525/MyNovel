@@ -1,12 +1,28 @@
+from pathlib import Path
+
 import pytest
 from sqlmodel import Session
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import BlueprintStatus, ChapterStatus, OpenBookBlueprint
+from mynovel.domain.models import (
+    BlueprintStatus,
+    CanonProposalRevision,
+    CanonProposalRevisionStatus,
+    ChapterStatus,
+    OpenBookBlueprint,
+)
 from mynovel.domain.repositories import (
+    add_canon_proposal_revision,
+    get_canon_proposal_revision,
     get_latest_canon,
     list_chapters_for_book,
     list_volume_plans_for_book,
+)
+from mynovel.workflows.canon_proposal import (
+    CANON_PROPOSAL_KEY,
+    content_hash,
+    locks_hash,
+    section_locks_for_book,
 )
 from mynovel.workflows.open_book import (
     create_draft_book,
@@ -302,3 +318,87 @@ def test_create_draft_book_from_blueprint_rejects_unknown_title(tmp_path) -> Non
     with Session(engine) as session:
         with pytest.raises(ValueError, match="Title selection must be one of the candidates"):
             create_draft_book_from_blueprint(session, blueprint, selected_title="禁书归途")
+
+
+def test_lock_canon_foundation_marks_pending_proposal_revisions_stale(tmp_path: Path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    blueprint = OpenBookBlueprint(
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={"title_options": ["长夜图书馆"], "genre": "玄幻", "audience": "男频网文读者"},
+        raw_response="{}",
+    )
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(
+            session,
+            blueprint,
+            selected_title="长夜图书馆",
+            lock_foundation=False,
+        )
+        canon = get_latest_canon(session, book.id or 0)
+        assert canon is not None
+        revision = add_canon_proposal_revision(
+            session,
+            CanonProposalRevision(
+                book_id=book.id or 0,
+                base_canon_version=canon.version,
+                base_content_hash=content_hash(canon.content),
+                base_locks_hash=locks_hash(section_locks_for_book(book)),
+                target_section="characters",
+                instruction="主角改成外冷内热",
+                allowed_sections=["characters"],
+                locked_sections=[],
+                changed_sections={"characters": [{"name": "林烬"}]},
+                summary="已调整人物。",
+            ),
+        )
+        book.constraints[CANON_PROPOSAL_KEY] = {
+            "section_locks": {"characters": False},
+            "last_revision": {"summary": "草稿摘要"},
+        }
+        canon.content["_canon_proposal"] = {"should": "not survive"}
+        canon.content["unknown_internal"] = ["not trusted state"]
+        session.add(book)
+        session.add(canon)
+        session.commit()
+
+        locked = lock_canon_foundation(session, book.id)
+        stale_revision = get_canon_proposal_revision(session, revision.id or 0)
+        locked_canon = get_latest_canon(session, book.id or 0)
+
+    assert locked.status.value == "canon_locked"
+    assert CANON_PROPOSAL_KEY not in locked.constraints
+    assert stale_revision is not None
+    assert stale_revision.status == CanonProposalRevisionStatus.STALE
+    assert locked_canon is not None
+    assert "_canon_proposal" not in locked_canon.content
+    assert "unknown_internal" not in locked_canon.content
+    assert locked_canon.content["factions"] == []
+    assert locked_canon.content["state_history"] == []
+
+
+def test_create_draft_book_from_blueprint_initializes_factions_section(tmp_path: Path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    blueprint = OpenBookBlueprint(
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={"title_options": ["长夜图书馆"], "genre": "玄幻", "audience": "男频网文读者"},
+        raw_response="{}",
+    )
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(
+            session,
+            blueprint,
+            selected_title="长夜图书馆",
+            lock_foundation=False,
+        )
+        canon = get_latest_canon(session, book.id or 0)
+
+    assert canon is not None
+    assert canon.content["factions"] == []
