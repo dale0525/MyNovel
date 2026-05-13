@@ -6,6 +6,7 @@ from mynovel.domain.models import (
     BookStatus,
     BlueprintStatus,
     Canon,
+    CanonProposalRevision,
     Chapter,
     ChapterStatus,
     OpenBookBlueprint,
@@ -406,8 +407,209 @@ def test_trusted_state_page_exposes_canon_lock_gate() -> None:
     assert "可信设定已锁定" in page
     assert "当前状态：<strong>已锁定</strong>" in page
     assert "当前为可信设定提案（未锁定）" not in page
-    assert "Canon 提案 · 待确认" not in page
+    assert "可信设定提案 · 待确认" not in page
     assert "锁定可信设定并开始生产" not in page
+
+
+def test_trusted_state_page_renders_clickable_canon_sections_with_locks() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="连载读者",
+        status=BookStatus.DRAFT,
+        constraints={
+            "_canon_proposal": {
+                "last_revision": {
+                    "target_section": "characters",
+                    "summary": "已调整人物和关系。",
+                }
+            }
+        },
+    )
+    canon = Canon(
+        id=1,
+        book_id=1,
+        version=1,
+        content={
+            "world_rules": [{"name": "雾墙规则", "detail": "幽谷边界危险"}],
+            "characters": [{"name": "林烬", "trait": "外冷内热"}],
+            "factions": [],
+        },
+    )
+
+    page = render_trusted_state_page(book, canon, [])
+
+    assert 'href="#world"' in page
+    assert 'id="world"' in page
+    assert 'action="/canon-proposal-lock"' in page
+    assert 'name="section" value="world_rules"' in page
+    assert "让 AI 修改这部分" in page
+    assert "最近一次 AI 修订" in page
+    assert "已调整人物和关系" in page
+
+
+def test_trusted_state_page_renders_ai_revision_preview_actions() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="连载读者",
+        status=BookStatus.DRAFT,
+    )
+    canon = Canon(id=1, book_id=1, version=1, content={"characters": []})
+    revision = CanonProposalRevision(
+        id=9,
+        book_id=1,
+        base_canon_version=1,
+        base_content_hash="content",
+        base_locks_hash="locks",
+        target_section="characters",
+        instruction="主角改成外冷内热",
+        allowed_sections=["characters"],
+        locked_sections=["world_rules"],
+        changed_sections={"characters": [{"name": "林烬"}]},
+        blocked_sections=[{"section": "world_rules", "reason": "已锁定"}],
+        summary="已调整人物。",
+        risks=["需要同步章节动机。"],
+    )
+
+    page = render_trusted_state_page(book, canon, [], proposal_revision=revision)
+
+    assert "修订预览" in page
+    assert 'action="/canon-proposal-apply"' in page
+    assert 'name="revision_id" value="9"' in page
+    assert "世界规则" in page
+    assert "已锁定" in page
+
+
+def test_trusted_state_page_hides_ai_form_for_locked_section() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="连载读者",
+        status=BookStatus.DRAFT,
+        constraints={"_canon_proposal": {"section_locks": {"world_rules": True}}},
+    )
+    canon = Canon(
+        id=1,
+        book_id=1,
+        version=1,
+        content={"world_rules": [{"name": "雾墙规则"}], "characters": [{"name": "林烬"}]},
+    )
+
+    page = render_trusted_state_page(book, canon, [])
+    world_section = page.split('id="world"', 1)[1].split('id="characters"', 1)[0]
+
+    assert "此部分已锁定" in world_section
+    assert 'name="target_section" value="world_rules"' not in world_section
+    assert 'name="target_section" value="characters"' in page
+
+
+def test_trusted_state_page_hides_revision_forms_when_globally_locked() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="连载读者",
+        status=BookStatus.CANON_LOCKED,
+    )
+    canon = Canon(
+        id=1,
+        book_id=1,
+        version=1,
+        content={"world_rules": [{"name": "雾墙规则"}]},
+    )
+
+    page = render_trusted_state_page(book, canon, [])
+
+    assert 'action="/canon-proposal-revise"' not in page
+    assert 'action="/canon-proposal-lock"' not in page
+    assert "让 AI 修改这部分" not in page
+
+
+def test_trusted_state_page_hides_regenerate_form_when_globally_locked() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="连载读者",
+        status=BookStatus.CANON_LOCKED,
+    )
+    canon = Canon(id=1, book_id=1, version=1, content={"characters": []})
+    revision = CanonProposalRevision(
+        id=9,
+        book_id=1,
+        base_canon_version=1,
+        base_content_hash="content",
+        base_locks_hash="locks",
+        target_section="characters",
+        instruction="主角改成外冷内热",
+        allowed_sections=["characters"],
+        changed_sections={"characters": [{"name": "林烬"}]},
+        summary="已调整人物。",
+    )
+
+    page = render_trusted_state_page(book, canon, [], proposal_revision=revision)
+
+    assert "修订预览" in page
+    assert 'action="/canon-proposal-apply"' not in page
+    assert 'action="/canon-proposal-discard"' not in page
+    assert 'action="/canon-proposal-revise"' not in page
+    assert "重新生成预览" not in page
+
+
+def test_trusted_state_page_renders_full_untruncated_section_values() -> None:
+    long_detail = "这是一条很长的世界规则说明，用来确认可信设定详情不会被截断。" * 4
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="连载读者",
+        status=BookStatus.DRAFT,
+    )
+    canon = Canon(
+        id=1,
+        book_id=1,
+        version=1,
+        content={
+            "world_rules": [
+                {"name": f"规则 {index}", "detail": long_detail}
+                for index in range(1, 8)
+            ],
+        },
+    )
+
+    page = render_trusted_state_page(book, canon, [])
+
+    assert "规则 7" in page
+    assert long_detail in page
+
+
+def test_trusted_state_page_translates_nested_change_keys() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="连载读者",
+        status=BookStatus.PRODUCING,
+    )
+    canon = Canon(
+        id=1,
+        book_id=1,
+        version=1,
+        content={
+            "state_history": [
+                {"chapter": 1, "changes": [{"target": "莉拉", "change": "离村"}]}
+            ],
+        },
+    )
+
+    page = render_trusted_state_page(book, canon, [])
+
+    assert "内容：离村" in page
+    assert "change：" not in page
 
 
 def test_trusted_state_page_keeps_unlocked_foundation_as_review_gate() -> None:
@@ -427,7 +629,7 @@ def test_trusted_state_page_keeps_unlocked_foundation_as_review_gate() -> None:
 
     page = render_trusted_state_page(book, canon, [])
 
-    assert "Canon 提案 · 待确认" in page
+    assert "可信设定提案 · 待确认" in page
     assert "当前状态：<strong>尚未锁定</strong>" in page
     assert 'action="/lock-canon"' in page
     assert 'name="book_id" value="1"' in page

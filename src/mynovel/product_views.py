@@ -6,6 +6,7 @@ from typing import Any
 
 from mynovel.blueprint_revision import REGENERATE_BLUEPRINT_NOTES
 from mynovel.blueprint_views import render_generating_blueprint
+from mynovel.canon_proposal_views import render_canon_proposal_surface
 from mynovel.domain.models import (
     Book,
     BookStatus,
@@ -24,7 +25,6 @@ from mynovel.i18n import DEFAULT_LOCALE, t
 from mynovel.product_components import (
     render_accepted_result,
     render_canon_gate_aside,
-    render_canon_gate_main,
     render_chapter_production_aside,
     render_chapter_production_main,
     render_impact_scope,
@@ -304,14 +304,16 @@ def render_trusted_state_page(
     book: Book,
     canon: Canon | None,
     chapters: list[Chapter],
-    proposal_revision: CanonProposalRevision | None = None,
     message: str | None = None,
     locale: str = DEFAULT_LOCALE,
+    proposal_revision: CanonProposalRevision | None = None,
 ) -> str:
-    _ = proposal_revision
+    if isinstance(message, CanonProposalRevision) and proposal_revision is None:
+        proposal_revision = message
+        message = None
     book_id = book.id or 0
     locked = book.status in {BookStatus.CANON_LOCKED, BookStatus.PRODUCING, BookStatus.PAUSED}
-    status_label = t("trusted_state.locked", locale) if locked else "Canon 提案 · 待确认"
+    status_label = t("trusted_state.locked", locale) if locked else "可信设定提案 · 待确认"
     status_class = "trusted" if locked else "pending"
     page_title = t("trusted_state.title", locale) if locked else "开书定盘"
     main = f"""
@@ -324,7 +326,7 @@ def render_trusted_state_page(
           </div>
           <span class="status-pill {status_class}">{status_label}</span>
         </div>
-        {render_canon_gate_main(canon, locked)}
+        {render_canon_proposal_surface(book, canon, locked, proposal_revision)}
       </section>
       {render_canon_gate_aside(book_id, canon, chapters, locked)}
 """
