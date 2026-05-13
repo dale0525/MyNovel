@@ -355,12 +355,20 @@ def test_lock_canon_foundation_marks_pending_proposal_revisions_stale(tmp_path: 
                 summary="已调整人物。",
             ),
         )
-        book.constraints[CANON_PROPOSAL_KEY] = {
-            "section_locks": {"characters": False},
-            "last_revision": {"summary": "草稿摘要"},
+        book.constraints = {
+            **book.constraints,
+            CANON_PROPOSAL_KEY: {
+                "section_locks": {"characters": False},
+                "last_revision": {"summary": "草稿摘要"},
+            },
         }
-        canon.content["_canon_proposal"] = {"should": "not survive"}
-        canon.content["unknown_internal"] = ["not trusted state"]
+        canon.content = {
+            **canon.content,
+            "_canon_proposal": {"should": "not survive"},
+            "unknown_internal": ["not trusted state"],
+            "accepted_chapters": [{"chapter": 1, "title": "离开的召唤"}],
+            "resources": [{"name": "古地图", "detail": "通往幽谷"}],
+        }
         session.add(book)
         session.add(canon)
         session.commit()
@@ -378,6 +386,8 @@ def test_lock_canon_foundation_marks_pending_proposal_revisions_stale(tmp_path: 
     assert "unknown_internal" not in locked_canon.content
     assert locked_canon.content["factions"] == []
     assert locked_canon.content["state_history"] == []
+    assert locked_canon.content["accepted_chapters"] == [{"chapter": 1, "title": "离开的召唤"}]
+    assert locked_canon.content["resources"] == [{"name": "古地图", "detail": "通往幽谷"}]
 
 
 def test_create_draft_book_from_blueprint_initializes_factions_section(tmp_path: Path) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from mynovel.domain.models import Book, Canon, Chapter, ChapterStatus
+from mynovel.workflows.canon_proposal import sanitize_canon_content
 
 
 def export_book_markdown(book: Book, chapters: list[Chapter]) -> str:
@@ -30,7 +31,7 @@ def export_book_json(book: Book, canon: Canon | None, chapters: list[Chapter]) -
         },
         "trusted_state": {
             "version": canon.version if canon else 0,
-            "content": canon.content if canon else {},
+            "content": sanitize_canon_content(canon.content) if canon else {},
         },
         "chapters": [
             {

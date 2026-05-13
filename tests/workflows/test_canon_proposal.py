@@ -29,6 +29,7 @@ from mynovel.workflows.canon_proposal import (
     section_locks_for_book,
     set_canon_proposal_section_lock,
 )
+from mynovel.workflows.open_book import lock_canon_foundation
 
 
 def test_canon_proposal_revision_persists_structured_preview(tmp_path: Path) -> None:
@@ -320,3 +321,94 @@ def test_apply_revision_marks_preview_stale_when_content_changes(tmp_path: Path)
     assert stale_revision.status == CanonProposalRevisionStatus.STALE
     assert unchanged_canon is not None
     assert unchanged_canon.content == {"characters": [{"name": "别人"}]}
+
+
+def test_apply_revision_after_global_lock_marks_preview_stale(tmp_path: Path) -> None:
+    engine = create_engine_for_path(tmp_path / "test.sqlite")
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = add_book(session, Book(title="长夜图书馆", genre="奇幻", audience="连载读者"))
+        canon = add_canon(
+            session,
+            Canon(
+                book_id=book.id or 0,
+                version=1,
+                content={
+                    "world_rules": [],
+                    "characters": [{"name": "林烬", "trait": "冷淡"}],
+                    "factions": [],
+                    "locations": [],
+                    "relationships": [],
+                    "foreshadowing": [],
+                    "chapter_summaries": [],
+                    "state_history": [],
+                },
+            ),
+        )
+        revision = add_canon_proposal_revision(
+            session,
+            CanonProposalRevision(
+                book_id=book.id or 0,
+                base_canon_version=canon.version,
+                base_content_hash=content_hash(canon.content),
+                base_locks_hash=locks_hash(section_locks_for_book(book)),
+                target_section="characters",
+                instruction="主角改成外冷内热",
+                allowed_sections=["characters"],
+                locked_sections=[],
+                changed_sections={"characters": [{"name": "林烬", "trait": "外冷内热"}]},
+                summary="已调整人物。",
+            ),
+        )
+        lock_canon_foundation(session, book.id)
+
+        with pytest.raises(ValueError):
+            apply_canon_proposal_revision(session, book.id or 0, revision.id or 0)
+        stale_revision = get_canon_proposal_revision(session, revision.id or 0)
+        latest = get_latest_canon(session, book.id or 0)
+
+    assert stale_revision is not None
+    assert stale_revision.status == CanonProposalRevisionStatus.STALE
+    assert latest is not None
+    assert latest.content["characters"] == [{"name": "林烬", "trait": "冷淡"}]
+
+
+def test_apply_revision_after_section_lock_change_marks_preview_stale(tmp_path: Path) -> None:
+    engine = create_engine_for_path(tmp_path / "test.sqlite")
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = add_book(session, Book(title="长夜图书馆", genre="奇幻", audience="连载读者"))
+        canon = add_canon(
+            session,
+            Canon(
+                book_id=book.id or 0,
+                version=1,
+                content={"characters": [{"name": "林烬", "trait": "冷淡"}]},
+            ),
+        )
+        revision = add_canon_proposal_revision(
+            session,
+            CanonProposalRevision(
+                book_id=book.id or 0,
+                base_canon_version=canon.version,
+                base_content_hash=content_hash(canon.content),
+                base_locks_hash=locks_hash(section_locks_for_book(book)),
+                target_section="characters",
+                instruction="主角改成外冷内热",
+                allowed_sections=["characters"],
+                locked_sections=[],
+                changed_sections={"characters": [{"name": "林烬", "trait": "外冷内热"}]},
+                summary="已调整人物。",
+            ),
+        )
+        set_canon_proposal_section_lock(session, book.id, "characters", True)
+
+        with pytest.raises(ValueError):
+            apply_canon_proposal_revision(session, book.id or 0, revision.id or 0)
+        stale_revision = get_canon_proposal_revision(session, revision.id or 0)
+        latest = get_latest_canon(session, book.id or 0)
+
+    assert stale_revision is not None
+    assert stale_revision.status == CanonProposalRevisionStatus.STALE
+    assert latest is not None
+    assert latest.content["characters"] == [{"name": "林烬", "trait": "冷淡"}]

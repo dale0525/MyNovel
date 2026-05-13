@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -45,6 +46,7 @@ SECTION_REGISTRY = {
     "chapter_summaries": CanonProposalSection("chapter_summaries", "chapter-summaries", "章节摘要"),
     "state_history": CanonProposalSection("state_history", "state-history", "变化历史", False),
 }
+TRUSTED_STATE_EXTRA_LIST_KEYS = ("accepted_chapters", "resources")
 
 
 class CanonProposalModelClient(Protocol):
@@ -258,15 +260,23 @@ def mark_pending_canon_proposal_revisions_stale(session: Session, book_id: int) 
         session.add(revision)
 
 
-def finalize_canon_proposal_for_lock(session: Session, book: Book, canon: Canon) -> None:
+def sanitize_canon_content(content: Any) -> dict[str, Any]:
     normalized_content: dict[str, Any] = {}
-    if isinstance(canon.content.get("book"), dict):
-        normalized_content["book"] = canon.content["book"]
+    source = content if isinstance(content, dict) else {}
+    if isinstance(source.get("book"), dict):
+        normalized_content["book"] = deepcopy(source["book"])
     for section in SECTION_REGISTRY:
-        value = canon.content.get(section)
-        normalized_content[section] = value if isinstance(value, list) else []
-    canon.content = normalized_content
+        value = source.get(section)
+        normalized_content[section] = deepcopy(value) if isinstance(value, list) else []
+    for key in TRUSTED_STATE_EXTRA_LIST_KEYS:
+        value = source.get(key)
+        if isinstance(value, list):
+            normalized_content[key] = deepcopy(value)
+    return normalized_content
 
+
+def finalize_canon_proposal_for_lock(session: Session, book: Book, canon: Canon) -> None:
+    canon.content = sanitize_canon_content(canon.content)
     constraints = dict(book.constraints)
     constraints.pop(CANON_PROPOSAL_KEY, None)
     book.constraints = constraints

@@ -124,6 +124,40 @@ def test_approve_chapter_does_not_write_low_information_state_items(tmp_path) ->
     assert all(item.get("name") != "待确认" for item in canon.content.get("characters", []))
 
 
+def test_chapter_context_package_excludes_canon_proposal_metadata(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(
+            session,
+            _blueprint(),
+            selected_title="长夜图书馆",
+            lock_foundation=False,
+        )
+        book.constraints = {
+            **book.constraints,
+            "_canon_proposal": {"last_revision": {"summary": "草稿"}},
+        }
+        session.add(book)
+        canon = get_latest_canon(session, book.id or 0)
+        assert canon is not None
+        canon.content = {
+            **canon.content,
+            "_canon_proposal": {"should": "not enter context"},
+        }
+        session.add(canon)
+        session.commit()
+        lock_canon_foundation(session, book.id)
+        chapter = list_chapters_for_book(session, book.id or 0)[0]
+
+        reviewed = run_chapter_pipeline(session, chapter.id)
+
+    context_text = str(reviewed.context_package)
+    assert "_canon_proposal" not in context_text
+    assert "last_revision" not in context_text
+
+
 def _blueprint() -> OpenBookBlueprint:
     return OpenBookBlueprint(
         id=1,
