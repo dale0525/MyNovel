@@ -106,6 +106,9 @@ def test_new_book_idea_field_is_multiline() -> None:
 
     assert '<textarea name="idea"' in page
     assert 'name="idea" type="text"' not in page
+    assert "一句话写下这本书最想写什么" in page
+    assert "可选补充" in page
+    assert "系统将生成什么" in page
 
 
 def test_pending_blueprint_uses_configured_model_and_hides_unpriced_cost() -> None:

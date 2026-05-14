@@ -88,13 +88,40 @@ def test_home_page_renders_product_surface() -> None:
 
     assert 'lang="zh-CN"' in page
     assert "MyNovel" in page
-    assert "还没有书籍" in page
+    assert "先写下第一本书的核心灵感" in page
     assert "模型配置" in page
     assert "模型未配置" in page
     assert "创建第一本书" in page
     assert "可信设定" in page
     assert ".mynovel/dev.sqlite" in page
     assert "Ready" in page
+
+
+def test_home_page_renders_focused_next_action_language() -> None:
+    book = Book(
+        id=3,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="连载读者",
+        status=BookStatus.PRODUCING,
+    )
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-test",
+    )
+
+    page = render_home(
+        Path(".mynovel/dev.sqlite"),
+        [book],
+        provider_config,
+        [],
+        None,
+    )
+
+    assert "你现在只需要做什么" in page
 
 
 def test_home_page_normalizes_windows_database_path() -> None:
@@ -518,8 +545,9 @@ def test_home_page_keeps_language_product_focused_with_blueprints_present() -> N
         message=None,
     )
 
-    assert "还没有书籍" in page
+    assert "先写下第一本书的核心灵感" in page
     assert "模型已配置" in page
+    assert "最近 AI 结果" in page
     assert "调试台" not in page
     assert "Canon" not in page
 

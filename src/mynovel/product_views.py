@@ -23,6 +23,11 @@ from mynovel.domain.models import (
 )
 from mynovel.home_views import render_empty_home, render_project_home
 from mynovel.i18n import DEFAULT_LOCALE, t
+from mynovel.open_book_views import (
+    render_open_book_focus_panel,
+    render_open_book_optional_fields,
+    render_open_book_preview_sidebar,
+)
 from mynovel.product_components import (
     render_canon_gate_aside,
     render_chapter_production_main,
@@ -68,7 +73,7 @@ def render_home(
     configured = is_provider_config_complete(provider_config)
     if books:
         main = render_project_home(books, blueprints, configured, locale)
-        content_class = "content-grid"
+        content_class = "content-grid home-focus-layout"
         bottom = _render_start_pipeline(None, locale)
     else:
         main = render_empty_home(provider_config, blueprints, configured, locale)
@@ -113,55 +118,37 @@ def render_new_book_page(
     locale: str = DEFAULT_LOCALE,
 ) -> str:
     disabled = "" if is_provider_config_complete(provider_config) else " disabled"
+    form = f"""
+      <form method="post" action="/open-book" class="single-focus-form">
+        <label class="idea-field">{t("new_book.focus_title", locale)}
+          <textarea name="idea" placeholder="{t("book.idea_placeholder", locale)}" required></textarea>
+        </label>
+        {render_open_book_optional_fields(
+            genre_options=GENRE_PRESETS,
+            audience_options=AUDIENCE_PRESETS,
+            default_target_words=DEFAULT_TARGET_WORD_COUNT,
+            default_chapter_words=DEFAULT_CHAPTER_WORD_COUNT,
+            locale=locale,
+        )}
+        <div class="actions">
+          <a class="button secondary" href="/">{t("action.back", locale)}</a>
+          <button type="submit"{disabled}>{t("new_book.generate", locale)}</button>
+        </div>
+      </form>
+"""
     main = f"""
-      <aside class="side-panel book-wizard">
+      <aside class="side-panel book-wizard step-rail">
         <h2>{t("new_book.title", locale)}</h2>
-        <p>完成以下 3 步，为你的故事打下坚实的起点。</p>
+        <p>{t("new_book.subtitle", locale)}</p>
         <ol class="step-list vertical-flow">
-          <li class="active"><strong>书籍设定</strong><span>填写书籍基础信息</span></li>
-          <li><strong>开书方案预览</strong><span>查看并选择开书方向</span></li>
-          <li><strong>确认并进入生产线</strong><span>确定后开始创作流程</span></li>
+          <li class="active"><strong>{t("new_book.step_settings", locale)}</strong><span>只先完成这一步</span></li>
+          <li><strong>{t("new_book.step_proposal", locale)}</strong><span>比较生成方案后再决定</span></li>
+          <li><strong>{t("new_book.step_foundation", locale)}</strong><span>定盘后再开始章节生产</span></li>
         </ol>
-        <p class="hint-box">提示：你可以随时保存草稿，后续在工作台继续完善。</p>
+        <p class="hint-box">先完成这一项，系统再把开书方案整理给你确认。</p>
       </aside>
-      <section class="main-panel book-creation-main">
-        <div class="panel-head">
-          <div>
-            <h1>{t("new_book.settings_title", locale)}</h1>
-            <p>只写一句灵感；题材和读者可以留给系统判断。</p>
-          </div>
-          <span class="status-pill trusted">一句灵感即可开始</span>
-        </div>
-        <form method="post" action="/open-book" class="form-grid">
-          <label class="idea-field">{t("book.idea", locale)}<textarea name="idea" placeholder="{t("book.idea_placeholder", locale)}" required></textarea><span class="idea-counter">0/200</span></label>
-          <div class="split">
-            {_select("genre", t("book.genre", locale), t("book.ai_choice", locale), GENRE_PRESETS)}
-            {_select("audience", t("book.audience", locale), t("book.ai_choice", locale), AUDIENCE_PRESETS)}
-          </div>
-          <div class="split">
-            {_input("target_word_count", t("book.target_word_count", locale), "", str(DEFAULT_TARGET_WORD_COUNT), False, "number")}
-            {_input("chapter_word_count", t("book.chapter_word_count", locale), "", str(DEFAULT_CHAPTER_WORD_COUNT), False, "number")}
-          </div>
-          {_input("selling_points", t("book.selling_points", locale), "例如：逆袭反转、智商碾压、群像高燃等（可多选或自由描述）")}
-          {_input("constraints", t("book.constraints", locale), "例如：不写恋爱、不写虐主、不出现玄幻设定等（可多选或自由描述）")}
-          <div class="actions">
-            <a class="button secondary" href="/">{t("action.back", locale)}</a>
-            <button type="submit"{disabled}>{t("book.create", locale)}</button>
-          </div>
-        </form>
-      </section>
-      <aside class="right-panel generated-preview">
-        <h2>{t("new_book.preview_title", locale)}</h2>
-        <div class="generation-card-list">
-          {_generation_card("书名候选", "生成多个风格各异的书名供你选择")}
-          {_generation_card("核心卖点", "提炼故事最吸引读者的核心看点")}
-          {_generation_card("主角", "主角设定、成长弧光与初始状态")}
-          {_generation_card("世界观", "世界设定、规则与关键背景信息")}
-          {_generation_card("读者承诺", "这本书将带给读者的体验与收获")}
-          {_generation_card("前 10 章方向", "前 10 章的节奏与关键事件概览")}
-        </div>
-        <p class="hint-box">生成后，你将进入方案选择与细化环节，由你决定最终的开书方案。</p>
-      </aside>
+      {render_open_book_focus_panel(form, locale)}
+      {render_open_book_preview_sidebar(locale)}
 """
     return _page(
         title=t("new_book.title", locale),
@@ -427,14 +414,6 @@ def _page(
         content_class=content_class,
         nav_book_id=nav_book_id,
         status_strip=status_strip,
-    )
-
-
-def _generation_card(title: str, copy: str) -> str:
-    return (
-        '<section class="generation-card">'
-        f"<span aria-hidden='true'>◇</span><div><strong>{html.escape(title)}</strong>"
-        f"<p>{html.escape(copy)}</p></div></section>"
     )
 
 

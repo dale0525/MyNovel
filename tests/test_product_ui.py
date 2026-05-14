@@ -55,6 +55,35 @@ def test_home_page_uses_product_language_without_exposed_english_terms() -> None
         assert term not in page
 
 
+def test_home_page_prioritizes_single_next_action_card() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-test",
+    )
+
+    page = render_home(
+        Path("/tmp/demo.db"),
+        [book],
+        provider_config,
+        [],
+    )
+
+    assert "current-focus-card" in page
+    assert "当前最该推进" in page
+    assert "最近 AI 结果" in page
+    assert "信息汇总" not in page
+
+
 def test_first_launch_home_matches_empty_project_flow_surface() -> None:
     page = render_home(
         Path(".mynovel/dev.sqlite"),
@@ -69,15 +98,13 @@ def test_first_launch_home_matches_empty_project_flow_surface() -> None:
     assert 'href="/books/new"' in page
     assert 'href="/books/import"' in page
     assert 'href="/provider-config"' in page
-    assert "最近项目" in page
+    assert "先写下第一本书的核心灵感" in page
+    assert "你现在只需要做什么" in page
+    assert "最近 AI 结果" in page
     assert "打开项目" in page
     assert '<a class="button secondary compact-button" href="/books/import">打开项目</a>' in page
     assert "模型就绪状态" in page
     assert "模型未配置" in page
-    assert "快速上手" in page
-    assert "了解创作流程" in page
-    assert "创建第一个世界观" in page
-    assert "导入已有项目" in page
     assert "生产流水线" in page
     assert "开书" in page
     assert "定盘" in page
@@ -182,7 +209,7 @@ def test_model_setup_page_associates_labels_with_inputs() -> None:
     assert '<input id="llm_api_key" name="llm_api_key"' in page
 
 
-def test_new_book_page_requires_only_idea_and_uses_optional_presets() -> None:
+def test_new_book_page_keeps_idea_as_the_only_required_primary_input() -> None:
     provider_config = ProviderConfig(
         llm_base_url="https://api.example.test/v1",
         llm_model="gpt-test",
@@ -193,22 +220,23 @@ def test_new_book_page_requires_only_idea_and_uses_optional_presets() -> None:
 
     page = render_new_book_page(provider_config)
 
+    assert "一句话写下这本书最想写什么" in page
+    assert "可选补充" in page
+    assert "系统将生成什么" in page
     assert 'name="idea"' in page
     assert '<textarea name="idea" placeholder="一个失意档案员重建禁书图书馆" required>' in page
     assert '<select name="genre">' in page
     assert '<select name="audience">' in page
-    assert "让 AI 判断" in page
+    assert "交给 AI 判断" in page
     assert "玄幻升级" in page
     assert "男频网文读者" in page
-    assert "全书目标字数" in page
+    assert "目标总字数" in page
     assert "单章目标字数" in page
     assert 'name="target_word_count" type="number" value="120000"' in page
     assert 'name="chapter_word_count" type="number" value="2800"' in page
-    assert "book-creation-layout" in page
-    assert "一句灵感即可开始" in page
-    assert "idea-counter" in page
-    assert "爽点偏好" in page
-    assert "写作禁区" in page
+    assert "single-focus-form" in page
+    assert "open-book-focus-panel" in page
+    assert "optional-inputs" in page
     assert "参考风格" not in page
     assert "篇幅目标" not in page
     assert "连载节奏" not in page

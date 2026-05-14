@@ -20,23 +20,18 @@ def render_empty_home(
 ) -> str:
     status = t("model.ready", locale) if configured else t("model.not_ready", locale)
     status_hint = t("model.ready_hint", locale) if configured else t("model.not_ready_hint", locale)
-    blueprint_entry = _latest_blueprint_entry(blueprints, locale)
-    recent_body = (
-        f'<div class="project-list">{blueprint_entry}</div>'
-        if blueprint_entry
-        else (
-            '<div class="recent-empty">'
-            '<span class="empty-file-icon" aria-hidden="true">▤</span>'
-            f"<p>{t('home.empty_recent', locale)}</p>"
-            "</div>"
-        )
-    )
+    recent_body = _render_recent_timeline([], blueprints, locale)
     return f"""
-      <section class="first-launch-hero">
+      <section class="main-panel current-focus-card first-launch-hero">
         <div class="empty-book-illustration" aria-hidden="true">{_book_icon()}</div>
+        <p class="section-kicker">{t("home.focus_kicker", locale)}</p>
         <h1>{t("home.empty_title", locale)}</h1>
         <p>{t("home.empty_copy", locale)}</p>
-        <p>{t("home.local_copy", locale)}</p>
+        <p>{t("home.empty_followup", locale)}</p>
+        <div class="focus-checklist">
+          <p><strong>{t("home.focus_question", locale)}</strong></p>
+          <p>{t("home.empty_focus_answer", locale)}</p>
+        </div>
         <div class="launch-actions">
           <a class="button launch-primary" href="/books/new">
             <span aria-hidden="true">＋</span>{t("home.create_first", locale)}
@@ -45,11 +40,12 @@ def render_empty_home(
             <span aria-hidden="true">⇧</span>{t("home.import_project", locale)}
           </a>
         </div>
+        <p>{t("home.local_copy", locale)}</p>
       </section>
-      <aside class="first-launch-aside">
-        <section class="launch-card recent-projects-card">
+      <aside class="right-panel ai-result-timeline first-launch-aside">
+        <section class="launch-card timeline-section">
           <header>
-            <h2>{t("home.recent_projects", locale)}</h2>
+            <h2>{t("home.recent_ai_results", locale)}</h2>
             <a class="button secondary compact-button" href="/books/import">{t("home.open_project", locale)}</a>
           </header>
           {recent_body}
@@ -63,14 +59,6 @@ def render_empty_home(
               <p>{status_hint}</p>
             </div>
             <a class="button secondary compact-button" href="/provider-config">{t("model.configure", locale)}</a>
-          </div>
-        </section>
-        <section class="launch-card quickstart-card">
-          <h2>快速上手</h2>
-          <div class="quickstart-list">
-            {_quickstart_item("▤", "了解创作流程", "从开书到写入可信设定的完整流程。", "#launch-pipeline")}
-            {_quickstart_item("▣", "创建第一个世界观", "设定世界、规则与背景。", "/books/new")}
-            {_quickstart_item("⇧", "导入已有项目", "从其他格式导入你的作品。", "/books/import")}
           </div>
         </section>
       </aside>
@@ -87,25 +75,31 @@ def render_project_home(
     configured: bool,
     locale: str = DEFAULT_LOCALE,
 ) -> str:
-    rows = "".join(
-        f"<a class='project-row' href='/book/{book.id}'><strong>{html.escape(book.title)}</strong>"
-        f"<span>{_book_status_label(book.status, locale)}</span></a>"
-        for book in books
-    )
-    blueprint_entry = _latest_blueprint_entry(blueprints, locale)
     model_status = t("model.ready", locale) if configured else t("model.not_ready", locale)
+    status_hint = t("model.ready_hint", locale) if configured else t("model.not_ready_hint", locale)
+    recent_body = _render_recent_timeline(books, blueprints, locale)
     return f"""
-      <section class="main-panel single">
+      <section class="main-panel current-focus-card">
         <div class="panel-head">
           <div>
+            <p class="section-kicker">{t("home.focus_kicker", locale)}</p>
             <h1>{t("home.workspace_title", locale)}</h1>
             <p>{t("home.workspace_copy", locale)}</p>
           </div>
-          <a class="button" href="/books/new">{t("home.create_first", locale)}</a>
+          <a class="button" href="/review">{t("home.enter_current_task", locale)}</a>
         </div>
-        <div class="project-list">{rows}{blueprint_entry}</div>
+        <div class="focus-checklist">
+          <p><strong>{t("home.focus_question", locale)}</strong></p>
+          <p>{t("home.focus_answer", locale)}</p>
+          <p><strong>{t("home.ai_recent_label", locale)}</strong></p>
+          <p>{status_hint}</p>
+        </div>
         <div class="setup-card"><strong>{model_status}</strong><a class="button secondary" href="/provider-config">模型接口设置</a></div>
       </section>
+      <aside class="right-panel ai-result-timeline">
+        <h2>{t("home.recent_ai_results", locale)}</h2>
+        {recent_body}
+      </aside>
 """
 
 
@@ -114,10 +108,33 @@ def _latest_blueprint_entry(blueprints: list[OpenBookBlueprint], locale: str) ->
         return ""
     latest = blueprints[0]
     return (
-        f"<a class='project-row' href='/blueprint/{latest.id}'>"
+        f"<a class='timeline-row' href='/blueprint/{latest.id}'>"
         f"<strong>{t('blueprint.review_title', locale)}</strong>"
         f"<span>{_blueprint_status_label(latest.status, locale)}</span></a>"
     )
+
+
+def _render_recent_timeline(
+    books: list[Book], blueprints: list[OpenBookBlueprint], locale: str
+) -> str:
+    rows = [
+        (
+            f"<a class='timeline-row' href='/book/{book.id}'><strong>{html.escape(book.title)}</strong>"
+            f"<span>{_book_status_label(book.status, locale)}</span></a>"
+        )
+        for book in books
+    ]
+    latest_blueprint = _latest_blueprint_entry(blueprints, locale)
+    if latest_blueprint:
+        rows.append(latest_blueprint)
+    if not rows:
+        return (
+            '<div class="recent-empty">'
+            '<span class="empty-file-icon" aria-hidden="true">▤</span>'
+            f"<p>{t('home.timeline_empty', locale)}</p>"
+            "</div>"
+        )
+    return f"<div class='timeline-stack'>{''.join(rows)}</div>"
 
 
 def _render_provider_form(config: ProviderConfig | None, locale: str) -> str:
