@@ -95,12 +95,12 @@ def render_open_book_preview_sidebar(locale: str = DEFAULT_LOCALE) -> str:
         <h2>{t("new_book.preview_title", locale)}</h2>
         <p>{t("new_book.preview_copy", locale)}</p>
         <div class="generation-card-list">
-          {_generation_card("书名候选", "给你几种不同气质的书名方向。")}
-          {_generation_card("核心卖点", "提炼这本书最吸引读者的看点。")}
-          {_generation_card("主角与起点", "明确主角的初始状态和第一步冲突。")}
-          {_generation_card("世界观抓手", "把世界规则和故事入口先搭起来。")}
-          {_generation_card("读者承诺", "说明这本书会稳定提供什么体验。")}
-          {_generation_card("前 10 章方向", "给出前期开篇节奏和关键事件。")}
+          {_generation_card(t("new_book.preview_card_title_options", locale), t("new_book.preview_card_copy_options", locale))}
+          {_generation_card(t("new_book.preview_card_title_selling_points", locale), t("new_book.preview_card_copy_selling_points", locale))}
+          {_generation_card(t("new_book.preview_card_title_protagonist", locale), t("new_book.preview_card_copy_protagonist", locale))}
+          {_generation_card(t("new_book.preview_card_title_world", locale), t("new_book.preview_card_copy_world", locale))}
+          {_generation_card(t("new_book.preview_card_title_reader_promise", locale), t("new_book.preview_card_copy_reader_promise", locale))}
+          {_generation_card(t("new_book.preview_card_title_chapters", locale), t("new_book.preview_card_copy_chapters", locale))}
         </div>
       </aside>
 """
@@ -134,14 +134,14 @@ def _render_optional_input_fields(
             t("book.selling_points", locale),
             "",
             "text",
-            "例如：逆袭反转、智商碾压、群像高燃等（可自由描述）",
+            t("new_book.selling_points_placeholder", locale),
         )
         + _input(
             "constraints",
             t("book.constraints", locale),
             "",
             "text",
-            "例如：不写恋爱、不写虐主、不出现玄幻设定等（可自由描述）",
+            t("new_book.constraints_placeholder", locale),
         )
     )
 

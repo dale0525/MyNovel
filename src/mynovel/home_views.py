@@ -105,7 +105,7 @@ def render_project_home(
           <p><strong>{t("home.recent_result_label", locale)}</strong></p>
           <p>{_recent_result_summary(recent_results, locale)}</p>
         </div>
-        <div class="setup-card"><strong>{model_status}</strong><a class="button secondary" href="/provider-config">模型接口设置</a></div>
+        <div class="setup-card"><strong>{model_status}</strong><a class="button secondary" href="/provider-config">{t("home.settings_link", locale)}</a></div>
       </section>
       <aside class="right-panel ai-result-timeline">
         <h2>{t("home.recent_results", locale)}</h2>
@@ -181,16 +181,16 @@ def _render_provider_form(config: ProviderConfig | None, locale: str) -> str:
     rerank_checked = " checked" if config.rerank_use_llm_credentials else ""
     return f"""
       <form method="post" action="/provider-config" class="compact-form">
-        {_input("llm_base_url", t("provider.llm_base_url", locale), "填写服务接口地址", _field(config.llm_base_url), True)}
+        {_input("llm_base_url", t("provider.llm_base_url", locale), t("provider.llm_base_url_placeholder", locale), _field(config.llm_base_url), True)}
         {_input("llm_api_key", t("provider.llm_api_key", locale), "", _field(config.llm_api_key), False, "password")}
-        {_input("llm_model", t("provider.llm_model", locale), "填写对话模型名称", _field(config.llm_model), True)}
-        {_input("embedding_model", t("provider.embedding_model", locale), "填写检索模型名称", _field(config.embedding_model), True)}
+        {_input("llm_model", t("provider.llm_model", locale), t("provider.llm_model_placeholder", locale), _field(config.llm_model), True)}
+        {_input("embedding_model", t("provider.embedding_model", locale), t("provider.embedding_model_placeholder", locale), _field(config.embedding_model), True)}
         <label class="inline-check"><input name="embedding_use_llm_credentials" type="checkbox" value="1"{embedding_checked}>{t("provider.embedding_use_llm", locale)}</label>
-        {_input("embedding_base_url", t("provider.embedding_base_url", locale), "可留空复用上方接口", _field(config.embedding_base_url))}
+        {_input("embedding_base_url", t("provider.embedding_base_url", locale), t("provider.embedding_base_url_placeholder", locale), _field(config.embedding_base_url))}
         {_input("embedding_api_key", t("provider.embedding_api_key", locale), "", _field(config.embedding_api_key), False, "password")}
-        {_input("rerank_model", t("provider.rerank_model", locale), "可选", _field(config.rerank_model))}
+        {_input("rerank_model", t("provider.rerank_model", locale), t("provider.optional_placeholder", locale), _field(config.rerank_model))}
         <label class="inline-check"><input name="rerank_use_llm_credentials" type="checkbox" value="1"{rerank_checked}>{t("provider.rerank_use_llm", locale)}</label>
-        {_input("rerank_base_url", t("provider.rerank_base_url", locale), "可选", _field(config.rerank_base_url))}
+        {_input("rerank_base_url", t("provider.rerank_base_url", locale), t("provider.optional_placeholder", locale), _field(config.rerank_base_url))}
         {_input("rerank_api_key", t("provider.rerank_api_key", locale), "", _field(config.rerank_api_key), False, "password")}
         <button type="submit">{t("provider.save", locale)}</button>
       </form>

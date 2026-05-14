@@ -14,6 +14,7 @@ from mynovel.domain.models import (
     VolumePlan,
 )
 from mynovel.import_views import render_import_project_page
+from mynovel.i18n import TRANSLATIONS
 from mynovel.product_views import (
     render_book_workspace,
     render_chapter_review,
@@ -149,6 +150,49 @@ def test_home_page_escapes_recent_result_titles() -> None:
 
     assert "&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt; · 连载中" in page
     assert "<script>alert('x')</script> · 连载中" not in page
+
+
+def test_project_home_uses_translation_for_settings_link(monkeypatch) -> None:
+    monkeypatch.setitem(TRANSLATIONS["zh-CN"], "home.settings_link", "前往模型配置_TEST")
+    book = Book(
+        id=4,
+        title="镜海回声",
+        genre="悬疑推理",
+        audience="悬疑推理读者",
+        status=BookStatus.PRODUCING,
+    )
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-test",
+    )
+
+    page = render_home(Path("/tmp/demo.db"), [book], provider_config, [])
+
+    assert "前往模型配置_TEST" in page
+
+
+def test_new_book_page_uses_translations_for_preview_and_optional_copy(monkeypatch) -> None:
+    monkeypatch.setitem(TRANSLATIONS["zh-CN"], "new_book.preview_card_title_options", "预览标题_TEST")
+    monkeypatch.setitem(
+        TRANSLATIONS["zh-CN"],
+        "new_book.selling_points_placeholder",
+        "爽点占位_TEST",
+    )
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-test",
+    )
+
+    page = render_new_book_page(provider_config)
+
+    assert "预览标题_TEST" in page
+    assert 'placeholder="爽点占位_TEST"' in page
 
 
 def test_first_launch_home_matches_empty_project_flow_surface() -> None:
