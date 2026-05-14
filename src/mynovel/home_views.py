@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass
+from datetime import datetime
 
 from mynovel.domain.models import (
     Book,
@@ -18,6 +19,7 @@ class HomeRecentResult:
     title: str
     status: str
     href: str
+    sort_key: datetime
 
 
 def render_empty_home(
@@ -117,23 +119,25 @@ def _collect_recent_results(
 ) -> list[HomeRecentResult]:
     results: list[HomeRecentResult] = []
     if blueprints:
-        latest = blueprints[0]
-        results.append(
+        results.extend(
             HomeRecentResult(
                 title=t("blueprint.review_title", locale),
-                status=_blueprint_status_label(latest.status, locale),
-                href=f"/blueprint/{latest.id}",
+                status=_blueprint_status_label(blueprint.status, locale),
+                href=f"/blueprint/{blueprint.id}",
+                sort_key=_blueprint_result_time(blueprint),
             )
+            for blueprint in blueprints
         )
     results.extend(
         HomeRecentResult(
             title=book.title,
             status=_book_status_label(book.status, locale),
             href=f"/book/{book.id}",
+            sort_key=book.updated_at,
         )
         for book in books
     )
-    return results
+    return sorted(results, key=lambda item: item.sort_key, reverse=True)
 
 
 def _render_recent_timeline(results: list[HomeRecentResult], locale: str) -> str:
@@ -157,7 +161,11 @@ def _recent_result_summary(results: list[HomeRecentResult], locale: str) -> str:
     if not results:
         return t("home.timeline_empty", locale)
     current = results[0]
-    return f"{current.title} · {current.status}"
+    return f"{html.escape(current.title)} · {html.escape(current.status)}"
+
+
+def _blueprint_result_time(blueprint: OpenBookBlueprint) -> datetime:
+    return blueprint.finished_at or blueprint.started_at or blueprint.created_at
 
 
 def _render_provider_form(config: ProviderConfig | None, locale: str) -> str:

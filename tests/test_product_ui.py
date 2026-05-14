@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 
 from mynovel.dev_server import render_blueprint_page, render_home
@@ -92,6 +93,62 @@ def test_home_page_prioritizes_single_next_action_card() -> None:
     assert "开书方案 · 生成完成" in page
     assert "可以开始创建书籍并调用本地模型。" not in page
     assert "信息汇总" not in page
+
+
+def test_home_page_prefers_newest_result_across_books_and_blueprints() -> None:
+    older_blueprint = OpenBookBlueprint(
+        id=7,
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={},
+        raw_response="{}",
+        created_at=datetime(2026, 5, 14, 8, 0, tzinfo=UTC),
+    )
+    newer_book = Book(
+        id=2,
+        title="群星档案",
+        genre="科幻冒险",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+        created_at=datetime(2026, 5, 14, 7, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 15, 9, 0, tzinfo=UTC),
+    )
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-test",
+    )
+
+    page = render_home(Path("/tmp/demo.db"), [newer_book], provider_config, [older_blueprint])
+
+    assert "群星档案 · 连载中" in page
+    assert page.index("群星档案") < page.index("开书方案")
+
+
+def test_home_page_escapes_recent_result_titles() -> None:
+    book = Book(
+        id=3,
+        title="<script>alert('x')</script>",
+        genre="悬疑推理",
+        audience="悬疑推理读者",
+        status=BookStatus.PRODUCING,
+        updated_at=datetime(2026, 5, 15, 10, 0, tzinfo=UTC),
+    )
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-test",
+    )
+
+    page = render_home(Path("/tmp/demo.db"), [book], provider_config, [])
+
+    assert "&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt; · 连载中" in page
+    assert "<script>alert('x')</script> · 连载中" not in page
 
 
 def test_first_launch_home_matches_empty_project_flow_surface() -> None:
