@@ -7,6 +7,7 @@ from pathlib import Path
 from mynovel.domain.models import Book, BookStatus, Chapter, ChapterStatus
 from mynovel.i18n import DEFAULT_LOCALE, t
 from mynovel.path_display import display_path
+from mynovel.ui_status_views import render_global_status_strip
 from mynovel.word_targets import book_target_word_count, format_word_count
 
 
