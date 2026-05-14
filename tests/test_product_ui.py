@@ -604,6 +604,14 @@ def test_needs_revision_chapter_page_exposes_ai_revision_request() -> None:
     assert "按意见让 AI 修订" in page
     assert 'action="/repair-chapter"' in page
     assert 'name="reviewer_note"' in page
+    assert "批准并写入可信设定" not in page
+    assert "先看结果摘要，再决定是否接受本章" not in page
+    assert "回答剩余分歧，或直接接受这版正文" not in page
+    assert "AI 没有留下高风险分歧；你可以直接接受正文，或补充风格性意见。" not in page
+    assert "先看结果摘要，再决定如何修订本章" in page
+    assert "提交修订决定，等待 AI 重新生成候选正文" in page
+    assert "第 01 章当前候选仍需修订，等待你给出下一轮修改决定。" in page
+    assert "当前不能直接接受正文；请把这一轮修订决定告诉 AI，生成新的候选后再进入批准判断。" in page
 
 
 def test_book_workspace_links_to_trusted_state_page() -> None:

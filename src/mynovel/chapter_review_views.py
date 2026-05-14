@@ -8,6 +8,7 @@ from typing import Any
 from mynovel.domain.models import Canon, Chapter, ChapterStatus, RunTrace
 from mynovel.i18n import DEFAULT_LOCALE, t
 from mynovel.product_components import render_accepted_result
+from mynovel.ui_status_views import ReviewSemantics, build_review_semantics
 from mynovel.word_targets import chapter_word_budget, format_word_count
 
 
@@ -18,12 +19,13 @@ def render_review_decision_summary(
     traces: list[RunTrace] | None = None,
 ) -> str:
     _ = canon
+    semantics = build_review_semantics(chapter, locale)
     return f"""
       <div class="review-summary-stack">
-        {_render_completion_summary(chapter, locale)}
-        {_render_state_change_summary(chapter, locale)}
+        {_render_completion_summary(chapter, semantics, locale)}
+        {_render_state_change_summary(chapter, semantics, locale)}
         {_render_ai_fixed_summary(chapter, locale, traces or [])}
-        {_render_remaining_decisions_summary(chapter, locale)}
+        {_render_remaining_decisions_summary(chapter, semantics, locale)}
       </div>
 """
 
@@ -42,24 +44,25 @@ def render_chapter_review_inspector(
     major_changes = _major_state_changes(chapter)
     canon_version = canon.version if canon else 0
     risk_level = _risk_level(chapter.audit_report)
+    semantics = build_review_semantics(chapter, locale)
 
     return f"""
       <section class="review-inspector-head">
         <div>
           <p class="muted">人工审核关口</p>
-          <h2>先确认风险，再决定是否写入可信设定</h2>
+          <h2>{semantics.inspector_title}</h2>
         </div>
         <span class="risk-badge {html.escape(risk_level)}">{_risk_label(risk_level)}</span>
       </section>
       {_render_review_tabs(len(issues), len(visible_changes), len(major_changes))}
       <div class="review-tab-panels">
         {_render_audit_panel(issues, locale)}
-        {_render_state_panel(chapter, visible_changes, major_changes, canon_version, locale)}
+        {_render_state_panel(chapter, visible_changes, major_changes, canon_version, semantics, locale)}
         {_render_revision_panel(chapter)}
         {_render_impact_panel(visible_changes)}
       </div>
       {_render_repair_trace_panel(chapter, traces or [])}
-      {_render_review_actions(chapter, major_changes, locale)}
+      {_render_review_actions(chapter, major_changes, semantics, locale)}
       {_review_tab_script()}
 """
 
@@ -129,6 +132,7 @@ def _render_state_panel(
     changes: list[dict[str, Any]],
     major_changes: list[dict[str, Any]],
     canon_version: int,
+    semantics: ReviewSemantics,
     locale: str,
 ) -> str:
     if changes:
@@ -137,7 +141,7 @@ def _render_state_panel(
         delta_rows = f"""
           <li class="empty-review-row">
             <span>{t("review.summary_state_empty", locale)}</span>
-            <em>可以批准正文，但不要把空泛分类写入可信设定。</em>
+            <em>{semantics.state_empty_detail}</em>
           </li>
 """
     warning = (
@@ -301,17 +305,18 @@ def _render_repair_trace_panel(chapter: Chapter, traces: list[RunTrace]) -> str:
 def _render_review_actions(
     chapter: Chapter,
     major_changes: list[dict[str, Any]],
+    semantics: ReviewSemantics,
     locale: str,
 ) -> str:
     if chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}:
         major_confirmation = ""
-        if chapter.status == ChapterStatus.AWAITING_REVIEW and major_changes:
+        if semantics.can_accept and major_changes:
             major_confirmation = f"""
             <p class="danger">{t("review.major_change_warning", locale)}</p>
             <label class="inline-check"><input name="allow_major_changes" type="checkbox" value="1">{t("review.confirm_major_change", locale)}</label>
 """
         approve_form = ""
-        if chapter.status == ChapterStatus.AWAITING_REVIEW:
+        if semantics.can_accept:
             approve_form = f"""
           <form id="approve-form" method="post" action="/approve-chapter" class="compact-form action-form">
             <input type="hidden" name="chapter_id" value="{chapter.id}">
@@ -322,7 +327,7 @@ def _render_review_actions(
         return f"""
           <section class="review-decision-summary">
             <h2>{t("review.decision_note_title", locale)}</h2>
-            <p>{t("review.decision_note_copy", locale)}</p>
+            <p>{semantics.action_copy}</p>
           </section>
           <div class="review-action-stack review-decision-panel">
           <form method="post" action="/repair-chapter" class="compact-form action-form review-repair-form">
@@ -611,12 +616,12 @@ def _state_type_label(value: object) -> str:
     return labels.get(text, text)
 
 
-def _render_completion_summary(chapter: Chapter, locale: str) -> str:
-    summary = str(chapter.summary or "").strip() or t(
-        "review.summary_completion_fallback",
-        locale,
-        number=chapter.number,
-    )
+def _render_completion_summary(
+    chapter: Chapter,
+    semantics: ReviewSemantics,
+    locale: str,
+) -> str:
+    summary = str(chapter.summary or "").strip() or semantics.completion_fallback
     return (
         '<section class="review-summary-card">'
         f"<h2>{t('review.summary_completion_title', locale)}</h2>"
@@ -625,7 +630,12 @@ def _render_completion_summary(chapter: Chapter, locale: str) -> str:
     )
 
 
-def _render_state_change_summary(chapter: Chapter, locale: str) -> str:
+def _render_state_change_summary(
+    chapter: Chapter,
+    semantics: ReviewSemantics,
+    locale: str,
+) -> str:
+    _ = semantics
     changes = _visible_state_changes(chapter)
     if not changes:
         return (
@@ -689,10 +699,14 @@ def _render_ai_fixed_summary(
     )
 
 
-def _render_remaining_decisions_summary(chapter: Chapter, locale: str) -> str:
+def _render_remaining_decisions_summary(
+    chapter: Chapter,
+    semantics: ReviewSemantics,
+    locale: str,
+) -> str:
     unresolved = _remaining_decision_items(chapter, locale)
     if not unresolved:
-        body = f"<p>{t('review.summary_decisions_empty', locale)}</p>"
+        body = f"<p>{semantics.decision_empty}</p>"
     else:
         items = "".join(f"<li>{item}</li>" for item in unresolved)
         body = f'<ul class="decision-question-list">{items}</ul>'

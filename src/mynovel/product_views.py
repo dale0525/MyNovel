@@ -346,7 +346,7 @@ def render_chapter_review(
       </aside>
 """
     status_strip = (
-        render_review_status_strip(locale)
+        render_review_status_strip(chapter, locale)
         if chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}
         else None
     )
