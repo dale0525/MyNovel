@@ -141,7 +141,7 @@ def render_workspace_result_sidebar(
         </section>
         <section class="workspace-result-section">
           <h2>{t("workspace.word_targets", locale)}</h2>
-          {render_word_target_form(book)}
+          {render_word_target_form(book, locale)}
         </section>
         <section class="workspace-result-section">
           <h2>{t("batch.title", locale)}</h2>
@@ -224,7 +224,7 @@ def _render_trace_feed(traces: list[RunTrace], locale: str) -> str:
         return f"<p>{t('dashboard.no_trace', locale)}</p>"
     items = []
     for trace in traces[-4:][::-1]:
-        created = trace.created_at.strftime("%H:%M")
+        created = _format_trace_time(trace, locale)
         items.append(
             "<article class='workspace-trace-row'>"
             f"<strong>{html.escape(created)}</strong>"
@@ -232,6 +232,16 @@ def _render_trace_feed(traces: list[RunTrace], locale: str) -> str:
             "</article>"
         )
     return "".join(items)
+
+
+def _format_trace_time(trace: RunTrace, locale: str) -> str:
+    created = trace.created_at
+    return t(
+        "workspace.trace_time_format",
+        locale,
+        hour=f"{created.hour:02d}",
+        minute=f"{created.minute:02d}",
+    )
 
 
 def _render_foundation_summary(canon: Canon | None, locale: str) -> str:

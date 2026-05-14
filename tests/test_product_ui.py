@@ -11,6 +11,7 @@ from mynovel.domain.models import (
     ChapterStatus,
     OpenBookBlueprint,
     ProviderConfig,
+    RunTrace,
     VolumePlan,
 )
 from mynovel.import_views import render_import_project_page
@@ -1238,6 +1239,11 @@ def test_book_workspace_uses_translations_for_workspace_preview_labels(monkeypat
     monkeypatch.setitem(TRANSLATIONS[locale], "workspace.label.description", "DESC_TEST")
     monkeypatch.setitem(TRANSLATIONS[locale], "workspace.label.title", "TITLE_TEST")
     monkeypatch.setitem(TRANSLATIONS[locale], "workspace.label.goal", "GOAL_TEST")
+    monkeypatch.setitem(TRANSLATIONS[locale], "word_targets.total_label", "TOTAL_WORDS_TEST")
+    monkeypatch.setitem(TRANSLATIONS[locale], "word_targets.chapter_label", "CHAPTER_WORDS_TEST")
+    monkeypatch.setitem(TRANSLATIONS[locale], "word_targets.update_existing", "SYNC_EXISTING_TEST")
+    monkeypatch.setitem(TRANSLATIONS[locale], "word_targets.save", "SAVE_TARGETS_TEST")
+    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.trace_time_format", "{hour}h{minute}")
 
     book = Book(
         id=1,
@@ -1245,6 +1251,7 @@ def test_book_workspace_uses_translations_for_workspace_preview_labels(monkeypat
         genre="奇幻",
         audience="男频网文读者",
         status=BookStatus.CANON_LOCKED,
+        constraints={"target_word_count": 180000, "chapter_word_count": 3200},
     )
     chapters = [Chapter(id=1, book_id=1, number=1, title="召唤", status=ChapterStatus.PLANNED)]
     canon = Canon(
@@ -1256,8 +1263,16 @@ def test_book_workspace_uses_translations_for_workspace_preview_labels(monkeypat
             "chapter_summaries": [{"title": "第一章", "goal": "完成自救"}],
         },
     )
+    traces = [
+        RunTrace(
+            id=1,
+            book_id=1,
+            stage="chapter_pipeline",
+            created_at=datetime(2026, 5, 15, 9, 7, tzinfo=UTC),
+        )
+    ]
 
-    page = render_book_workspace(book, chapters, canon, [], locale=locale)
+    page = render_book_workspace(book, chapters, canon, traces, locale=locale)
 
     assert "CURRENT_TASK_TEST" in page
     assert page.count("RUN_TASK_TEST 1") == 2
@@ -1267,6 +1282,12 @@ def test_book_workspace_uses_translations_for_workspace_preview_labels(monkeypat
     assert "DESC_TEST => 医术被视为神迹" in page
     assert "TITLE_TEST => 第一章" in page
     assert "GOAL_TEST => 完成自救" in page
+    assert "TOTAL_WORDS_TEST" in page
+    assert "CHAPTER_WORDS_TEST" in page
+    assert "SYNC_EXISTING_TEST" in page
+    assert "SAVE_TARGETS_TEST" in page
+    assert "9h07" in page
+    assert "09:07" not in page
     assert "背景：架空大盛王朝" not in page
 
 
