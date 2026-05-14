@@ -112,16 +112,26 @@ def test_home_page_renders_focused_next_action_language() -> None:
         embedding_base_url="",
         embedding_model="text-embedding-test",
     )
+    blueprint = OpenBookBlueprint(
+        id=8,
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={},
+        raw_response="{}",
+    )
 
     page = render_home(
         Path(".mynovel/dev.sqlite"),
         [book],
         provider_config,
-        [],
+        [blueprint],
         None,
     )
 
     assert "你现在只需要做什么" in page
+    assert "开书方案 · 生成完成" in page
+    assert "可以开始创建书籍并调用本地模型。" not in page
 
 
 def test_home_page_normalizes_windows_database_path() -> None:
@@ -547,7 +557,7 @@ def test_home_page_keeps_language_product_focused_with_blueprints_present() -> N
 
     assert "先写下第一本书的核心灵感" in page
     assert "模型已配置" in page
-    assert "最近 AI 结果" in page
+    assert "最近结果" in page
     assert "调试台" not in page
     assert "Canon" not in page
 

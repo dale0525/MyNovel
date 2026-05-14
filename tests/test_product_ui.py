@@ -70,17 +70,27 @@ def test_home_page_prioritizes_single_next_action_card() -> None:
         embedding_base_url="",
         embedding_model="text-embedding-test",
     )
+    blueprint = OpenBookBlueprint(
+        id=7,
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={},
+        raw_response="{}",
+    )
 
     page = render_home(
         Path("/tmp/demo.db"),
         [book],
         provider_config,
-        [],
+        [blueprint],
     )
 
     assert "current-focus-card" in page
     assert "当前最该推进" in page
-    assert "最近 AI 结果" in page
+    assert "最近结果" in page
+    assert "开书方案 · 生成完成" in page
+    assert "可以开始创建书籍并调用本地模型。" not in page
     assert "信息汇总" not in page
 
 
@@ -100,7 +110,7 @@ def test_first_launch_home_matches_empty_project_flow_surface() -> None:
     assert 'href="/provider-config"' in page
     assert "先写下第一本书的核心灵感" in page
     assert "你现在只需要做什么" in page
-    assert "最近 AI 结果" in page
+    assert "最近结果" in page
     assert "打开项目" in page
     assert '<a class="button secondary compact-button" href="/books/import">打开项目</a>' in page
     assert "模型就绪状态" in page

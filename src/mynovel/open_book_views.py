@@ -6,8 +6,17 @@ from typing import Sequence
 from mynovel.i18n import DEFAULT_LOCALE, t
 
 
-def render_open_book_focus_panel(form: str, locale: str = DEFAULT_LOCALE) -> str:
+def render_open_book_page_main(
+    *,
+    submit_disabled: bool,
+    genre_options: Sequence[str],
+    audience_options: Sequence[str],
+    default_target_words: int,
+    default_chapter_words: int,
+    locale: str = DEFAULT_LOCALE,
+) -> str:
     return f"""
+      {render_open_book_step_rail(locale)}
       <section class="main-panel open-book-focus-panel">
         <div class="panel-head">
           <div>
@@ -17,31 +26,66 @@ def render_open_book_focus_panel(form: str, locale: str = DEFAULT_LOCALE) -> str
           </div>
           <span class="status-pill trusted">{t("new_book.focus_badge", locale)}</span>
         </div>
-        {form}
+        {render_open_book_form(
+            submit_disabled=submit_disabled,
+            genre_options=genre_options,
+            audience_options=audience_options,
+            default_target_words=default_target_words,
+            default_chapter_words=default_chapter_words,
+            locale=locale,
+        )}
       </section>
+      {render_open_book_preview_sidebar(locale)}
 """
 
 
-def render_open_book_optional_fields(
+def render_open_book_step_rail(locale: str = DEFAULT_LOCALE) -> str:
+    return f"""
+      <aside class="side-panel book-wizard step-rail">
+        <h2>{t("new_book.title", locale)}</h2>
+        <p>{t("new_book.subtitle", locale)}</p>
+        <ol class="step-list vertical-flow">
+          <li class="active"><strong>{t("new_book.step_settings", locale)}</strong><span>{t("new_book.step_settings_copy", locale)}</span></li>
+          <li><strong>{t("new_book.step_proposal", locale)}</strong><span>{t("new_book.step_proposal_copy", locale)}</span></li>
+          <li><strong>{t("new_book.step_foundation", locale)}</strong><span>{t("new_book.step_foundation_copy", locale)}</span></li>
+        </ol>
+        <p class="hint-box">{t("new_book.step_hint", locale)}</p>
+      </aside>
+"""
+
+
+def render_open_book_form(
     *,
+    submit_disabled: bool,
     genre_options: Sequence[str],
     audience_options: Sequence[str],
     default_target_words: int,
     default_chapter_words: int,
     locale: str = DEFAULT_LOCALE,
 ) -> str:
+    disabled_attr = " disabled" if submit_disabled else ""
     return f"""
-      <details class="optional-inputs">
-        <summary>{t("new_book.optional_title", locale)}</summary>
-        <div class="optional-input-grid">
-          {_select("genre", t("book.genre", locale), t("book.ai_choice", locale), genre_options)}
-          {_select("audience", t("book.audience", locale), t("book.ai_choice", locale), audience_options)}
-          {_input("target_word_count", t("new_book.target_word_count", locale), str(default_target_words), "number")}
-          {_input("chapter_word_count", t("new_book.chapter_word_count", locale), str(default_chapter_words), "number")}
-          {_input("selling_points", t("book.selling_points", locale), "", "text", "例如：逆袭反转、智商碾压、群像高燃等（可自由描述）")}
-          {_input("constraints", t("book.constraints", locale), "", "text", "例如：不写恋爱、不写虐主、不出现玄幻设定等（可自由描述）")}
+      <form method="post" action="/open-book" class="single-focus-form">
+        <label class="idea-field">{t("new_book.focus_title", locale)}
+          <textarea name="idea" placeholder="{t("book.idea_placeholder", locale)}" required></textarea>
+        </label>
+        <details class="optional-inputs">
+          <summary>{t("new_book.optional_title", locale)}</summary>
+          <div class="optional-input-grid">
+            {_render_optional_input_fields(
+                genre_options=genre_options,
+                audience_options=audience_options,
+                default_target_words=default_target_words,
+                default_chapter_words=default_chapter_words,
+                locale=locale,
+            )}
+          </div>
+        </details>
+        <div class="actions">
+          <a class="button secondary" href="/">{t("action.back", locale)}</a>
+          <button type="submit"{disabled_attr}>{t("new_book.generate", locale)}</button>
         </div>
-      </details>
+      </form>
 """
 
 
@@ -60,6 +104,46 @@ def render_open_book_preview_sidebar(locale: str = DEFAULT_LOCALE) -> str:
         </div>
       </aside>
 """
+
+
+def _render_optional_input_fields(
+    *,
+    genre_options: Sequence[str],
+    audience_options: Sequence[str],
+    default_target_words: int,
+    default_chapter_words: int,
+    locale: str = DEFAULT_LOCALE,
+) -> str:
+    return (
+        _select("genre", t("book.genre", locale), t("book.ai_choice", locale), genre_options)
+        + _select("audience", t("book.audience", locale), t("book.ai_choice", locale), audience_options)
+        + _input(
+            "target_word_count",
+            t("new_book.target_word_count", locale),
+            str(default_target_words),
+            "number",
+        )
+        + _input(
+            "chapter_word_count",
+            t("new_book.chapter_word_count", locale),
+            str(default_chapter_words),
+            "number",
+        )
+        + _input(
+            "selling_points",
+            t("book.selling_points", locale),
+            "",
+            "text",
+            "例如：逆袭反转、智商碾压、群像高燃等（可自由描述）",
+        )
+        + _input(
+            "constraints",
+            t("book.constraints", locale),
+            "",
+            "text",
+            "例如：不写恋爱、不写虐主、不出现玄幻设定等（可自由描述）",
+        )
+    )
 
 
 def _generation_card(title: str, copy: str) -> str:

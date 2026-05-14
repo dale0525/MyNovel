@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+from dataclasses import dataclass
 
 from mynovel.domain.models import (
     Book,
@@ -12,6 +13,13 @@ from mynovel.domain.models import (
 from mynovel.i18n import DEFAULT_LOCALE, t
 
 
+@dataclass(frozen=True)
+class HomeRecentResult:
+    title: str
+    status: str
+    href: str
+
+
 def render_empty_home(
     provider_config: ProviderConfig | None,
     blueprints: list[OpenBookBlueprint],
@@ -20,7 +28,8 @@ def render_empty_home(
 ) -> str:
     status = t("model.ready", locale) if configured else t("model.not_ready", locale)
     status_hint = t("model.ready_hint", locale) if configured else t("model.not_ready_hint", locale)
-    recent_body = _render_recent_timeline([], blueprints, locale)
+    recent_results = _collect_recent_results([], blueprints, locale)
+    recent_body = _render_recent_timeline(recent_results, locale)
     return f"""
       <section class="main-panel current-focus-card first-launch-hero">
         <div class="empty-book-illustration" aria-hidden="true">{_book_icon()}</div>
@@ -45,7 +54,7 @@ def render_empty_home(
       <aside class="right-panel ai-result-timeline first-launch-aside">
         <section class="launch-card timeline-section">
           <header>
-            <h2>{t("home.recent_ai_results", locale)}</h2>
+            <h2>{t("home.recent_results", locale)}</h2>
             <a class="button secondary compact-button" href="/books/import">{t("home.open_project", locale)}</a>
           </header>
           {recent_body}
@@ -76,8 +85,8 @@ def render_project_home(
     locale: str = DEFAULT_LOCALE,
 ) -> str:
     model_status = t("model.ready", locale) if configured else t("model.not_ready", locale)
-    status_hint = t("model.ready_hint", locale) if configured else t("model.not_ready_hint", locale)
-    recent_body = _render_recent_timeline(books, blueprints, locale)
+    recent_results = _collect_recent_results(books, blueprints, locale)
+    recent_body = _render_recent_timeline(recent_results, locale)
     return f"""
       <section class="main-panel current-focus-card">
         <div class="panel-head">
@@ -91,50 +100,64 @@ def render_project_home(
         <div class="focus-checklist">
           <p><strong>{t("home.focus_question", locale)}</strong></p>
           <p>{t("home.focus_answer", locale)}</p>
-          <p><strong>{t("home.ai_recent_label", locale)}</strong></p>
-          <p>{status_hint}</p>
+          <p><strong>{t("home.recent_result_label", locale)}</strong></p>
+          <p>{_recent_result_summary(recent_results, locale)}</p>
         </div>
         <div class="setup-card"><strong>{model_status}</strong><a class="button secondary" href="/provider-config">模型接口设置</a></div>
       </section>
       <aside class="right-panel ai-result-timeline">
-        <h2>{t("home.recent_ai_results", locale)}</h2>
+        <h2>{t("home.recent_results", locale)}</h2>
         {recent_body}
       </aside>
 """
 
 
-def _latest_blueprint_entry(blueprints: list[OpenBookBlueprint], locale: str) -> str:
-    if not blueprints:
-        return ""
-    latest = blueprints[0]
-    return (
-        f"<a class='timeline-row' href='/blueprint/{latest.id}'>"
-        f"<strong>{t('blueprint.review_title', locale)}</strong>"
-        f"<span>{_blueprint_status_label(latest.status, locale)}</span></a>"
-    )
-
-
-def _render_recent_timeline(
+def _collect_recent_results(
     books: list[Book], blueprints: list[OpenBookBlueprint], locale: str
-) -> str:
-    rows = [
-        (
-            f"<a class='timeline-row' href='/book/{book.id}'><strong>{html.escape(book.title)}</strong>"
-            f"<span>{_book_status_label(book.status, locale)}</span></a>"
+) -> list[HomeRecentResult]:
+    results: list[HomeRecentResult] = []
+    if blueprints:
+        latest = blueprints[0]
+        results.append(
+            HomeRecentResult(
+                title=t("blueprint.review_title", locale),
+                status=_blueprint_status_label(latest.status, locale),
+                href=f"/blueprint/{latest.id}",
+            )
+        )
+    results.extend(
+        HomeRecentResult(
+            title=book.title,
+            status=_book_status_label(book.status, locale),
+            href=f"/book/{book.id}",
         )
         for book in books
-    ]
-    latest_blueprint = _latest_blueprint_entry(blueprints, locale)
-    if latest_blueprint:
-        rows.append(latest_blueprint)
-    if not rows:
+    )
+    return results
+
+
+def _render_recent_timeline(results: list[HomeRecentResult], locale: str) -> str:
+    if not results:
         return (
             '<div class="recent-empty">'
             '<span class="empty-file-icon" aria-hidden="true">▤</span>'
             f"<p>{t('home.timeline_empty', locale)}</p>"
             "</div>"
         )
-    return f"<div class='timeline-stack'>{''.join(rows)}</div>"
+    rows = "".join(
+        f"<a class='timeline-row' href='{html.escape(item.href, quote=True)}'>"
+        f"<strong>{html.escape(item.title)}</strong>"
+        f"<span>{html.escape(item.status)}</span></a>"
+        for item in results
+    )
+    return f"<div class='timeline-stack'>{rows}</div>"
+
+
+def _recent_result_summary(results: list[HomeRecentResult], locale: str) -> str:
+    if not results:
+        return t("home.timeline_empty", locale)
+    current = results[0]
+    return f"{current.title} · {current.status}"
 
 
 def _render_provider_form(config: ProviderConfig | None, locale: str) -> str:

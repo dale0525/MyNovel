@@ -24,9 +24,7 @@ from mynovel.domain.models import (
 from mynovel.home_views import render_empty_home, render_project_home
 from mynovel.i18n import DEFAULT_LOCALE, t
 from mynovel.open_book_views import (
-    render_open_book_focus_panel,
-    render_open_book_optional_fields,
-    render_open_book_preview_sidebar,
+    render_open_book_page_main,
 )
 from mynovel.product_components import (
     render_canon_gate_aside,
@@ -117,39 +115,14 @@ def render_new_book_page(
     message: str | None = None,
     locale: str = DEFAULT_LOCALE,
 ) -> str:
-    disabled = "" if is_provider_config_complete(provider_config) else " disabled"
-    form = f"""
-      <form method="post" action="/open-book" class="single-focus-form">
-        <label class="idea-field">{t("new_book.focus_title", locale)}
-          <textarea name="idea" placeholder="{t("book.idea_placeholder", locale)}" required></textarea>
-        </label>
-        {render_open_book_optional_fields(
-            genre_options=GENRE_PRESETS,
-            audience_options=AUDIENCE_PRESETS,
-            default_target_words=DEFAULT_TARGET_WORD_COUNT,
-            default_chapter_words=DEFAULT_CHAPTER_WORD_COUNT,
-            locale=locale,
-        )}
-        <div class="actions">
-          <a class="button secondary" href="/">{t("action.back", locale)}</a>
-          <button type="submit"{disabled}>{t("new_book.generate", locale)}</button>
-        </div>
-      </form>
-"""
-    main = f"""
-      <aside class="side-panel book-wizard step-rail">
-        <h2>{t("new_book.title", locale)}</h2>
-        <p>{t("new_book.subtitle", locale)}</p>
-        <ol class="step-list vertical-flow">
-          <li class="active"><strong>{t("new_book.step_settings", locale)}</strong><span>只先完成这一步</span></li>
-          <li><strong>{t("new_book.step_proposal", locale)}</strong><span>比较生成方案后再决定</span></li>
-          <li><strong>{t("new_book.step_foundation", locale)}</strong><span>定盘后再开始章节生产</span></li>
-        </ol>
-        <p class="hint-box">先完成这一项，系统再把开书方案整理给你确认。</p>
-      </aside>
-      {render_open_book_focus_panel(form, locale)}
-      {render_open_book_preview_sidebar(locale)}
-"""
+    main = render_open_book_page_main(
+        submit_disabled=not is_provider_config_complete(provider_config),
+        genre_options=GENRE_PRESETS,
+        audience_options=AUDIENCE_PRESETS,
+        default_target_words=DEFAULT_TARGET_WORD_COUNT,
+        default_chapter_words=DEFAULT_CHAPTER_WORD_COUNT,
+        locale=locale,
+    )
     return _page(
         title=t("new_book.title", locale),
         active="create",
