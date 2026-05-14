@@ -1,4 +1,4 @@
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from http import HTTPStatus
 import tomllib
 
@@ -71,6 +71,12 @@ def test_health_payload_reports_database_path() -> None:
     assert payload == {"status": "ok", "database": ".mynovel/dev.sqlite"}
 
 
+def test_health_payload_normalizes_windows_database_path() -> None:
+    payload = build_health_payload(PureWindowsPath(".mynovel/dev.sqlite"))
+
+    assert payload == {"status": "ok", "database": ".mynovel/dev.sqlite"}
+
+
 def test_home_page_renders_product_surface() -> None:
     page = render_home(
         Path(".mynovel/dev.sqlite"),
@@ -89,6 +95,19 @@ def test_home_page_renders_product_surface() -> None:
     assert "可信设定" in page
     assert ".mynovel/dev.sqlite" in page
     assert "Ready" in page
+
+
+def test_home_page_normalizes_windows_database_path() -> None:
+    page = render_home(
+        PureWindowsPath(".mynovel/dev.sqlite"),
+        books=[],
+        provider_config=None,
+        blueprints=[],
+        message=None,
+    )
+
+    assert ".mynovel/dev.sqlite" in page
+    assert ".mynovel\\dev.sqlite" not in page
 
 
 def test_home_page_enables_open_book_after_provider_config() -> None:

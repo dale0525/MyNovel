@@ -44,6 +44,7 @@ from mynovel.domain.repositories import (
     save_provider_config,
 )
 from mynovel.i18n import t
+from mynovel.path_display import display_path
 from mynovel.import_views import render_import_project_page
 from mynovel.legacy_cleanup import remove_legacy_placeholder_data
 from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
@@ -96,7 +97,7 @@ class DevServerState:
 
 
 def build_health_payload(db_path: Path) -> dict[str, str]:
-    return {"status": "ok", "database": str(db_path)}
+    return {"status": "ok", "database": display_path(db_path)}
 
 
 def run_server(host: str, port: int, db_path: Path) -> None:

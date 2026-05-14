@@ -6,6 +6,7 @@ from pathlib import Path
 
 from mynovel.domain.models import Book, BookStatus, Chapter, ChapterStatus
 from mynovel.i18n import DEFAULT_LOCALE, t
+from mynovel.path_display import display_path
 from mynovel.word_targets import book_target_word_count, format_word_count
 
 
@@ -50,7 +51,7 @@ def render_app_page(
         else ""
     )
     db_hint = (
-        f"<span class='sr-only'>{t('app.local_database', locale)}：{html.escape(str(db_path))}</span>"
+        f"<span class='sr-only'>{t('app.local_database', locale)}：{html.escape(display_path(db_path))}</span>"
         if db_path
         else ""
     )
