@@ -20,7 +20,7 @@ from mynovel.product_views import (
     render_new_book_page,
     render_trusted_state_page,
 )
-from mynovel.ui_shell import render_app_page
+from mynovel.ui_shell import app_css, render_app_page
 
 
 def test_home_page_uses_product_language_without_exposed_english_terms() -> None:
@@ -607,7 +607,21 @@ def test_application_shell_uses_icon_navigation_and_project_context() -> None:
     assert "章节队列" in page
 
 
-def test_application_shell_exposes_compact_global_status_strip_tokens() -> None:
+def test_application_shell_hides_status_strip_by_default() -> None:
+    page = render_app_page(
+        title="Status Strip Test",
+        active="workspace",
+        main="<section>Body</section>",
+    )
+
+    assert 'class="app-shell app-shell-compact"' in page
+    assert 'class="global-status-strip"' not in page
+    assert "你现在要做" not in page
+    assert "AI 正在做" not in page
+    assert "完成后你要决定" not in page
+
+
+def test_home_page_opts_into_compact_global_status_strip_tokens() -> None:
     page = render_home(
         Path(".mynovel/dev.sqlite"),
         books=[],
@@ -637,6 +651,14 @@ def test_application_shell_accepts_custom_status_strip_slot() -> None:
     assert 'class="custom-status-strip"' in page
     assert "Only this strip" in page
     assert 'class="global-status-strip"' not in page
+    assert "你现在要做" not in page
+
+
+def test_compact_shell_css_stacks_global_status_strip_on_mobile() -> None:
+    css = app_css()
+
+    assert ".global-status-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))" in css
+    assert ".global-status-strip{grid-template-columns:minmax(0,1fr);padding:12px}" in css
 
 
 def test_pipeline_renders_stateful_steps_with_icons_and_connectors() -> None:

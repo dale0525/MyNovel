@@ -31,6 +31,7 @@ from mynovel.product_components import (
     render_model_setup_content,
 )
 from mynovel.ui_shell import PipelineStep, render_app_page, render_pipeline, render_project_sidebar
+from mynovel.ui_status_views import render_global_status_strip
 from mynovel.word_target_views import render_word_target_form
 from mynovel.word_targets import DEFAULT_CHAPTER_WORD_COUNT, DEFAULT_TARGET_WORD_COUNT
 
@@ -83,6 +84,7 @@ def render_home(
         db_path=db_path,
         content_class=content_class,
         nav_book_id=books[0].id if books else None,
+        status_strip=render_global_status_strip(locale),
     )
 
 
@@ -411,6 +413,7 @@ def _page(
     eyebrow: str | None = None,
     content_class: str = "content-grid",
     nav_book_id: int | None = None,
+    status_strip: str | None = None,
 ) -> str:
     return render_app_page(
         title=title,
@@ -423,6 +426,7 @@ def _page(
         eyebrow=eyebrow,
         content_class=content_class,
         nav_book_id=nav_book_id,
+        status_strip=status_strip,
     )
 
 
