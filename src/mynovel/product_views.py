@@ -311,7 +311,7 @@ def render_chapter_review(
             message=message,
             bottom=_render_production_pipeline(chapter.status, locale),
             locale=locale,
-            eyebrow="章节生产",
+            eyebrow=t("running_board.page_eyebrow", locale),
             content_class="content-grid production-layout chapter-production-layout",
             nav_book_id=book.id,
             status_strip=render_running_chapter_status_strip(chapter, locale),

@@ -1068,6 +1068,88 @@ def test_running_chapter_page_matches_stage_control_surface() -> None:
     assert "已编译上下文包" in page
 
 
+def test_running_chapter_page_marks_empty_delta_and_audit_as_completed() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=1,
+        book_id=1,
+        number=1,
+        title="召唤",
+        status=ChapterStatus.RUNNING,
+        draft_text="薄雾在峡谷间流动，像一层轻纱。",
+        plan={"word_budget": 3000},
+        context_package={"canon": "雾门规则"},
+        state_delta={"changes": []},
+        audit_report={"issues": []},
+    )
+
+    page = render_chapter_review(
+        book,
+        [chapter],
+        chapter,
+        Canon(id=1, book_id=1, version=1, content={}),
+    )
+
+    assert 'data-stage="delta"' in page
+    assert 'data-stage="audit"' in page
+    assert 'class="chapter-stage done" data-stage="delta"' in page
+    assert 'class="chapter-stage done" data-stage="audit"' in page
+    assert 'class="chapter-result-slot ready" data-slot="delta"' in page
+    assert 'class="chapter-result-slot ready" data-slot="audit"' in page
+    assert "无状态变化" in page
+    assert "无审计问题" in page
+    assert "状态变化待产出" not in page
+    assert "审计结果待产出" not in page
+
+
+def test_running_chapter_page_uses_translations_for_task_board_copy(monkeypatch) -> None:
+    monkeypatch.setitem(TRANSLATIONS["zh-CN"], "running_board.refresh_now", "立即刷新_TEST")
+    monkeypatch.setitem(TRANSLATIONS["zh-CN"], "running_board.word_stats", "字数面板_TEST：{current}/{target}")
+    monkeypatch.setitem(TRANSLATIONS["zh-CN"], "running_board.auto_refreshing", "自动刷新_TEST")
+    monkeypatch.setitem(TRANSLATIONS["zh-CN"], "running_board.none_delta", "无状态变化_TEST")
+    monkeypatch.setitem(TRANSLATIONS["zh-CN"], "running_board.none_audit", "无审计问题_TEST")
+
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=1,
+        book_id=1,
+        number=1,
+        title="召唤",
+        status=ChapterStatus.RUNNING,
+        draft_text="薄雾在峡谷间流动，像一层轻纱。",
+        word_count=1248,
+        plan={"word_budget": 3000},
+        context_package={"canon": "雾门规则"},
+        state_delta={"changes": []},
+        audit_report={"issues": []},
+    )
+
+    page = render_chapter_review(
+        book,
+        [chapter],
+        chapter,
+        Canon(id=1, book_id=1, version=1, content={}),
+    )
+
+    assert "立即刷新_TEST" in page
+    assert "字数面板_TEST：1248/3,000" in page
+    assert "自动刷新_TEST" in page
+    assert "无状态变化_TEST" in page
+    assert "无审计问题_TEST" in page
+
+
 def test_completed_book_workspace_matches_first_ten_complete_surface() -> None:
     book = Book(
         id=1,
