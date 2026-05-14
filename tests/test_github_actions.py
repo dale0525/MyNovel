@@ -49,8 +49,18 @@ def test_release_workflow_builds_macos_and_windows_without_linux() -> None:
     matrix_entries = package_job["strategy"]["matrix"]["include"]
     platforms = {entry["os"] for entry in matrix_entries}
 
-    assert platforms == {"macos-14", "macos-13", "windows-latest"}
+    assert platforms == {"macos-14", "macos-15-intel", "windows-latest"}
     assert all("linux" not in entry["os"] for entry in matrix_entries)
+
+
+def test_release_workflow_pins_free_wix_toolset() -> None:
+    workflow = yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8"))
+    commands = _workflow_run_commands(workflow)
+
+    assert any(
+        "dotnet tool install --tool-path .tools wix --version 5.0.2" in command
+        for command in commands
+    )
 
 
 def _workflow_run_commands(workflow: dict) -> list[str]:

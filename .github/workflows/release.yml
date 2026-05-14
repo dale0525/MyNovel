@@ -20,7 +20,7 @@ jobs:
           - os: macos-14
             asset_suffix: macos-arm64
             installer_glob: MyNovel-macos-arm64.dmg
-          - os: macos-13
+          - os: macos-15-intel
             asset_suffix: macos-x64
             installer_glob: MyNovel-macos-x64.dmg
           - os: windows-latest
@@ -39,7 +39,7 @@ jobs:
       - name: Install free WiX toolset
         if: runner.os == 'Windows'
         run: |
-          dotnet tool install --tool-path .tools wix
+          dotnet tool install --tool-path .tools wix --version 5.0.2
           "$PWD/.tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Build unsigned native installer
         run: pixi run native-package --version "${{ env.RELEASE_VERSION }}" --platform "${{ matrix.asset_suffix }}"
