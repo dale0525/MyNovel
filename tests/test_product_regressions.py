@@ -333,6 +333,40 @@ def test_review_primary_actions_use_explicit_verbs() -> None:
     assert "提交修改决定，按意见让 AI 修订" not in page
 
 
+def test_needs_revision_review_flow_uses_revision_only_result_first_wording() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=8,
+        book_id=1,
+        number=8,
+        title="旧塔回声",
+        status=ChapterStatus.NEEDS_REVISION,
+        revised_text="旧塔深处传来回声。",
+        summary="第 08 章当前候选仍需修订，等待你给出下一轮修改决定。",
+        audit_report={"risk_level": "medium", "issues": []},
+        state_delta={"changes": []},
+        word_count=2980,
+    )
+
+    page = render_chapter_review(book, [chapter], chapter, Canon(id=1, book_id=1, version=5, content={}))
+
+    assert "先看结果摘要，再决定如何修订本章" in page
+    assert "写下修订决定，让 AI 重新生成候选正文" in page
+    assert "当前不能直接接受正文，请先写下修订决定，让 AI 重新生成候选正文。" in page
+    assert (
+        "当前不能直接接受正文；请把这一轮修订决定告诉 AI，让它重新生成候选正文，下一轮再进入批准判断。"
+        in page
+    )
+    assert "先看结果摘要，再决定是否接受本章" not in page
+    assert "批准并写入可信设定" not in page
+
+
 def test_running_waiting_copy_explains_current_work_and_next_decision() -> None:
     book = Book(
         id=1,
