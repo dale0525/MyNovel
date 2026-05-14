@@ -347,6 +347,11 @@ def render_chapter_production_main(
     current_text = _current_chapter_candidate(chapter)
     current_words = chapter.word_count or len(current_text)
     mode_title, status_copy = _chapter_running_mode(chapter, locale)
+    full_text = (
+        html.escape(current_text).replace(chr(10), "<br>")
+        if current_text
+        else html.escape(t("running_board.current_candidate_empty", locale))
+    )
     return f"""
       <section class="reader-panel production-main chapter-task-board">
         <div class="chapter-toolbar">
@@ -376,6 +381,10 @@ def render_chapter_production_main(
           {_render_result_slot("draft", t("running_board.slot_draft", locale), current_text, locale)}
           {_render_result_slot("delta", t("running_board.slot_delta", locale), chapter.state_delta.get("changes", []), locale, completed=_delta_stage_completed(chapter))}
           {_render_result_slot("audit", t("running_board.slot_audit", locale), chapter.audit_report.get("issues", []), locale, completed=_audit_stage_completed(chapter))}
+        </section>
+        <section class="running-chapter-reading">
+          <h2>{t("running_board.current_candidate_title", locale)}</h2>
+          <article class="chapter-text running-chapter-text">{full_text}</article>
         </section>
         <script>setTimeout(() => window.location.reload(), 3000)</script>
       </section>

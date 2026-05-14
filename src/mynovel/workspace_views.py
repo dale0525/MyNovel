@@ -1,43 +1,93 @@
 from __future__ import annotations
 
 import html
+from dataclasses import dataclass
 from typing import Any
 
-from mynovel.domain.models import Book, Canon, Chapter, ChapterStatus, RunTrace, VolumePlan
+from mynovel.domain.models import Book, BookStatus, Canon, Chapter, ChapterStatus, RunTrace, VolumePlan
 from mynovel.i18n import DEFAULT_LOCALE, t
+from mynovel.word_target_views import render_word_target_form
+
+
+@dataclass(frozen=True)
+class WorkspaceTaskSummary:
+    chapter: Chapter | None
+    state: str
+    title: str
+    copy: str
+    detail: str
+
+
+def build_workspace_task_summary(
+    chapter: Chapter | None,
+    locale: str = DEFAULT_LOCALE,
+) -> WorkspaceTaskSummary:
+    if chapter is None:
+        return WorkspaceTaskSummary(
+            chapter=None,
+            state="complete",
+            title=t("workspace.focus_complete_title", locale),
+            copy=t("workspace.focus_complete_copy", locale),
+            detail=t("workspace.focus_detail_complete", locale),
+        )
+    if chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}:
+        return WorkspaceTaskSummary(
+            chapter=chapter,
+            state="review",
+            title=t("workspace.focus_title_review", locale, number=chapter.number),
+            copy=t("workspace.focus_copy_review", locale, number=chapter.number, title=chapter.title),
+            detail=t("workspace.focus_detail_review", locale),
+        )
+    if chapter.status == ChapterStatus.RUNNING:
+        return WorkspaceTaskSummary(
+            chapter=chapter,
+            state="running",
+            title=t("workspace.focus_title_running", locale, number=chapter.number),
+            copy=t("workspace.focus_copy_running", locale, number=chapter.number, title=chapter.title),
+            detail=t("workspace.focus_detail_running", locale),
+        )
+    return WorkspaceTaskSummary(
+        chapter=chapter,
+        state="run",
+        title=t("workspace.focus_title_run", locale, number=chapter.number),
+        copy=t("workspace.focus_copy_run", locale, number=chapter.number, title=chapter.title),
+        detail=t("workspace.focus_detail_run", locale),
+    )
 
 
 def render_workspace_focus_card(
     book: Book,
     chapters: list[Chapter],
-    active_chapter: Chapter | None,
+    task: WorkspaceTaskSummary,
     canon: Canon | None,
     volume_plans: list[VolumePlan],
-    primary_action: str,
     locale: str = DEFAULT_LOCALE,
 ) -> str:
     accepted = len([chapter for chapter in chapters if chapter.status == ChapterStatus.ACCEPTED])
     review = len(
-        [chapter for chapter in chapters if chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}]
+        [
+            chapter
+            for chapter in chapters
+            if chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}
+        ]
     )
     running = len([chapter for chapter in chapters if chapter.status == ChapterStatus.RUNNING])
-    title, copy = _focus_headline(active_chapter, locale)
     return f"""
       <section class="main-panel workspace-focus-card">
         <p class="section-kicker">{t("workspace.current_task", locale)}</p>
         <div class="workspace-focus-head">
           <div>
-            <h1>{html.escape(title)}</h1>
-            <p>{html.escape(copy)}</p>
+            <h1>{html.escape(task.title)}</h1>
+            <p>{html.escape(task.copy)}</p>
           </div>
           <span class="status-pill trusted">{t("book.status_locked" if canon else "trusted_state.not_written", locale)}</span>
         </div>
         <section class="workspace-current-task">
           <div>
             <strong>{t("workspace.task_prompt", locale)}</strong>
-            <p>{_focus_detail(active_chapter, locale)}</p>
+            <p>{html.escape(task.detail)}</p>
           </div>
-          <div class="workspace-primary-action">{primary_action}</div>
+          <div class="workspace-primary-action">{_render_workspace_primary_action(task, locale)}</div>
         </section>
         <div class="workspace-kpi-grid">
           <article><strong>{accepted}</strong><span>{t("dashboard.accepted", locale)}</span></article>
@@ -48,13 +98,13 @@ def render_workspace_focus_card(
         <section class="workspace-foundation-panel">
           <div class="workspace-section-head">
             <h2>{t("workspace.focus_inputs", locale)}</h2>
-            <span>{html.escape(book.genre)} · {html.escape(book.audience)}</span>
+            <span>{html.escape(t("workspace.book_meta", locale, genre=book.genre, audience=book.audience))}</span>
           </div>
           <div class="workspace-foundation-grid">
-            {_snapshot_card(t("trusted_state.world_rules", locale), _preview_value((canon.content if canon else {}).get("world_rules", [])))}
-            {_snapshot_card(t("trusted_state.characters", locale), _preview_value((canon.content if canon else {}).get("characters", [])))}
-            {_snapshot_card(t("trusted_state.foreshadowing", locale), _preview_value((canon.content if canon else {}).get("foreshadowing", [])))}
-            {_snapshot_card(t("trusted_state.chapter_summaries", locale), _preview_value((canon.content if canon else {}).get("chapter_summaries", [])))}
+            {_snapshot_card(t("trusted_state.world_rules", locale), _preview_value((canon.content if canon else {}).get("world_rules", []), locale))}
+            {_snapshot_card(t("trusted_state.characters", locale), _preview_value((canon.content if canon else {}).get("characters", []), locale))}
+            {_snapshot_card(t("trusted_state.foreshadowing", locale), _preview_value((canon.content if canon else {}).get("foreshadowing", []), locale))}
+            {_snapshot_card(t("trusted_state.chapter_summaries", locale), _preview_value((canon.content if canon else {}).get("chapter_summaries", []), locale))}
           </div>
           {_render_volume_plan_snapshot(volume_plans, locale)}
         </section>
@@ -63,11 +113,10 @@ def render_workspace_focus_card(
 
 
 def render_workspace_result_sidebar(
+    book: Book,
+    task: WorkspaceTaskSummary,
     canon: Canon | None,
     traces: list[RunTrace],
-    project_actions: str,
-    word_target_form: str,
-    batch_action: str,
     locale: str = DEFAULT_LOCALE,
 ) -> str:
     return f"""
@@ -88,47 +137,58 @@ def render_workspace_result_sidebar(
         </section>
         <section class="workspace-result-section">
           <h2>{t("workspace.project_actions", locale)}</h2>
-          <div class="workspace-action-list">{project_actions}</div>
+          <div class="workspace-action-list">{_render_workspace_project_actions(book, locale)}</div>
         </section>
         <section class="workspace-result-section">
           <h2>{t("workspace.word_targets", locale)}</h2>
-          {word_target_form}
+          {render_word_target_form(book)}
         </section>
         <section class="workspace-result-section">
           <h2>{t("batch.title", locale)}</h2>
-          {batch_action}
+          {_render_batch_action(book, task.chapter, locale)}
         </section>
       </aside>
 """
 
 
-def _focus_headline(active_chapter: Chapter | None, locale: str) -> tuple[str, str]:
-    if active_chapter is None:
-        return t("workspace.focus_complete_title", locale), t("workspace.focus_complete_copy", locale)
-    if active_chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}:
+def _render_workspace_primary_action(task: WorkspaceTaskSummary, locale: str) -> str:
+    chapter = task.chapter
+    if chapter is None:
         return (
-            t("workspace.focus_title_review", locale, number=active_chapter.number),
-            t("workspace.focus_copy_review", locale, number=active_chapter.number, title=active_chapter.title),
+            '<a class="button secondary" href="/review">'
+            f"{t('workspace.open_review_queue', locale)}</a>"
         )
-    if active_chapter.status == ChapterStatus.RUNNING:
-        return (
-            t("workspace.focus_title_running", locale, number=active_chapter.number),
-            t("workspace.focus_copy_running", locale, number=active_chapter.number, title=active_chapter.title),
-        )
-    return (
-        t("workspace.focus_title_run", locale, number=active_chapter.number),
-        t("workspace.focus_copy_run", locale, number=active_chapter.number, title=active_chapter.title),
-    )
+    if task.state in {"review", "running"}:
+        return f"<a class='button' href='/chapter/{chapter.id}'>{t('workspace.open_current_chapter', locale)}</a>"
+    return f"""
+      <form method="post" action="/run-chapter" class="compact-form">
+        <input type="hidden" name="chapter_id" value="{chapter.id}">
+        <button type="submit">{t("action.run_chapter", locale)}</button>
+      </form>
+"""
 
 
-def _focus_detail(active_chapter: Chapter | None, locale: str) -> str:
-    if active_chapter is None:
-        return t("workspace.focus_detail_complete", locale)
-    if active_chapter.status == ChapterStatus.RUNNING:
-        return t("workspace.focus_detail_running", locale)
-    if active_chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}:
-        return t("workspace.focus_detail_review", locale)
-    return t("workspace.focus_detail_run", locale)
+def _render_workspace_project_actions(book: Book, locale: str) -> str:
+    return f"""
+      <a class="button secondary" href="/book/{book.id}/state">{t("trusted_state.open", locale)}</a>
+      <a class="button secondary" href="/book/{book.id}/quality">{t("quality.open", locale)}</a>
+      <a class="button secondary" href="/book/{book.id}/export.md">{t("export.markdown", locale)}</a>
+      <a class="button secondary" href="/book/{book.id}/export.json">{t("export.json", locale)}</a>
+"""
+
+
+def _render_batch_action(book: Book, chapter: Chapter | None, locale: str) -> str:
+    if book.status == BookStatus.PAUSED:
+        return f"<p>{t('batch.paused', locale)}</p>"
+    if chapter is None or book.id is None:
+        return f"<p>{t('dashboard.all_done', locale)}</p>"
+    return f"""
+      <form method="post" action="/run-chapter-batch" class="compact-form">
+        <input type="hidden" name="book_id" value="{book.id}">
+        <label>{t("batch.limit", locale)}<input name="limit" type="number" min="1" max="10" value="2"></label>
+        <button type="submit">{t("batch.run", locale)}</button>
+      </form>
+"""
 
 
 def _snapshot_card(title: str, content: str) -> str:
@@ -146,14 +206,14 @@ def _render_volume_plan_snapshot(volume_plans: list[VolumePlan], locale: str) ->
     plan = volume_plans[0]
     detail_parts = []
     if plan.pacing_curve:
-        detail_parts.append(_preview_value(plan.pacing_curve[0]))
+        detail_parts.append(_preview_value(plan.pacing_curve[0], locale))
     if plan.commitments:
-        detail_parts.append(_preview_value(plan.commitments[0]))
-    details = "；".join(detail_parts)
+        detail_parts.append(_preview_value(plan.commitments[0], locale))
+    details = _join_preview_parts(detail_parts, locale)
     return f"""
       <article class="workspace-volume-plan">
         <strong>{t("workspace.volume_plan", locale)}</strong>
-        <p>{html.escape(plan.title)} · {html.escape(_preview_value(plan.core_conflict))}</p>
+        <p>{html.escape(plan.title)} · {_preview_value(plan.core_conflict, locale)}</p>
         {f"<p>{details}</p>" if details else ""}
       </article>
 """
@@ -179,10 +239,10 @@ def _render_foundation_summary(canon: Canon | None, locale: str) -> str:
         return f"<p>{t('trusted_state.missing', locale)}</p>"
     content = canon.content
     items = [
-        (t("trusted_state.world_rules", locale), _preview_value(content.get("world_rules", []))),
-        (t("trusted_state.characters", locale), _preview_value(content.get("characters", []))),
-        (t("trusted_state.foreshadowing", locale), _preview_value(content.get("foreshadowing", []))),
-        (t("trusted_state.chapter_summaries", locale), _preview_value(content.get("chapter_summaries", []))),
+        (t("trusted_state.world_rules", locale), _preview_value(content.get("world_rules", []), locale)),
+        (t("trusted_state.characters", locale), _preview_value(content.get("characters", []), locale)),
+        (t("trusted_state.foreshadowing", locale), _preview_value(content.get("foreshadowing", []), locale)),
+        (t("trusted_state.chapter_summaries", locale), _preview_value(content.get("chapter_summaries", []), locale)),
     ]
     rows = "".join(
         f"<li><strong>{html.escape(title)}</strong><span>{value}</span></li>" for title, value in items
@@ -190,50 +250,70 @@ def _render_foundation_summary(canon: Canon | None, locale: str) -> str:
     return f"<ul class='workspace-mini-list'>{rows}</ul>"
 
 
-def _preview_value(value: Any) -> str:
+def _preview_value(value: Any, locale: str) -> str:
     if isinstance(value, list):
         visible = [item for item in value if item not in (None, "", [], {})]
         if not visible:
-            return "—"
-        return "；".join(_preview_value(item) for item in visible[:2])
+            return _empty_value(locale)
+        return _join_preview_parts([_preview_value(item, locale) for item in visible[:2]], locale)
     if isinstance(value, dict):
         if str(value.get("trigger") or "").strip() and str(value.get("description") or "").strip():
-            trigger = html.escape(str(value["trigger"]))
-            description = html.escape(str(value["description"]))
-            return f"{trigger}：{description}"
+            return _preview_pair(
+                _preview_value(value["trigger"], locale),
+                _preview_value(value["description"], locale),
+                locale,
+            )
         parts = []
         for key, item in value.items():
             if key in {"target_section", "changed_sections", "blocked_sections", "updated_at", "accepted_at"}:
                 continue
-            label = _label_key(key)
-            parts.append(f"{label}：{_preview_value(item)}")
-        return "；".join(parts) if parts else "—"
+            parts.append(_preview_pair(_label_key(key, locale), _preview_value(item, locale), locale))
+        return _join_preview_parts(parts, locale) if parts else _empty_value(locale)
     if isinstance(value, str):
         text = value.strip()
         if not text:
-            return "—"
+            return _empty_value(locale)
         return html.escape(text)
     if value in (None, ""):
-        return "—"
+        return _empty_value(locale)
     return html.escape(str(value))
 
 
-def _label_key(key: object) -> str:
-    return {
-        "background": "背景",
-        "change": "变化",
-        "chapter": "章节",
-        "content": "摘要",
-        "description": "说明",
-        "detail": "内容",
-        "direction": "方向",
-        "goal": "目标",
-        "name": "名称",
-        "rules": "规则",
-        "summary": "摘要",
-        "title": "标题",
-        "trigger": "触发",
-    }.get(str(key), str(key))
+def _empty_value(locale: str) -> str:
+    return html.escape(t("workspace.empty_value", locale))
+
+
+def _join_preview_parts(parts: list[str], locale: str) -> str:
+    visible = [part for part in parts if part]
+    if not visible:
+        return ""
+    return t("workspace.preview_joiner", locale).join(visible)
+
+
+def _preview_pair(left: str, right: str, locale: str) -> str:
+    return t("workspace.preview_pair", locale, left=left, right=right)
+
+
+def _label_key(key: object, locale: str) -> str:
+    names = {
+        "background": "workspace.label.background",
+        "change": "workspace.label.change",
+        "chapter": "workspace.label.chapter",
+        "content": "workspace.label.content",
+        "description": "workspace.label.description",
+        "detail": "workspace.label.detail",
+        "direction": "workspace.label.direction",
+        "goal": "workspace.label.goal",
+        "name": "workspace.label.name",
+        "rules": "workspace.label.rules",
+        "summary": "workspace.label.summary",
+        "title": "workspace.label.title",
+        "trigger": "workspace.label.trigger",
+    }
+    translation_key = names.get(str(key))
+    if translation_key is None:
+        return html.escape(str(key))
+    return t(translation_key, locale)
 
 
 def _trace_stage_label(stage: str, locale: str) -> str:

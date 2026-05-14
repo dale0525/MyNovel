@@ -468,6 +468,40 @@ def test_running_chapter_page_exposes_production_control_panels() -> None:
     assert "预计剩余" not in page
 
 
+def test_running_chapter_page_keeps_full_current_candidate_text_visible() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+    full_text = "第一段开头。" + "A" * 220 + "\n第二段结尾。"
+    chapter = Chapter(
+        id=1,
+        book_id=1,
+        number=1,
+        title="召唤",
+        status=ChapterStatus.RUNNING,
+        plan={"word_budget": 3200},
+        context_package={"canon": "已收集"},
+        draft_text=full_text,
+        word_count=len(full_text),
+    )
+
+    page = render_chapter_review(
+        book,
+        [chapter],
+        chapter,
+        Canon(id=1, book_id=1, version=1, content={}),
+    )
+
+    assert "running-chapter-text" in page
+    assert "第一段开头。" in page
+    assert "第二段结尾。" in page
+    assert ("A" * 220) in page
+
+
 def test_review_page_uses_ai_revision_request_instead_of_manual_edit() -> None:
     book = Book(
         id=1,
@@ -1188,6 +1222,52 @@ def test_running_chapter_page_uses_translations_for_mode_and_chapter_number(monk
     assert page.count("AI 生成_TEST") == 2
     assert page.count("阶段状态_TEST") == 2
     assert "章节编号_TEST 3 召唤" in page
+
+
+def test_book_workspace_uses_translations_for_workspace_preview_labels(monkeypatch) -> None:
+    locale = "workspace-test"
+    monkeypatch.setitem(TRANSLATIONS, locale, dict(TRANSLATIONS["zh-CN"]))
+    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.current_task", "CURRENT_TASK_TEST")
+    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.focus_title_run", "RUN_TASK_TEST {number}")
+    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.focus_detail_run", "RUN_DETAIL_TEST")
+    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.book_meta", "{genre} / {audience}")
+    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.empty_value", "EMPTY_TEST")
+    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.preview_pair", "{left} => {right}")
+    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.preview_joiner", " | ")
+    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.label.background", "BG_TEST")
+    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.label.description", "DESC_TEST")
+    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.label.title", "TITLE_TEST")
+    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.label.goal", "GOAL_TEST")
+
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.CANON_LOCKED,
+    )
+    chapters = [Chapter(id=1, book_id=1, number=1, title="召唤", status=ChapterStatus.PLANNED)]
+    canon = Canon(
+        id=1,
+        book_id=1,
+        version=1,
+        content={
+            "world_rules": [{"background": "架空大盛王朝", "description": "医术被视为神迹"}],
+            "chapter_summaries": [{"title": "第一章", "goal": "完成自救"}],
+        },
+    )
+
+    page = render_book_workspace(book, chapters, canon, [], locale=locale)
+
+    assert "CURRENT_TASK_TEST" in page
+    assert page.count("RUN_TASK_TEST 1") == 2
+    assert page.count("RUN_DETAIL_TEST") == 2
+    assert "奇幻 / 男频网文读者" in page
+    assert "BG_TEST => 架空大盛王朝" in page
+    assert "DESC_TEST => 医术被视为神迹" in page
+    assert "TITLE_TEST => 第一章" in page
+    assert "GOAL_TEST => 完成自救" in page
+    assert "背景：架空大盛王朝" not in page
 
 
 def test_completed_book_workspace_matches_first_ten_complete_surface() -> None:

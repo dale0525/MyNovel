@@ -4,8 +4,9 @@ import html
 from dataclasses import dataclass
 from typing import Sequence
 
-from mynovel.domain.models import Book, Chapter, ChapterStatus
+from mynovel.domain.models import Book, Chapter
 from mynovel.i18n import DEFAULT_LOCALE, t
+from mynovel.workspace_views import build_workspace_task_summary
 
 
 @dataclass(frozen=True)
@@ -48,24 +49,13 @@ def build_workspace_status_stages(
     chapter: Chapter | None,
     locale: str = DEFAULT_LOCALE,
 ) -> tuple[StatusStage, ...]:
-    if chapter is None:
-        current_title = t("workspace.focus_complete_title", locale)
-        current_detail = t("workspace.focus_detail_complete", locale)
-    elif chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}:
-        current_title = t("workspace.focus_title_review", locale, number=chapter.number)
-        current_detail = t("workspace.focus_detail_review", locale)
-    elif chapter.status == ChapterStatus.RUNNING:
-        current_title = t("workspace.focus_title_running", locale, number=chapter.number)
-        current_detail = t("workspace.focus_detail_running", locale)
-    else:
-        current_title = t("workspace.focus_title_run", locale, number=chapter.number)
-        current_detail = t("workspace.focus_detail_run", locale)
+    task = build_workspace_task_summary(chapter, locale)
     return (
         StatusStage(
             key="current-task",
             label=t("status_strip.current_label", locale),
-            title=current_title,
-            detail=current_detail,
+            title=task.title,
+            detail=task.detail,
             state="current",
         ),
         StatusStage(
