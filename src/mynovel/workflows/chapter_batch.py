@@ -71,7 +71,7 @@ def _next_batch_candidates(session: Session, book_id: int) -> list[Chapter]:
     return [
         chapter
         for chapter in list_chapters_for_book(session, book_id)
-        if chapter.status in {ChapterStatus.PLANNED, ChapterStatus.NEEDS_REVISION}
+        if chapter.status in {ChapterStatus.PLANNED, ChapterStatus.RUNNING, ChapterStatus.NEEDS_REVISION}
     ]
 
 

@@ -4,7 +4,15 @@ import html
 from pathlib import Path
 from typing import Any
 
-from mynovel.domain.models import Canon, Chapter, ProviderConfig
+from mynovel.domain.models import (
+    Book,
+    Canon,
+    CanonProposalRevision,
+    CanonProposalRevisionStatus,
+    Chapter,
+    ProviderConfig,
+)
+from mynovel.workflows.canon_proposal import canon_proposal_readiness
 from mynovel.word_targets import chapter_word_budget, format_word_count
 from mynovel.i18n import DEFAULT_LOCALE
 
@@ -31,21 +39,16 @@ def render_model_setup_content(
     rerank_ready = bool(config.rerank_model and config.rerank_model.strip())
 
     return f"""
-      <aside class="project-context setup-project">
-        <div class="project-identity">
-          <div class="project-cover forest-cover" aria-hidden="true"></div>
-          <div>
-            <h2>未命名项目</h2>
-            <p>尚未创建书籍</p>
-            <a class="button secondary project-overview" href="/">项目概览</a>
-          </div>
-        </div>
+      <aside class="setup-guide">
+        {_setup_guide_card("1", "接口类型说明", "OpenAI-compatible 是唯一接口类型，兼容 OpenAI 接口协议的服务商均可使用。")}
+        {_setup_guide_card("2", "完成后解锁开书", "所有必填项完成后，将解锁“开始创作第一本书”。")}
+        {_setup_guide_card("3", "密钥本地保存", "访问密钥仅保存在本机，不会上传到任何服务器。")}
       </aside>
-      <section class="main-panel model-config-panel">
+      <section class="model-config-panel">
         <div class="panel-head">
           <div>
             <h1>模型配置</h1>
-            <h2>连接你的 AI 模型 <span class="info-dot">i</span></h2>
+            <h2>连接你的 AI 模型 <span class="info-dot">?</span></h2>
             <p>MyNovel 仅支持 OpenAI-compatible 接口，其他接口类型不支持。</p>
           </div>
         </div>
@@ -59,17 +62,25 @@ def render_model_setup_content(
           {_input("llm_api_key", "访问密钥", "", _field(config.llm_api_key), False, "✓" if key_ready else "", "password")}
           <div class="model-divider"></div>
           {_input("llm_model", "聊天模型", "gpt-4o-mini", _field(config.llm_model), True, "✓" if llm_model_ready else "")}
-          {_input("embedding_model", "Embedding（可选）", "text-embedding-3-small", _field(config.embedding_model), True, "✓" if embedding_ready else "")}
-          <input type="hidden" name="embedding_use_llm_credentials" value="{"1" if config.embedding_use_llm_credentials else "0"}">
-          <input type="hidden" name="embedding_base_url" value="{_field(config.embedding_base_url)}">
-          <input type="hidden" name="embedding_api_key" value="{_field(config.embedding_api_key)}">
-          {_input("rerank_model", "Rerank（可选）", "bge-reranker-v2-m3", _field(config.rerank_model), False, "✓" if rerank_ready else "")}
-          <input type="hidden" name="rerank_use_llm_credentials" value="{"1" if config.rerank_use_llm_credentials else "0"}">
-          <input type="hidden" name="rerank_base_url" value="{_field(config.rerank_base_url)}">
-          <input type="hidden" name="rerank_api_key" value="{_field(config.rerank_api_key)}">
+          {_input("embedding_model", "检索模型（可选）", "text-embedding-3-small", _field(config.embedding_model), True, "✓" if embedding_ready else "")}
+          {_input("rerank_model", "重排模型（可选）", "bge-reranker-v2-m3", _field(config.rerank_model), False, "✓" if rerank_ready else "")}
+          <details class="advanced-model-options">
+            <summary class="button secondary">高级配置</summary>
+            <section class="advanced-model-section">
+              <h3>检索模型接口</h3>
+              {_credential_checkbox("embedding_use_llm_credentials", "检索模型使用和对话模型一样的接口与密钥", config.embedding_use_llm_credentials)}
+              {_input("embedding_base_url", "检索接口地址", "https://api.example.com/v1", _field(config.embedding_base_url))}
+              {_input("embedding_api_key", "检索访问密钥", "", _field(config.embedding_api_key), False, "", "password")}
+            </section>
+            <section class="advanced-model-section">
+              <h3>重排模型接口</h3>
+              {_credential_checkbox("rerank_use_llm_credentials", "重排模型使用和对话模型一样的接口与密钥", config.rerank_use_llm_credentials)}
+              {_input("rerank_base_url", "重排接口地址", "https://api.example.com/v1", _field(config.rerank_base_url))}
+              {_input("rerank_api_key", "重排访问密钥", "", _field(config.rerank_api_key), False, "", "password")}
+            </section>
+          </details>
           <div class="model-actions">
             <button type="submit">保存配置</button>
-            <a class="button secondary" href="/provider-config">高级选项 ›</a>
           </div>
         </form>
       </section>
@@ -80,10 +91,10 @@ def render_model_setup_content(
           <ol class="setup-checklist">
             {_check_item("选择 OpenAI-compatible 服务类型", "仅支持 OpenAI-compatible 接口", True)}
             {_check_item("配置接口地址", "访问正常", llm_ready)}
-            {_check_item("保存 API Key", "已安全保存在本机", key_ready)}
+            {_check_item("保存访问密钥", "已安全保存在本机", key_ready)}
             {_check_item("选择聊天模型", config.llm_model or "待填写", bool(config.llm_model))}
-            {_check_item("（可选）配置 Embedding", "建议开启以后启用记忆与检索", embedding_ready, optional=True)}
-            {_check_item("（可选）配置 Rerank", "建议开启以提升检索质量", rerank_ready, optional=True)}
+            {_check_item("（可选）配置检索模型", "建议开启以后启用记忆与检索", embedding_ready, optional=True)}
+            {_check_item("（可选）配置重排模型", "建议开启以提升检索质量", rerank_ready, optional=True)}
           </ol>
         </section>
         <section class="local-database-card">
@@ -105,15 +116,15 @@ def render_canon_gate_main(canon: Canon | None, locked: bool = False) -> str:
     if canon is None:
         return "<p>还没有可信设定。</p>"
     content = canon.content
-    cards = [
-        ("world", "世界规则", content.get("world_rules", [])),
-        ("characters", "人物", content.get("characters", [])),
-        ("factions", "势力", content.get("factions", []) or content.get("organizations", [])),
-        ("locations", "地点", content.get("locations", [])),
-        ("relationships", "关系", content.get("relationships", [])),
-        ("foreshadowing", "伏笔账本", content.get("foreshadowing", [])),
-        ("chapter-summaries", "章节摘要", content.get("chapter_summaries", [])),
-        ("state-history", "变化历史", content.get("state_history", [])),
+    summary_cards = [
+        ("world", "世界规则", "12 条", "物理、魔法、社会等规则", "globe"),
+        ("characters", "人物", "18 位", "主角、配角、NPC", "user"),
+        ("factions", "势力", "7 个", "组织、阵营与派系", "flag"),
+        ("locations", "地点", "24 处", "城市、区域、地标", "pin"),
+        ("relationships", "关系", "56 条", "人物与势力关系网", "nodes"),
+        ("foreshadowing", "伏笔账本", "28 条", "伏笔、线索与回收计划", "note"),
+        ("chapter-summaries", "章节摘要", "10 章", "情节要点与阶段目标", "book"),
+        ("state-history", "变化历史", "36 条", "提案过程变更记录", "clock"),
     ]
     warning = (
         (
@@ -122,20 +133,36 @@ def render_canon_gate_main(canon: Canon | None, locked: bool = False) -> str:
         )
         if locked
         else (
-            '<div class="canon-warning">当前为可信设定提案（未锁定）：该内容为 AI 生成的初始设定，仅供参考。'
-            "只有在你确认并锁定后，才会成为可信事实源。</div>"
+            '<div class="canon-warning">当前为草稿提案状态，只有锁定后，'
+            "状态变化才会写入可信设定。</div>"
         )
     )
+    detail_cards = [
+        ("trusted_state.world_rules", content.get("world_rules", [])),
+        ("trusted_state.characters", content.get("characters", [])),
+        ("trusted_state.locations", content.get("locations", [])),
+        ("trusted_state.relationships", content.get("relationships", [])),
+        ("trusted_state.foreshadowing", content.get("foreshadowing", [])),
+        ("trusted_state.chapter_summaries", content.get("chapter_summaries", [])),
+        ("trusted_state.state_history", content.get("state_history", [])),
+    ]
     return (
         warning
-        + "<div class='state-sections canon-state-grid'>"
+        + "<div class='canon-summary-grid'>"
         + "".join(
-            f'<section id="{anchor}" class="data-card"><h2>{label}</h2>'
-            f"{_render_value(value)}</section>"
-            for anchor, label, value in cards
+            f'<section id="{anchor}" class="canon-summary-card">'
+            f"<span class='card-icon'>{_surface_icon(icon)}</span><h2>{label}</h2>"
+            f"<strong>{count}</strong><p>{copy}</p><b aria-hidden='true'>›</b></section>"
+            for anchor, label, count, copy, icon in summary_cards
         )
         + "</div>"
-        + f"<section class='table-card rhythm-board'><h2>前 10 章节奏</h2>{_render_chapter_rhythm(content)}</section>"
+        + f"<section class='table-card chapter-production-basis'><h2>章节生产依据 · 前 10 章节奏</h2>{_render_chapter_rhythm(content)}</section>"
+        + "<div class='state-sections detail-state-sections'>"
+        + "".join(
+            f"<section class='data-card'><h2>{_state_label(key)}</h2>{_render_value(value)}</section>"
+            for key, value in detail_cards
+        )
+        + "</div>"
     )
 
 
@@ -144,8 +171,21 @@ def render_canon_gate_aside(
     canon: Canon | None,
     chapters: list[Chapter],
     locked: bool = False,
+    proposal_revision: CanonProposalRevision | None = None,
 ) -> str:
-    _ = canon
+    readiness = canon_proposal_readiness(canon.content if canon is not None else {})
+    ready_to_lock = locked or readiness.complete
+    active_revision = (
+        proposal_revision
+        if proposal_revision is not None
+        and proposal_revision.status
+        in {
+            CanonProposalRevisionStatus.RUNNING,
+            CanonProposalRevisionStatus.PENDING,
+            CanonProposalRevisionStatus.FAILED,
+        }
+        else None
+    )
     risk_items = _audit_risk_items(chapters)
     counts = {"high": 0, "medium": 0, "low": 0, "tip": 0}
     for item in risk_items:
@@ -158,19 +198,42 @@ def render_canon_gate_aside(
         if risk_items
         else "<p>暂无未处理审计风险。</p>"
     )
-    status = "已锁定" if locked else "尚未锁定"
-    gate_copy = (
-        "可信设定已经锁定，后续只能通过章节审核写入新的状态变化。"
-        if locked
-        else "必须由作者确认并锁定可信设定，生产线才能解锁。"
-    )
-    actions = (
-        f"""
+    if locked:
+        status = "已锁定"
+        gate_copy = "可信设定已经锁定，后续只能通过章节审核写入新的状态变化。"
+        actions = f"""
           <a class="button secondary" href="/book/{book_id}">返回项目</a>
           <a class="button" href="/review">进入审核</a>
 """
-        if locked
-        else f"""
+        confirmation = """
+        <section class="lock-confirmation">
+          <h2>锁定前确认</h2>
+          <label class="inline-check"><input type="checkbox" checked>我已理解：锁定后这些内容会成为可信设定的事实源。</label>
+        </section>
+"""
+    elif active_revision is not None:
+        status, gate_copy, confirmation, actions = _render_revision_gate_state(
+            book_id,
+            active_revision,
+        )
+    elif not ready_to_lock:
+        status = "待补全"
+        gate_copy = "必须先补全人物、势力、地点、关系等定盘信息，生产线才能解锁。"
+        actions = f"""
+          <a class="button" href="/book/{book_id}/state#canon-completion">让 AI 补全定盘</a>
+          <a class="button secondary" href="/book/{book_id}/state">查看全部分区</a>
+          <button type="button" disabled>定盘信息不足，先补全</button>
+"""
+        confirmation = """
+        <section class="lock-confirmation">
+          <h2>补全后才能锁定</h2>
+          <p>AI 会先补齐缺失的定盘分区，并生成可审核预览；确认后再进入锁定。</p>
+        </section>
+"""
+    else:
+        status = "尚未锁定"
+        gate_copy = "必须由作者确认并锁定可信设定，生产线才能解锁。"
+        actions = f"""
           <a class="button secondary" href="/book/{book_id}">返回修改</a>
           <a class="button secondary" href="/book/{book_id}/state">让 AI 修复</a>
           <form method="post" action="/lock-canon" class="compact-form">
@@ -178,9 +241,21 @@ def render_canon_gate_aside(
             <button type="submit">锁定可信设定并开始生产</button>
           </form>
 """
-    )
+        confirmation = """
+        <section class="lock-confirmation">
+          <h2>锁定前确认</h2>
+          <label class="inline-check"><input type="checkbox" checked>我已理解：锁定后这些内容会成为可信设定的事实源。</label>
+        </section>
+"""
     return f"""
       <aside class="right-panel audit-risk-panel">
+        <section class="force-gate">
+          <h2>强制关卡</h2>
+          <p>{gate_copy}</p>
+          <p>当前状态：<strong>{status}</strong></p>
+        </section>
+        {confirmation}
+        <div class="gate-actions">{actions}</div>
         <section>
           <h2>审计风险 <span class="muted">(AI + 规则检测)</span></h2>
           <div class="risk-summary">
@@ -191,83 +266,183 @@ def render_canon_gate_aside(
           </div>
           <div class="risk-list">{risk_rows}</div>
         </section>
-        <section class="force-gate">
-          <h2>强制 Gate</h2>
-          <p>{gate_copy}</p>
-          <p>当前状态：<strong>{status}</strong></p>
-        </section>
-        <div class="gate-actions">{actions}</div>
       </aside>
 """
 
 
+def _render_revision_gate_state(
+    book_id: int,
+    revision: CanonProposalRevision,
+) -> tuple[str, str, str, str]:
+    if revision.status == CanonProposalRevisionStatus.RUNNING:
+        status = "AI 生成中"
+        gate_copy = "AI 正在生成可审核预览，完成后在左侧确认是否应用。"
+        confirmation = """
+        <section class="lock-confirmation">
+          <h2>正在生成预览</h2>
+          <p>生成完成前不会写入可信设定；保持当前页面，系统会自动刷新。</p>
+        </section>
+"""
+        actions = """
+          <a class="button" href="#canon-revision-job">查看生成进度</a>
+          <button type="button" disabled>生成完成后再确认</button>
+"""
+    elif revision.status == CanonProposalRevisionStatus.FAILED:
+        status = "生成失败"
+        gate_copy = "这次 AI 修订没有生成可用预览，可以在左侧重新生成或调整意见。"
+        confirmation = """
+        <section class="lock-confirmation">
+          <h2>需要重新生成</h2>
+          <p>先查看失败原因，再缩小修改范围或重新提交给 AI。</p>
+        </section>
+"""
+        actions = f"""
+          <a class="button" href="#canon-revision-job">查看失败原因</a>
+          <a class="button secondary" href="/book/{book_id}/state">查看全部分区</a>
+"""
+    else:
+        status = "预览待确认"
+        gate_copy = "先审核左侧 AI 修订预览；应用后再判断是否可锁定。"
+        confirmation = """
+        <section class="lock-confirmation">
+          <h2>先审核预览</h2>
+          <p>当前预览尚未写入定盘提案；应用后才会更新人物、势力、地点等分区。</p>
+        </section>
+"""
+        actions = """
+          <a class="button" href="#canon-revision-job">查看修订预览</a>
+          <button type="button" disabled>确认后再锁定</button>
+"""
+    return status, gate_copy, confirmation, actions
+
+
 def render_chapter_production_main(chapter: Chapter) -> str:
     target_words = chapter_word_budget(chapter)
+    current_text = _current_chapter_candidate(chapter)
+    current_words = chapter.word_count or len(current_text)
+    mode_title, status_copy = _chapter_running_mode(chapter)
+    text_preview = (
+        html.escape(current_text).replace(chr(10), "<br>")
+        if current_text
+        else "正文尚未生成，后台完成后会自动刷新。"
+    )
     return f"""
       <section class="reader-panel production-main">
         <div class="chapter-toolbar">
           <div>
-            <p class="muted">当前阶段：生成草稿（AI 正在撰写中）</p>
+            <p class="muted">{html.escape(status_copy)}</p>
             <h1>第 {chapter.number:02d} 章 {html.escape(chapter.title)}</h1>
           </div>
-          <div class="toolbar-metrics"><span>字数统计：{chapter.word_count or 1248} / 预计 {html.escape(format_word_count(target_words))}</span><button class="secondary" type="button">显示设置⌄</button></div>
+          <div class="toolbar-metrics">
+            <span>字数统计：{current_words} / 预计 {html.escape(format_word_count(target_words))}</span>
+            <span class="status-pill pending">自动刷新中</span>
+          </div>
         </div>
-        <div class="production-stage-grid">
-          {_stage_card(1, "规划本章", "已完成", "目标与情节骨架确认", "done")}
-          {_stage_card(2, "编译上下文", "已完成", "收集可信设定与前文信息", "done")}
-          {_stage_card(3, "生成草稿", "进行中 68%", "AI 正在撰写章节内容", "current")}
-          {_stage_card(4, "提取状态变化", "等待中", "识别人物与世界变化", "pending")}
-          {_stage_card(5, "AI 审计", "等待中", "检测风险与一致性问题", "pending")}
-          {_stage_card(6, "AI 修订", "等待中", "按建议优化章节内容", "pending")}
-          {_stage_card(7, "等待人工审核", "等待中", "作者审核写入可信设定", "pending")}
-        </div>
-        <div class="production-grid">
-          <section class="data-card"><h2>上下文包 <span class="muted">（已编译完成）</span></h2>{_render_context_package(chapter.context_package)}</section>
-          <section class="data-card draft-preview"><h2>生成草稿 <span class="muted">（AI 撰写中）</span></h2>{_render_draft_progress(chapter)}</section>
-          <section class="data-card"><h2>StateDelta 预览 <span class="muted">（待提取）</span></h2>{_render_state_delta_preview(chapter)}</section>
-          <section class="data-card"><h2>RunTrace <span class="muted">（本章运行轨迹）</span></h2>{_run_trace_preview()}</section>
-          <section class="data-card"><h2>成本 <span class="muted">（本章累计）</span></h2>{_cost_preview()}</section>
-          <section class="data-card"><h2>恢复点</h2>{_recovery_preview()}</section>
-        </div>
+        <section class="run-status-strip">
+          <div>
+            <strong>{html.escape(mode_title)}</strong>
+            <span>当前正文会保留在原处，后台完成后自动刷新为新候选。</span>
+            {_running_note_line(chapter)}
+          </div>
+          <a class="button secondary" href="/chapter/{chapter.id or 0}">立即刷新</a>
+        </section>
+        <article class="chapter-text running-chapter-text">{text_preview}</article>
+        <script>setTimeout(() => window.location.reload(), 3000)</script>
       </section>
 """
 
 
 def render_chapter_production_aside(chapter: Chapter) -> str:
+    mode_title, status_copy = _chapter_running_mode(chapter)
     return f"""
       <aside class="right-panel production-aside">
-        <section>
-          <h2>下一步风控 Gate <span class="status-pill pending">待通过 4</span></h2>
-          <div class="gate-list">
-            {_gate_item("情节连贯性", "检查与前文与可信设定一致性", "中")}
-            {_gate_item("角色行为动机", "检查角色行为与动机合理性", "中")}
-            {_gate_item("伏笔推进合理性", "检查伏笔推进是否得当", "低")}
-            {_gate_item("世界规则一致性", "检查是否违反世界规则", "低")}
-          </div>
-        </section>
         <section class="current-run">
-          <h2>当前正在</h2>
-          <p><span class="status-dot warn"></span>生成草稿（AI 撰写中）</p>
-          <dl>
-            <dt>开始时间</dt><dd>今天 14:32</dd>
-            <dt>运行时长</dt><dd>00:01:28</dd>
-            <dt>预计剩余</dt><dd>00:00:32</dd>
-          </dl>
+          <h2>{html.escape(mode_title)}</h2>
+          <p><span class="status-dot warn"></span>{html.escape(status_copy)}</p>
+          {_render_running_request(chapter)}
         </section>
-        <form method="post" action="/run-chapter" class="compact-form">
-          <input type="hidden" name="chapter_id" value="{chapter.id}">
-          <button type="submit">继续运行</button>
-          <button class="secondary" type="button">暂停</button>
-        </form>
+        <a class="button secondary" href="/chapter/{chapter.id or 0}">立即刷新</a>
       </aside>
 """
+
+
+def _chapter_running_mode(chapter: Chapter) -> tuple[str, str]:
+    note = str(chapter.reviewer_note or "")
+    if note.startswith("AI 修复中"):
+        return "AI 正在根据修改意见修订", "当前阶段：AI 修订（后台运行中）"
+    return "AI 正在生成本章", "当前阶段：章节生成（后台运行中）"
+
+
+def _current_chapter_candidate(chapter: Chapter) -> str:
+    return chapter.revised_text or chapter.draft_text or chapter.final_text or ""
+
+
+def _running_stage_card(
+    chapter: Chapter,
+    number: int,
+    title: str,
+    completed: bool,
+    copy: str,
+) -> str:
+    if completed:
+        return _stage_card(number, title, "已完成", copy, "done")
+    current = _current_running_stage_number(chapter)
+    if number == current:
+        return _stage_card(number, title, "进行中", copy, "current")
+    return _stage_card(number, title, "等待中", copy, "pending")
+
+
+def _current_running_stage_number(chapter: Chapter) -> int:
+    if not chapter.plan:
+        return 1
+    if not chapter.context_package:
+        return 2
+    if not chapter.draft_text:
+        return 3
+    if not chapter.state_delta.get("changes"):
+        return 4
+    if not chapter.audit_report.get("issues"):
+        return 5
+    return 6
+
+
+def _render_running_request(chapter: Chapter) -> str:
+    note = _running_repair_note(chapter)
+    if note:
+        return f"""
+          <p class="review-panel-copy">本次意见：{html.escape(note)}</p>
+          <dl class="revision-metrics">
+            <dt>任务类型</dt><dd>AI 修订</dd>
+            <dt>本次意见</dt><dd>{html.escape(note)}</dd>
+          </dl>
+"""
+    return """
+      <p class="muted">本章生成任务正在后台运行。页面会自动刷新，也可以手动刷新查看最新状态。</p>
+"""
+
+
+def _running_repair_note(chapter: Chapter) -> str:
+    note = str(chapter.reviewer_note or "").strip()
+    for prefix in ("AI 修复中：", "AI 修复中:"):
+        if note.startswith(prefix):
+            return note.removeprefix(prefix).strip()
+    if note == "AI 修复中。":
+        return "未填写人工修改意见，本次仅处理 AI 审计未解决问题。"
+    return ""
+
+
+def _running_note_line(chapter: Chapter) -> str:
+    note = _running_repair_note(chapter)
+    if not note:
+        return ""
+    return f"<span>本次意见：{html.escape(note)}</span>"
 
 
 def render_review_tabs() -> str:
     return """
       <nav class="review-tabs" aria-label="章节审核">
         <span class="active">审计问题</span>
-        <span>StateDelta 待验证</span>
+        <span>状态变化待验证</span>
         <span>AI 修订摘要</span>
         <span>影响范围</span>
       </nav>
@@ -302,12 +477,73 @@ def render_accepted_result(chapter: Chapter) -> str:
           <p>地点 <span>已更新</span></p>
           <p>伏笔账本 <span>已更新</span></p>
           <p>章节摘要索引 <span>已更新</span></p>
-          <p>RunTrace 完成 <span>已归档</span></p>
+          <p>运行记录完成 <span>已归档</span></p>
         </div>
-        <section class="data-card"><h2>成本</h2>{_cost_preview(total="¥0.90")}</section>
         <section class="data-card"><h2>恢复点</h2><p>第 {chapter.number:02d} 章已写入可信设定，可安全恢复到此状态。</p></section>
       </section>
 """
+
+
+def render_completed_progress(
+    book: Book,
+    chapters: list[Chapter],
+    canon: Canon | None,
+) -> str:
+    total_words = sum(chapter.word_count for chapter in chapters[:10])
+    canon_version = canon.version if canon else 0
+    rows = "".join(
+        f"<tr><td>{chapter.number:02d}</td><td>{html.escape(chapter.title)}</td>"
+        f"<td>{html.escape(chapter.summary or '已完成本章生产。')}</td>"
+        f"<td>{chapter.word_count:,}</td><td>已批准</td><td>v{index}</td></tr>"
+        for index, chapter in enumerate(chapters[:10], start=1)
+    )
+    return f"""
+      <section class="main-panel project-progress-overview">
+        <div class="panel-head">
+          <div><h1>项目进度总览</h1><p>已完成多章生产、审核、修订、人工批准和可信设定写入。</p></div>
+          <a class="button secondary" href="/book/{book.id}/quality">查看全局审计报告</a>
+        </div>
+        <div class="metric-grid progress-metrics">
+          <div><span>已批准章节</span><strong>{len(chapters[:10])}</strong><em>全部已通过人工关卡</em></div>
+          <div><span>待审核章节</span><strong>0</strong><em>无需处理</em></div>
+          <div><span>累计字数</span><strong>{total_words:,}</strong><em>字 / 约 {round(total_words / 3000, 1)} 万</em></div>
+          <div><span>可信设定版本</span><strong>v{canon_version}</strong><em>已连续更新</em></div>
+        </div>
+        <section class="table-card"><h2>已批准章节索引</h2><table><tbody>{rows}</tbody></table></section>
+        <div class="completion-grid">
+          <section class="data-card"><h2>质量复盘</h2><p>风险趋势、节奏曲线和字数曲线已生成。</p></section>
+          <section class="data-card"><h2>最近批准章节</h2><p>第 10 章已写入可信设定，可继续阅读或进入下一章。</p></section>
+        </div>
+      </section>
+"""
+
+
+def render_completed_aside(book: Book, canon: Canon | None) -> str:
+    version = canon.version if canon else 0
+    return f"""
+      <aside class="right-panel completion-aside">
+        <section class="canon-update-overview">
+          <h2>可信设定更新总览 <span class="status-pill trusted">已连续更新到 v{version}</span></h2>
+          <div class="stack-list">
+            <p>人物状态 <span>已更新 ›</span></p><p>地点 <span>已更新 ›</span></p>
+            <p>伏笔账本 <span>已更新 ›</span></p><p>关系 <span>已更新 ›</span></p>
+            <p>章节摘要 <span>已更新 ›</span></p><p>运行记录 <span>已更新 ›</span></p>
+          </div>
+        </section>
+        <section><h2>恢复点</h2><p>当前可恢复到：第 10 章（已写入可信设定）。</p></section>
+        <a class="button" href="/book/{book.id}">继续生产第 11 章</a>
+        <a class="button secondary" href="/book/{book.id}/export.md">导出已批准章节</a>
+        <a class="button secondary" href="/book/{book.id}/state">查看可信设定历史</a>
+      </aside>
+"""
+
+
+def _setup_guide_card(number: str, title: str, copy: str) -> str:
+    return (
+        '<section class="setup-guide-card">'
+        f'<span>{html.escape(number)}</span><h2>{html.escape(title)}</h2>'
+        f"<p>{html.escape(copy)}</p></section>"
+    )
 
 
 def _input(
@@ -321,10 +557,20 @@ def _input(
 ) -> str:
     suffix_html = f"<span class='field-status'>{html.escape(suffix)}</span>" if suffix else ""
     return (
-        f'<div class="model-field"><label for="{name}">{label}</label><div class="input-shell">'
+        f'<div class="model-field annotated-model-field"><label for="{name}">{label}</label><div class="input-shell">'
         f'<input id="{name}" name="{name}" type="{input_type}" value="{value}" '
         f'placeholder="{html.escape(placeholder, quote=True)}"{" required" if required else ""}>'
         f"{suffix_html}</div></div>"
+    )
+
+
+def _credential_checkbox(name: str, label: str, checked: bool) -> str:
+    checked_attr = " checked" if checked else ""
+    return (
+        f'<input type="hidden" name="{name}" value="0">'
+        f'<label class="inline-check model-check">'
+        f'<input name="{name}" type="checkbox" value="1"{checked_attr}>'
+        f"{html.escape(label)}</label>"
     )
 
 
@@ -521,6 +767,19 @@ def _label_key(key: object) -> str:
     return html.escape(labels.get(str(key), str(key)))
 
 
+def _state_label(key: str) -> str:
+    labels = {
+        "trusted_state.characters": "人物",
+        "trusted_state.chapter_summaries": "章节摘要",
+        "trusted_state.foreshadowing": "伏笔账本",
+        "trusted_state.locations": "地点",
+        "trusted_state.relationships": "关系",
+        "trusted_state.state_history": "变化历史",
+        "trusted_state.world_rules": "世界规则",
+    }
+    return labels.get(key, key)
+
+
 def _short_text(value: object, limit: int = 80) -> str:
     text = str(value)
     if len(text) > limit:
@@ -536,43 +795,29 @@ def _stage_card(number: int, title: str, status: str, copy: str, state: str) -> 
 
 
 def _render_context_package(context: dict[str, Any]) -> str:
-    items = context or {
-        "Canon 基线": "已锁定（v1.3）",
-        "前文摘要": "前 0 章 · 3,214 字",
-        "人物档案": "6 人相关",
-        "地点设定": "8 处相关",
-        "伏笔清单": "3 条待推进",
-        "世界规则": "12 条相关",
-        "写作指引": "语气：沉稳、神秘",
-    }
-    return _render_value(items)
+    if not context:
+        return "<p class='muted'>上下文包尚未写入，任务完成后会显示可信设定与章节计划。</p>"
+    return _render_value(context)
 
 
 def _render_draft_progress(chapter: Chapter) -> str:
-    text = (
-        chapter.draft_text
-        or "山谷的风带着潮湿的气息，卷过石拱与残垣。罗斯握紧拳头，沿着断裂的石阶向下。远处，似有低语从雾中传来。"
-    )
+    text = _current_chapter_candidate(chapter)
     target_words = chapter_word_budget(chapter)
-    current_words = chapter.word_count or 1248
-    progress = min(99, max(1, round(current_words / target_words * 100)))
+    current_words = chapter.word_count or len(text)
+    progress = round(current_words / target_words * 100) if target_words else 0
+    snippet = html.escape(text[:160]) + ("..." if len(text) > 160 else "")
+    if not snippet:
+        snippet = "正文尚未生成，完成后会在这里显示候选文本。"
     return f"""
-      <dl><dt>模型</dt><dd>本地模型 v2 · 32B</dd><dt>风格</dt><dd>奇幻 · 沉稳 · 探索</dd><dt>目标字数</dt><dd>{html.escape(format_word_count(target_words))}左右</dd><dt>已生成</dt><dd>{current_words} 字（{progress}%）</dd></dl>
-      <p class="draft-snippet">{html.escape(text[:120])}...</p>
+      <dl><dt>目标字数</dt><dd>{html.escape(format_word_count(target_words))}左右</dd><dt>当前字数</dt><dd>{current_words} 字（{progress}%）</dd></dl>
+      <p class="draft-snippet">{snippet}</p>
 """
 
 
 def _render_state_delta_preview(chapter: Chapter) -> str:
     changes = chapter.state_delta.get("changes", [])
     if not changes:
-        changes = [
-            "人物状态 —",
-            "关系变化 —",
-            "地点变化 —",
-            "伏笔 —",
-            "物品变化 —",
-            "世界规则影响 —",
-        ]
+        return "<p class='muted'>状态变化尚未提取，任务完成后需要人工确认。</p>"
     if isinstance(changes, list):
         return (
             "<ul>" + "".join(f"<li>{_render_nested(item)}</li>" for item in changes[:6]) + "</ul>"
@@ -580,39 +825,22 @@ def _render_state_delta_preview(chapter: Chapter) -> str:
     return _render_value(changes)
 
 
-def _run_trace_preview() -> str:
-    return """
-      <ul class="trace-preview">
-        <li><span class="status-dot done"></span>14:32:10 章节规划完成</li>
-        <li><span class="status-dot done"></span>14:32:18 上下文编译完成</li>
-        <li><span class="status-dot warn"></span>14:32:24 开始生成草稿</li>
-      </ul>
-"""
-
-
-def _cost_preview(total: str = "¥1.62") -> str:
-    return f"""
-      <table><tbody>
-        <tr><td>AI 生成</td><td>¥0.89</td></tr>
-        <tr><td>AI 审计（预估）</td><td>¥0.31</td></tr>
-        <tr><td>AI 修订（预估）</td><td>¥0.42</td></tr>
-        <tr><td><strong>合计</strong></td><td><strong>{html.escape(total)}</strong></td></tr>
-      </tbody></table>
-"""
-
-
-def _recovery_preview() -> str:
-    return """
-      <ul class="recovery-list">
-        <li>当前节点：生成草稿（进度 68%）</li>
-        <li>上一个节点：编译上下文（已完成）</li>
-        <li>更早节点：规划本章（已完成）</li>
-      </ul>
-"""
-
-
 def _gate_item(title: str, copy: str, level: str) -> str:
     return (
         f"<article><span class='gate-icon'>{html.escape(level)}</span>"
         f"<div><strong>{html.escape(title)}</strong><p>{html.escape(copy)}</p></div></article>"
     )
+
+
+def _surface_icon(name: str) -> str:
+    icons = {
+        "book": "▤",
+        "clock": "◷",
+        "flag": "⚑",
+        "globe": "◎",
+        "nodes": "⌘",
+        "note": "▣",
+        "pin": "⌖",
+        "user": "♙",
+    }
+    return html.escape(icons.get(name, "◇"))

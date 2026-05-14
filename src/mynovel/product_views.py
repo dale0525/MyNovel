@@ -4,9 +4,10 @@ import html
 from pathlib import Path
 from typing import Any
 
-from mynovel.blueprint_revision import REGENERATE_BLUEPRINT_NOTES
-from mynovel.blueprint_views import render_generating_blueprint
+from mynovel.blueprint_review_views import render_blueprint_review
+from mynovel.blueprint_views import render_blueprint_sidebar, render_generating_blueprint
 from mynovel.canon_proposal_views import render_canon_proposal_surface
+from mynovel.chapter_review_views import render_chapter_review_inspector
 from mynovel.domain.models import (
     Book,
     BookStatus,
@@ -23,18 +24,15 @@ from mynovel.domain.models import (
 from mynovel.home_views import render_empty_home, render_project_home
 from mynovel.i18n import DEFAULT_LOCALE, t
 from mynovel.product_components import (
-    render_accepted_result,
     render_canon_gate_aside,
-    render_chapter_production_aside,
     render_chapter_production_main,
-    render_impact_scope,
+    render_completed_aside,
+    render_completed_progress,
     render_model_setup_content,
-    render_review_tabs,
 )
 from mynovel.ui_shell import PipelineStep, render_app_page, render_pipeline, render_project_sidebar
 from mynovel.word_target_views import render_word_target_form
 from mynovel.word_targets import DEFAULT_CHAPTER_WORD_COUNT, DEFAULT_TARGET_WORD_COUNT
-from mynovel.workflows.open_book import title_options_from_blueprint
 
 GENRE_PRESETS = (
     "玄幻升级",
@@ -69,16 +67,21 @@ def render_home(
     configured = is_provider_config_complete(provider_config)
     if books:
         main = render_project_home(books, blueprints, configured, locale)
+        content_class = "content-grid"
+        bottom = _render_start_pipeline(None, locale)
     else:
         main = render_empty_home(provider_config, blueprints, configured, locale)
+        content_class = "content-grid first-launch-layout"
+        bottom = _render_first_launch_pipeline(locale)
     return _page(
         title=t("app.title", locale),
         active="workspace",
         main=main,
         message=message,
-        bottom=_render_start_pipeline(None, locale),
+        bottom=bottom,
         locale=locale,
         db_path=db_path,
+        content_class=content_class,
         nav_book_id=books[0].id if books else None,
     )
 
@@ -91,7 +94,7 @@ def render_model_setup_page(
 ) -> str:
     return _page(
         title=t("model.title", locale),
-        active="model",
+        active="create",
         main=render_model_setup_content(db_path, provider_config, locale),
         message=message,
         bottom=_render_start_pipeline(None, locale),
@@ -109,25 +112,26 @@ def render_new_book_page(
 ) -> str:
     disabled = "" if is_provider_config_complete(provider_config) else " disabled"
     main = f"""
-      <aside class="side-panel">
+      <aside class="side-panel book-wizard">
         <h2>{t("new_book.title", locale)}</h2>
-        <p>{t("new_book.subtitle", locale)}</p>
-        <ol class="step-list">
-          <li class="active">{t("new_book.step_settings", locale)}</li>
-          <li>{t("new_book.step_proposal", locale)}</li>
-          <li>{t("new_book.step_foundation", locale)}</li>
+        <p>完成以下 3 步，为你的故事打下坚实的起点。</p>
+        <ol class="step-list vertical-flow">
+          <li class="active"><strong>书籍设定</strong><span>填写书籍基础信息</span></li>
+          <li><strong>开书方案预览</strong><span>查看并选择开书方向</span></li>
+          <li><strong>确认并进入生产线</strong><span>确定后开始创作流程</span></li>
         </ol>
+        <p class="hint-box">提示：你可以随时保存草稿，后续在工作台继续完善。</p>
       </aside>
-      <section class="main-panel">
+      <section class="main-panel book-creation-main">
         <div class="panel-head">
           <div>
             <h1>{t("new_book.settings_title", locale)}</h1>
-            <p>{t("new_book.settings_intro", locale)}</p>
+            <p>只写一句灵感；题材和读者可以留给系统判断。</p>
           </div>
-          <span class="status-pill pending">{t("status.pending", locale)}</span>
+          <span class="status-pill trusted">一句灵感即可开始</span>
         </div>
         <form method="post" action="/open-book" class="form-grid">
-          {_input("idea", t("book.idea", locale), t("book.idea_placeholder", locale), required=True)}
+          <label class="idea-field">{t("book.idea", locale)}<textarea name="idea" placeholder="{t("book.idea_placeholder", locale)}" required></textarea><span class="idea-counter">0/200</span></label>
           <div class="split">
             {_select("genre", t("book.genre", locale), t("book.ai_choice", locale), GENRE_PRESETS)}
             {_select("audience", t("book.audience", locale), t("book.ai_choice", locale), AUDIENCE_PRESETS)}
@@ -136,23 +140,25 @@ def render_new_book_page(
             {_input("target_word_count", t("book.target_word_count", locale), "", str(DEFAULT_TARGET_WORD_COUNT), False, "number")}
             {_input("chapter_word_count", t("book.chapter_word_count", locale), "", str(DEFAULT_CHAPTER_WORD_COUNT), False, "number")}
           </div>
+          {_input("selling_points", t("book.selling_points", locale), "例如：逆袭反转、智商碾压、群像高燃等（可多选或自由描述）")}
+          {_input("constraints", t("book.constraints", locale), "例如：不写恋爱、不写虐主、不出现玄幻设定等（可多选或自由描述）")}
           <div class="actions">
             <a class="button secondary" href="/">{t("action.back", locale)}</a>
             <button type="submit"{disabled}>{t("book.create", locale)}</button>
           </div>
         </form>
       </section>
-      <aside class="right-panel">
+      <aside class="right-panel generated-preview">
         <h2>{t("new_book.preview_title", locale)}</h2>
-        <div class="stack-list">
-          <p>{t("blueprint.title_options", locale)}</p>
-          <p>{t("blueprint.genre", locale)}</p>
-          <p>{t("blueprint.audience", locale)}</p>
-          <p>{t("blueprint.selling_points", locale)}</p>
-          <p>{t("blueprint.protagonist", locale)}</p>
-          <p>{t("blueprint.world", locale)}</p>
-          <p>{t("blueprint.reader_promises", locale)}</p>
+        <div class="generation-card-list">
+          {_generation_card("书名候选", "生成多个风格各异的书名供你选择")}
+          {_generation_card("核心卖点", "提炼故事最吸引读者的核心看点")}
+          {_generation_card("主角", "主角设定、成长弧光与初始状态")}
+          {_generation_card("世界观", "世界设定、规则与关键背景信息")}
+          {_generation_card("读者承诺", "这本书将带给读者的体验与收获")}
+          {_generation_card("前 10 章方向", "前 10 章的节奏与关键事件概览")}
         </div>
+        <p class="hint-box">生成后，你将进入方案选择与细化环节，由你决定最终的开书方案。</p>
       </aside>
 """
     return _page(
@@ -162,6 +168,7 @@ def render_new_book_page(
         message=message,
         bottom=_render_start_pipeline("open_book", locale),
         locale=locale,
+        content_class="content-grid book-creation-layout",
     )
 
 
@@ -172,11 +179,12 @@ def render_blueprint_page(
     message: str | None = None,
     locale: str = DEFAULT_LOCALE,
 ) -> str:
-    _ = db_path, provider_config
+    _ = db_path
     content = blueprint.content or {}
     status_label = blueprint_status_label(blueprint.status, locale)
     if blueprint.status in {BlueprintStatus.PENDING, BlueprintStatus.RUNNING}:
-        body = render_generating_blueprint(blueprint, locale)
+        model_name = provider_config.llm_model if provider_config else None
+        body = render_generating_blueprint(blueprint, locale, model_name)
     elif blueprint.status == BlueprintStatus.FAILED:
         body = f"""
           <section class="main-panel single">
@@ -189,7 +197,9 @@ def render_blueprint_page(
           </section>
 """
     else:
-        body = _render_blueprint_review(blueprint, content, locale)
+        body = render_blueprint_review(blueprint, content, locale)
+    if blueprint.status != BlueprintStatus.FAILED:
+        body = render_blueprint_sidebar(blueprint, locale) + body
     return _page(
         title=t("blueprint.review_title", locale),
         active="create",
@@ -200,36 +210,6 @@ def render_blueprint_page(
         eyebrow=status_label,
         content_class="content-grid blueprint-layout",
     )
-
-
-def render_structured_blueprint(
-    content: dict[str, Any],
-    locale: str,
-    include_title_options: bool = True,
-) -> str:
-    if not content:
-        return ""
-    sections = [
-        ("blueprint.title_options", content.get("title_options")),
-        ("blueprint.genre", content.get("genre")),
-        ("blueprint.audience", content.get("audience")),
-        ("blueprint.selling_points", content.get("selling_points")),
-        ("blueprint.protagonist", content.get("protagonist")),
-        ("blueprint.world", content.get("world")),
-        ("blueprint.central_conflict", content.get("central_conflict")),
-        ("blueprint.reader_promises", content.get("reader_promises")),
-        ("blueprint.chapter_directions", content.get("chapter_directions")),
-    ]
-    blocks = []
-    for key, value in sections:
-        if key == "blueprint.title_options" and not include_title_options:
-            continue
-        if value in (None, "", [], {}):
-            continue
-        blocks.append(
-            f"<section class='data-card'><h3>{t(key, locale)}</h3>{_render_value(value)}</section>"
-        )
-    return "".join(blocks)
 
 
 def blueprint_status_label(status: BlueprintStatus | str, locale: str) -> str:
@@ -253,9 +233,15 @@ def render_book_workspace(
     locale: str = DEFAULT_LOCALE,
 ) -> str:
     active_chapter = _next_chapter(chapters)
-    main = f"""
-      {_render_book_sidebar(book, chapters, locale)}
-      <section class="main-panel">
+    all_first_ten_done = len(chapters) >= 10 and all(
+        chapter.status == ChapterStatus.ACCEPTED for chapter in chapters[:10]
+    )
+    if all_first_ten_done:
+        center = render_completed_progress(book, chapters, canon)
+        aside = render_completed_aside(book, canon)
+    else:
+        center = f"""
+      <section class="main-panel project-cockpit">
         <div class="panel-head">
           <div>
             <h1>{html.escape(book.title)}</h1>
@@ -274,12 +260,15 @@ def render_book_workspace(
           <a class="button secondary" href="/book/{book.id}/export.md">{t("export.markdown", locale)}</a>
           <a class="button secondary" href="/book/{book.id}/export.json">{t("export.json", locale)}</a>
         </div>
+        <h2>设定基础 <span class="muted">概览（来自可信设定）</span></h2>
         {_render_foundation_board(canon, locale)}
         {_render_volume_plan_board(volume_plans or [])}
         {_render_chapter_table(chapters, locale)}
       </section>
-      <aside class="right-panel">
-        <h2>{t("dashboard.next_action", locale)}</h2>
+"""
+        aside = f"""
+      <aside class="right-panel cockpit-aside">
+        <h2>{t("dashboard.next_action", locale)} <span class="status-pill trusted">2</span></h2>
         {_render_next_action(active_chapter, locale)}
         <h2>{t("batch.title", locale)}</h2>
         {_render_batch_action(book, active_chapter, locale)}
@@ -288,6 +277,11 @@ def render_book_workspace(
         <h2>{t("dashboard.recent_trace", locale)}</h2>
         {_render_trace_list(traces, locale)}
       </aside>
+"""
+    main = f"""
+      {_render_book_sidebar(book, chapters, locale)}
+      {center}
+      {aside}
 """
     return _page(
         title=book.title,
@@ -328,14 +322,14 @@ def render_trusted_state_page(
         </div>
         {render_canon_proposal_surface(book, canon, locked, proposal_revision)}
       </section>
-      {render_canon_gate_aside(book_id, canon, chapters, locked)}
+      {render_canon_gate_aside(book_id, canon, chapters, locked, proposal_revision)}
 """
     return _page(
         title=t("trusted_state.title", locale),
         active="world",
         main=main,
         message=message,
-        bottom=_render_production_pipeline(None, locale),
+        bottom=_render_start_pipeline("foundation", locale),
         locale=locale,
         eyebrow="开书定盘",
         content_class="content-grid canon-gate-layout",
@@ -355,7 +349,6 @@ def render_chapter_review(
         main = f"""
       {_render_book_sidebar(book, chapters, locale)}
       {render_chapter_production_main(chapter)}
-      {render_chapter_production_aside(chapter)}
 """
         return _page(
             title=chapter.title,
@@ -365,7 +358,7 @@ def render_chapter_review(
             bottom=_render_production_pipeline(chapter.status, locale),
             locale=locale,
             eyebrow="章节生产",
-            content_class="content-grid production-layout",
+            content_class="content-grid production-layout chapter-production-layout",
             nav_book_id=book.id,
         )
 
@@ -382,16 +375,17 @@ def render_chapter_review(
         {_render_chapter_body(chapter, locale)}
       </section>
       <aside class="right-panel review">
-        {_render_review_inspector(chapter, canon, locale)}
+        {render_chapter_review_inspector(chapter, canon, locale)}
       </aside>
 """
     return _page(
         title=chapter.title,
-        active="review",
+        active="docs",
         main=main,
         message=message,
         bottom=_render_production_pipeline(chapter.status, locale),
         locale=locale,
+        content_class="content-grid human-review-layout",
         nav_book_id=book.id,
     )
 
@@ -432,82 +426,12 @@ def _page(
     )
 
 
-def _render_blueprint_review(
-    blueprint: OpenBookBlueprint, content: dict[str, Any], locale: str
-) -> str:
-    title_options = title_options_from_blueprint(content)
-    options = "".join(
-        f'<label class="choice"><input type="radio" name="selected_title" '
-        f'value="{html.escape(title, quote=True)}" required><span>{html.escape(title)}</span></label>'
-        for title in title_options
+def _generation_card(title: str, copy: str) -> str:
+    return (
+        '<section class="generation-card">'
+        f"<span aria-hidden='true'>◇</span><div><strong>{html.escape(title)}</strong>"
+        f"<p>{html.escape(copy)}</p></div></section>"
     )
-    proposals = _render_blueprint_proposal_cards(content, title_options, locale)
-    proposal = render_structured_blueprint(content, locale, include_title_options=False)
-    return f"""
-      <section class="main-panel blueprint-main">
-        <div class="panel-head">
-          <div>
-            <h1>{t("blueprint.review_title", locale)}</h1>
-            <p>{t("blueprint.review_copy", locale)}</p>
-          </div>
-          <span class="status-pill pending">{t("trusted_state.not_written", locale)}</span>
-        </div>
-        <div class="proposal-grid">{proposals}</div>
-        <div class="blueprint-detail-grid">{proposal}</div>
-      </section>
-      <aside class="right-panel blueprint-actions">
-        <h2>{t("blueprint.choose_direction", locale)}</h2>
-        <form method="post" action="/accept-blueprint" class="compact-form">
-          <input type="hidden" name="blueprint_id" value="{blueprint.id}">
-          <h3>{t("blueprint.title_options", locale)}</h3>
-          <div class="choice-list">{options}</div>
-          <button type="submit">{t("blueprint.continue", locale)}</button>
-        </form>
-        <form method="post" action="/revise-blueprint" class="compact-form action-form">
-          <input type="hidden" name="blueprint_id" value="{blueprint.id}">
-          {_textarea("revision_notes", t("blueprint.revision_notes", locale), "写下你希望保留、加强或避开的方向")}
-          <div class="actions">
-            <button type="submit">{t("blueprint.revise", locale)}</button>
-            <button class="secondary" type="submit" name="revision_preset" value="{html.escape(REGENERATE_BLUEPRINT_NOTES, quote=True)}">{t("blueprint.regenerate", locale)}</button>
-          </div>
-        </form>
-      </aside>
-"""
-
-
-def _render_blueprint_proposal_cards(
-    content: dict[str, Any],
-    title_options: list[str],
-    locale: str,
-) -> str:
-    if not title_options:
-        return f"<section class='proposal-card'><h3>{t('blueprint.title_options', locale)}</h3><p>—</p></section>"
-    labels = ["方案 A", "方案 B", "方案 C"]
-    cards = []
-    for index, title in enumerate(title_options[:3]):
-        directions = content.get("chapter_directions")
-        direction_items = directions if isinstance(directions, list) else []
-        chapter_rows = "".join(
-            f"<li>{_render_nested(item)}</li>" for item in direction_items[index : index + 3]
-        )
-        if not chapter_rows:
-            chapter_rows = "<li>围绕核心冲突推进前 10 章承诺。</li>"
-        cards.append(
-            f"""
-        <section class="proposal-card">
-          <header><h3>{labels[index] if index < len(labels) else f"方案 {index + 1}"}</h3><span class="status-pill pending">候选中</span></header>
-          <dl>
-            <dt>{t("blueprint.title_options", locale)}</dt><dd>{html.escape(title)}</dd>
-            <dt>{t("blueprint.central_conflict", locale)}</dt><dd>{_render_nested(content.get("central_conflict"))}</dd>
-            <dt>{t("blueprint.protagonist", locale)}</dt><dd>{_render_nested(content.get("protagonist"))}</dd>
-            <dt>{t("blueprint.world", locale)}</dt><dd>{_render_nested(content.get("world"))}</dd>
-          </dl>
-          <h3>{t("blueprint.chapter_directions", locale)}</h3>
-          <ol>{chapter_rows}</ol>
-        </section>
-"""
-        )
-    return "".join(cards)
 
 
 def _render_book_sidebar(book: Book, chapters: list[Chapter], locale: str) -> str:
@@ -539,41 +463,18 @@ def _render_volume_plan_board(volume_plans: list[VolumePlan]) -> str:
         return ""
     plan = volume_plans[0]
     rows = [
-        ("卷级目标", plan.core_conflict),
-        ("节奏曲线", "；".join(str(item) for item in plan.pacing_curve[:4])),
-        ("爽点兑现", "；".join(str(item) for item in plan.payoff_distribution[:4])),
-        ("关键转折", "；".join(str(item) for item in plan.key_turns[:4])),
-        ("阶段承诺", "；".join(str(item) for item in plan.commitments[:4])),
+        ("卷级目标", _render_nested(plan.core_conflict)),
+        ("节奏曲线", "；".join(_render_nested(item) for item in plan.pacing_curve[:4])),
+        ("爽点兑现", "；".join(_render_nested(item) for item in plan.payoff_distribution[:4])),
+        ("关键转折", "；".join(_render_nested(item) for item in plan.key_turns[:4])),
+        ("阶段承诺", "；".join(_render_nested(item) for item in plan.commitments[:4])),
     ]
     content = "".join(
-        f"<p><strong>{html.escape(label)}</strong> {html.escape(str(value))}</p>"
+        f"<p><strong>{html.escape(label)}</strong> {value}</p>"
         for label, value in rows
         if value
     )
     return f"<section class='data-card'><h3>{html.escape(plan.title)}</h3>{content}</section>"
-
-
-def _render_trusted_state_sections(canon: Canon | None, locale: str) -> str:
-    if canon is None:
-        return f"<p>{t('trusted_state.missing', locale)}</p>"
-    content = canon.content
-    sections = [
-        ("trusted_state.world_rules", content.get("world_rules", [])),
-        ("trusted_state.characters", content.get("characters", [])),
-        ("trusted_state.locations", content.get("locations", [])),
-        ("trusted_state.relationships", content.get("relationships", [])),
-        ("trusted_state.foreshadowing", content.get("foreshadowing", [])),
-        ("trusted_state.chapter_summaries", content.get("chapter_summaries", [])),
-        ("trusted_state.state_history", content.get("state_history", [])),
-    ]
-    return (
-        "<div class='state-sections'>"
-        + "".join(
-            f"<section class='data-card'><h2>{t(label, locale)}</h2>{_render_value(value)}</section>"
-            for label, value in sections
-        )
-        + "</div>"
-    )
 
 
 def _render_chapter_table(chapters: list[Chapter], locale: str) -> str:
@@ -639,83 +540,12 @@ def _render_chapter_body(chapter: Chapter, locale: str) -> str:
             </form>
           </div>
 """
-    text = chapter.final_text or chapter.revised_text or chapter.draft_text
-    edit_form = ""
-    if chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}:
-        edit_form = f"""
-      <form method="post" action="/edit-chapter-text" class="manual-edit">
-        <input type="hidden" name="chapter_id" value="{chapter.id}">
-        <label>{t("chapter.manual_text", locale)}<textarea name="manual_text">{html.escape(text)}</textarea></label>
-        <label>{t("chapter.reviewer_note", locale)}<textarea name="reviewer_note" placeholder="{t("chapter.manual_note_placeholder", locale)}"></textarea></label>
-        <button class="secondary" type="submit">{t("action.save_manual_edit", locale)}</button>
-      </form>
-"""
+    if chapter.status == ChapterStatus.ACCEPTED:
+        text = chapter.final_text or chapter.revised_text or chapter.draft_text
+    else:
+        text = chapter.revised_text or chapter.draft_text or chapter.final_text
     return f"""
       <article class="chapter-text">{html.escape(text).replace(chr(10), "<br>")}</article>
-      {edit_form}
-"""
-
-
-def _render_review_inspector(chapter: Chapter, canon: Canon | None, locale: str) -> str:
-    if chapter.status == ChapterStatus.PLANNED:
-        return f"<h2>{t('review.waiting', locale)}</h2><p>{t('chapter.not_started', locale)}</p>"
-    issue_rows = "".join(
-        f"<li><span>{html.escape(str(issue.get('title', '')))}</span><em>{t('review.fixed', locale) if issue.get('resolved') else t('review.needs_confirm', locale)}</em></li>"
-        for issue in chapter.audit_report.get("issues", [])
-        if isinstance(issue, dict)
-    )
-    delta_rows = "".join(
-        f"<li><span>{html.escape(str(change.get('type', '')))}：{html.escape(str(change.get('target', '')))}</span><em>{html.escape(str(change.get('change', '')))}</em></li>"
-        for change in chapter.state_delta.get("changes", [])
-        if isinstance(change, dict)
-    )
-    major_changes = _major_state_changes(chapter)
-    canon_version = canon.version if canon else 0
-    action = ""
-    if chapter.status == ChapterStatus.AWAITING_REVIEW:
-        major_confirmation = ""
-        if major_changes:
-            major_confirmation = f"""
-            <p class="danger">{t("review.major_change_warning", locale)}</p>
-            <label class="inline-check"><input name="allow_major_changes" type="checkbox" value="1">{t("review.confirm_major_change", locale)}</label>
-"""
-        action = f"""
-          <div class="review-action-stack">
-          <form method="post" action="/repair-chapter" class="compact-form action-form">
-            <input type="hidden" name="chapter_id" value="{chapter.id}">
-            <input type="hidden" name="reviewer_note" value="">
-            <button class="secondary" type="submit">{t("action.repair_with_ai", locale)}</button>
-          </form>
-          <form method="post" action="/request-revision" class="compact-form action-form">
-            <input type="hidden" name="chapter_id" value="{chapter.id}">
-            <input type="hidden" name="reviewer_note" value="">
-            <button class="secondary" type="submit">{t("action.return_for_revision", locale)}</button>
-          </form>
-          <form id="approve-form" method="post" action="/approve-chapter" class="compact-form action-form">
-            <input type="hidden" name="chapter_id" value="{chapter.id}">
-            <input type="hidden" name="reviewer_note" value="">
-            {major_confirmation}
-            <button type="submit">{t("action.accept_to_trusted_state", locale)}</button>
-          </form>
-          </div>
-"""
-    elif chapter.status == ChapterStatus.ACCEPTED:
-        action = f"""
-          {render_accepted_result(chapter)}
-          <div class="actions">
-            <a class="button" href="/chapter/{chapter.id}/export">{t("action.export_chapter", locale)}</a>
-          </div>
-"""
-    return f"""
-      {render_review_tabs()}
-      <h2>{t("review.audit_issues", locale)}</h2>
-      <ul class="review-list">{issue_rows}</ul>
-      <h2>{t("review.state_delta", locale)}</h2>
-      <p>{t("trusted_state.current_version", locale, version=canon_version)}</p>
-      {f"<p class='danger'>{t('review.major_change_count', locale, count=len(major_changes))}</p>" if major_changes else ""}
-      <ul class="review-list">{delta_rows}</ul>
-      {action}
-      {render_impact_scope(chapter)}
 """
 
 
@@ -729,6 +559,17 @@ def _render_start_pipeline(active: str | None, locale: str) -> str:
         ("accept", t("pipeline.accept", locale)),
     ]
     return _pipeline(steps, active)
+
+
+def _render_first_launch_pipeline(locale: str) -> str:
+    steps = [
+        PipelineStep("open_book", t("pipeline.open_book", locale), "locked", "设定方向与边界", "▣"),
+        PipelineStep("foundation", t("pipeline.foundation", locale), "locked", "确认世界与可信设定", "▤"),
+        PipelineStep("generate", t("pipeline.generate", locale), "locked", "AI 生成故事内容", "✦"),
+        PipelineStep("review", t("pipeline.review", locale), "locked", "人工审核与修正", "✓"),
+        PipelineStep("accept", t("pipeline.accept", locale), "locked", "可信设定成为事实源", "◇"),
+    ]
+    return render_pipeline(steps, title="生产流水线", element_id="launch-pipeline")
 
 
 def _render_production_pipeline(active: ChapterStatus | None, locale: str) -> str:
@@ -802,10 +643,6 @@ def _textarea(name: str, label: str, placeholder: str = "") -> str:
     )
 
 
-def _field(value: str | None) -> str:
-    return html.escape(value or "", quote=True)
-
-
 def _render_value(value: Any) -> str:
     if isinstance(value, list):
         visible_items = [item for item in value if not _is_low_information_state_item(item)]
@@ -832,17 +669,136 @@ def _render_value(value: Any) -> str:
 
 def _render_nested(value: Any) -> str:
     if isinstance(value, dict):
+        history = _state_history_text(value)
+        if history:
+            return html.escape(history)
+        foreshadowing = _foreshadowing_text(value)
+        if foreshadowing:
+            return html.escape(foreshadowing)
+        relationship = _relationship_text(value)
+        if relationship:
+            return html.escape(relationship)
         concise = _unknown_target_detail(value)
         if concise:
             return html.escape(concise)
         return "；".join(
-            f"{_label_key(k)}：{html.escape(str(v))}"
+            f"{_label_key(k)}：{_render_nested(v)}"
             for k, v in value.items()
             if not _is_internal_state_key(k)
         )
     if isinstance(value, list):
-        return "、".join(html.escape(str(item)) for item in value)
+        return "、".join(_render_nested(item) for item in value)
     return html.escape(str(value))
+
+
+def _state_history_text(value: dict[str, Any]) -> str:
+    if value.get("type") != "canon_proposal_revision":
+        return ""
+    target = _section_label(value.get("target_section")) or "未指定分区"
+    parts = [f"AI 定盘修订：{target}"]
+    changed = _section_labels(value.get("changed_sections"))
+    if changed:
+        parts.append(f"更新分区：{changed}")
+    blocked = _blocked_section_labels(value.get("blocked_sections"))
+    if blocked:
+        parts.append(f"锁定未改：{blocked}")
+    summary = str(value.get("summary") or "").strip()
+    if summary:
+        parts.append(f"摘要：{summary}")
+    instruction = str(value.get("instruction") or "").strip()
+    if instruction:
+        parts.append(f"说明：{instruction}")
+    risks = _history_list_text(value.get("risks"))
+    if risks:
+        parts.append(f"风险：{risks}")
+    return "；".join(parts)
+
+
+def _foreshadowing_text(value: dict[str, Any]) -> str:
+    trigger = str(value.get("trigger") or "").strip()
+    if not trigger:
+        return ""
+    description = str(
+        value.get("description")
+        or value.get("detail")
+        or value.get("content")
+        or value.get("summary")
+        or ""
+    ).strip()
+    return f"{trigger}：{description}" if description else trigger
+
+
+def _relationship_text(value: dict[str, Any]) -> str:
+    actors = _relationship_actors(value)
+    relation = str(value.get("relation") or "").strip()
+    detail = str(
+        value.get("detail")
+        or value.get("description")
+        or value.get("content")
+        or value.get("summary")
+        or ""
+    ).strip()
+    if not actors and not relation:
+        return ""
+    head = f"{actors}：{relation}" if actors and relation else actors or relation
+    return f"{head}。{detail}" if detail and head else head
+
+
+def _relationship_actors(value: dict[str, Any]) -> str:
+    subjects = value.get("subjects")
+    if isinstance(subjects, list):
+        return "、".join(str(item).strip() for item in subjects if str(item).strip())
+    if isinstance(subjects, str) and subjects.strip():
+        return subjects.strip()
+    start = str(value.get("from") or "").strip()
+    end = str(value.get("to") or "").strip()
+    if start and end:
+        return f"{start} → {end}"
+    return start or end
+
+
+def _section_label(value: Any) -> str:
+    return {
+        "world_rules": "世界规则",
+        "characters": "人物",
+        "factions": "势力",
+        "locations": "地点",
+        "relationships": "关系",
+        "foreshadowing": "伏笔账本",
+        "chapter_summaries": "章节摘要",
+        "state_history": "变化历史",
+    }.get(str(value or ""), "")
+
+
+def _section_labels(value: Any) -> str:
+    if isinstance(value, dict):
+        keys = value.keys()
+    elif isinstance(value, list):
+        keys = value
+    else:
+        keys = []
+    labels = [_section_label(key) or str(key) for key in keys if str(key).strip()]
+    return "、".join(labels)
+
+
+def _blocked_section_labels(value: Any) -> str:
+    if not isinstance(value, list):
+        return ""
+    labels = []
+    for item in value:
+        if isinstance(item, dict):
+            section = _section_label(item.get("section")) or str(item.get("section") or "未知分区")
+            reason = str(item.get("reason") or "已锁定").strip()
+            labels.append(f"{section}（{reason}）")
+        elif str(item).strip():
+            labels.append(str(item).strip())
+    return "、".join(labels)
+
+
+def _history_list_text(value: Any) -> str:
+    if not isinstance(value, list):
+        return ""
+    return "、".join(str(item).strip() for item in value if str(item).strip())
 
 
 def _is_internal_state_key(key: object) -> bool:
@@ -883,7 +839,10 @@ def _is_low_information_state_item(value: Any) -> bool:
 def _label_key(key: object) -> str:
     labels = {
         "chapter": "章节",
+        "background": "背景",
         "changes": "变化",
+        "content": "摘要",
+        "description": "说明",
         "direction": "方向",
         "from": "起点",
         "title": "标题",
@@ -906,27 +865,11 @@ def _label_key(key: object) -> str:
         "summary": "摘要",
         "target": "对象",
         "to": "终点",
+        "trigger": "触发",
         "type": "类型",
         "word_count": "字数",
     }
     return html.escape(labels.get(str(key), str(key)))
-
-
-def _major_state_changes(chapter: Chapter) -> list[dict[str, Any]]:
-    return [
-        change
-        for change in chapter.state_delta.get("changes", [])
-        if isinstance(change, dict) and _is_major_state_change(change)
-    ]
-
-
-def _is_major_state_change(change: dict[str, Any]) -> bool:
-    impact = str(change.get("impact", "")).lower()
-    if impact in {"major", "critical", "high"}:
-        return True
-    text = " ".join(str(change.get(key, "")) for key in ("type", "target", "change"))
-    major_terms = ("角色死亡", "人物死亡", "死亡", "牺牲", "退场", "核心设定", "改写设定")
-    return any(term in text for term in major_terms)
 
 
 def _next_chapter(chapters: list[Chapter]) -> Chapter | None:

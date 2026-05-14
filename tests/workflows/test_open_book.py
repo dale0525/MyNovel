@@ -85,6 +85,65 @@ def test_create_draft_book_from_blueprint_uses_selected_title(tmp_path) -> None:
     assert book.audience == "男频网文读者"
 
 
+def test_create_draft_book_from_blueprint_uses_selected_candidate_details(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    blueprint = OpenBookBlueprint(
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜图书馆", "禁书归途", "群星档案"],
+            "genre": "玄幻",
+            "audience": "男频网文读者",
+            "selling_points": ["禁书体系"],
+            "protagonist": {"name": "林烬", "hook": "失意档案员"},
+            "world": {"premise": "书籍可以封印神明"},
+            "central_conflict": "主角重建禁书馆",
+            "reader_promises": ["每章有新禁书"],
+            "chapter_directions": [{"chapter": "第 1 章", "direction": "得到残页"}],
+            "candidates": [
+                {
+                    "title": "长夜图书馆",
+                    "selling_points": ["禁书体系"],
+                    "protagonist": {"name": "林烬", "hook": "失意档案员"},
+                    "world": {"premise": "书籍可以封印神明"},
+                    "chapter_directions": [{"title": "残页", "goal": "得到残页"}],
+                },
+                {
+                    "title": "禁书归途",
+                    "genre": "都市奇幻",
+                    "audience": "悬疑冒险读者",
+                    "selling_points": ["地铁遗迹", "逃亡解谜"],
+                    "protagonist": {"name": "闻舟", "hook": "高冷封印师"},
+                    "world": {"premise": "废弃地铁站连接失落书城"},
+                    "reader_promises": ["每站解锁一段旧史"],
+                    "chapter_directions": [{"title": "旧站台", "goal": "逃入旧站台"}],
+                },
+            ],
+        },
+        raw_response="{}",
+    )
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(
+            session,
+            blueprint,
+            selected_title="禁书归途",
+        )
+        canon = get_latest_canon(session, book.id)
+        chapters = list_chapters_for_book(session, book.id)
+
+    assert book.genre == "都市奇幻"
+    assert book.audience == "悬疑冒险读者"
+    assert book.constraints["selling_points"] == ["地铁遗迹", "逃亡解谜"]
+    assert canon is not None
+    assert canon.content["world_rules"] == [{"premise": "废弃地铁站连接失落书城"}]
+    assert canon.content["characters"] == [{"name": "闻舟", "hook": "高冷封印师"}]
+    assert chapters[0].title == "旧站台"
+    assert chapters[0].plan["goal"] == "逃入旧站台"
+
+
 def test_create_draft_book_from_blueprint_keeps_target_word_counts(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)

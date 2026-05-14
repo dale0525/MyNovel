@@ -2,6 +2,7 @@ from typing import Any
 
 from sqlmodel import Session
 
+from mynovel.blueprint_candidates import content_for_selected_title
 from mynovel.domain.models import (
     Book,
     BookStatus,
@@ -55,18 +56,19 @@ def create_draft_book_from_blueprint(
     if title not in title_options:
         raise ValueError("Title selection must be one of the candidates.")
 
+    selected_content = content_for_selected_title(blueprint.content, title)
     target_words = target_word_counts_from_text(blueprint.idea)
     book = create_draft_book(
         session,
         title=title,
         idea=blueprint.idea,
-        genre=_blueprint_text(blueprint.content.get("genre")),
-        audience=_blueprint_text(blueprint.content.get("audience")),
+        genre=_blueprint_text(selected_content.get("genre")),
+        audience=_blueprint_text(selected_content.get("audience")),
     )
     book.status = BookStatus.CANON_LOCKED if lock_foundation else BookStatus.DRAFT
     book.constraints = {
-        "selling_points": blueprint.content.get("selling_points", []),
-        "reader_promises": blueprint.content.get("reader_promises", []),
+        "selling_points": selected_content.get("selling_points", []),
+        "reader_promises": selected_content.get("reader_promises", []),
         **target_words,
     }
     session.add(book)
@@ -77,12 +79,12 @@ def create_draft_book_from_blueprint(
         raise ValueError("Book must be persisted before creating production state.")
 
     add_canon(
-        session, Canon(book_id=book.id, version=1, content=_initial_canon_content(book, blueprint))
+        session, Canon(book_id=book.id, version=1, content=_initial_canon_content(book, selected_content))
     )
-    add_volume_plan(session, _volume_plan_from_blueprint(book.id, blueprint.content))
+    add_volume_plan(session, _volume_plan_from_blueprint(book.id, selected_content))
     for chapter in _chapters_from_blueprint(
         book.id,
-        blueprint.content,
+        selected_content,
         target_words.get(CHAPTER_WORD_COUNT_KEY),
     ):
         add_chapter(session, chapter)
@@ -125,7 +127,7 @@ def _blueprint_text(value: object) -> str:
     return str(value)
 
 
-def _initial_canon_content(book: Book, blueprint: OpenBookBlueprint) -> dict:
+def _initial_canon_content(book: Book, content: dict) -> dict:
     return {
         "book": {
             "title": book.title,
@@ -133,12 +135,12 @@ def _initial_canon_content(book: Book, blueprint: OpenBookBlueprint) -> dict:
             "audience": book.audience,
             "premise": book.premise,
         },
-        "world_rules": _mapping_or_text_list(blueprint.content.get("world")),
-        "characters": _mapping_or_text_list(blueprint.content.get("protagonist")),
+        "world_rules": _mapping_or_text_list(content.get("world")),
+        "characters": _mapping_or_text_list(content.get("protagonist")),
         "factions": [],
         "relationships": [],
         "locations": [],
-        "foreshadowing": _list_values(blueprint.content.get("reader_promises")),
+        "foreshadowing": _list_values(content.get("reader_promises")),
         "chapter_summaries": [],
         "state_history": [],
     }

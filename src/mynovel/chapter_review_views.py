@@ -1,0 +1,359 @@
+from __future__ import annotations
+
+import html
+import json
+from typing import Any
+
+from mynovel.domain.models import Canon, Chapter, ChapterStatus
+from mynovel.i18n import DEFAULT_LOCALE, t
+from mynovel.product_components import render_accepted_result
+
+
+def render_chapter_review_inspector(
+    chapter: Chapter,
+    canon: Canon | None,
+    locale: str = DEFAULT_LOCALE,
+) -> str:
+    if chapter.status == ChapterStatus.PLANNED:
+        return f"<h2>{t('review.waiting', locale)}</h2><p>{t('chapter.not_started', locale)}</p>"
+
+    issues = _audit_issues(chapter)
+    visible_changes = _visible_state_changes(chapter)
+    major_changes = _major_state_changes(chapter)
+    canon_version = canon.version if canon else 0
+    risk_level = _risk_level(chapter.audit_report)
+
+    return f"""
+      <section class="review-inspector-head">
+        <div>
+          <p class="muted">人工审核关口</p>
+          <h2>先确认风险，再决定是否写入可信设定</h2>
+        </div>
+        <span class="risk-badge {html.escape(risk_level)}">{_risk_label(risk_level)}</span>
+      </section>
+      {_render_review_tabs(len(issues), len(visible_changes), len(major_changes))}
+      <div class="review-tab-panels">
+        {_render_audit_panel(issues, locale)}
+        {_render_state_panel(chapter, visible_changes, major_changes, canon_version, locale)}
+        {_render_revision_panel(chapter)}
+        {_render_impact_panel(visible_changes)}
+      </div>
+      {_render_review_actions(chapter, major_changes, locale)}
+      {_review_tab_script()}
+"""
+
+
+def _render_review_tabs(issue_count: int, change_count: int, major_count: int) -> str:
+    return f"""
+      <nav class="review-tabs interactive-tabs" aria-label="章节审核">
+        {_tab_button("audit", "审计问题", str(issue_count), active=True)}
+        {_tab_button("state", "状态变化", str(change_count))}
+        {_tab_button("revision", "AI 修订", "正文")}
+        {_tab_button("impact", "影响范围", str(major_count) if major_count else "检查")}
+      </nav>
+"""
+
+
+def _tab_button(key: str, label: str, badge: str, *, active: bool = False) -> str:
+    active_class = " active" if active else ""
+    selected = "true" if active else "false"
+    return (
+        f'<button type="button" class="review-tab-button{active_class}" '
+        f'data-review-tab="{key}" aria-selected="{selected}" '
+        f'aria-controls="review-panel-{key}">'
+        f"<span>{html.escape(label)}</span><em>{html.escape(badge)}</em></button>"
+    )
+
+
+def _render_audit_panel(issues: list[dict[str, Any]], locale: str) -> str:
+    if issues:
+        issue_rows = "".join(_issue_row(issue, locale) for issue in issues)
+    else:
+        issue_rows = """
+          <li class="empty-review-row">
+            <span>暂无未处理审计问题</span>
+            <em>仍建议快速通读正文和状态变化</em>
+          </li>
+"""
+    return f"""
+      <section id="review-panel-audit" class="review-tab-panel active" data-review-panel="audit">
+        <h2>{t("review.audit_issues", locale)}</h2>
+        <p class="review-panel-copy">优先处理“仍需确认”的项目；已修复项仅作为复核线索。</p>
+        <ul class="review-list structured-review-list">{issue_rows}</ul>
+      </section>
+"""
+
+
+def _issue_row(issue: dict[str, Any], locale: str) -> str:
+    resolved = bool(issue.get("resolved"))
+    status = t("review.fixed", locale) if resolved else t("review.needs_confirm", locale)
+    status_class = "fixed" if resolved else "needs-confirm"
+    severity = _severity_label(issue.get("severity"))
+    detail = issue.get("detail") or issue.get("description") or issue.get("message") or ""
+    detail_html = f"<p>{html.escape(str(detail))}</p>" if detail else ""
+    return f"""
+      <li>
+        <strong>{html.escape(str(issue.get("title") or "未命名审计问题"))}</strong>
+        <span class="review-row-meta">
+          <b>{html.escape(severity)}</b>
+          <em class="{status_class}">{status}</em>
+        </span>
+        {detail_html}
+      </li>
+"""
+
+
+def _render_state_panel(
+    chapter: Chapter,
+    changes: list[dict[str, Any]],
+    major_changes: list[dict[str, Any]],
+    canon_version: int,
+    locale: str,
+) -> str:
+    if changes:
+        delta_rows = "".join(_state_change_row(change) for change in changes)
+    else:
+        delta_rows = """
+          <li class="empty-review-row">
+            <span>AI 未提取到可写入的明确状态变化</span>
+            <em>可以批准正文，但不要把空泛分类写入可信设定。</em>
+          </li>
+"""
+    warning = (
+        f"<p class='danger'>{t('review.major_change_count', locale, count=len(major_changes))}</p>"
+        if major_changes
+        else ""
+    )
+    return f"""
+      <section id="review-panel-state" class="review-tab-panel" data-review-panel="state" hidden>
+        <h2>{t("review.state_delta", locale)}</h2>
+        <p class="review-panel-copy">当前可信设定版本：v{canon_version}。以下变化在批准后才会写入事实源。</p>
+        {warning}
+        <ul class="review-list structured-review-list state-change-list">{delta_rows}</ul>
+        <details class="raw-state-delta">
+          <summary>查看原始状态变化</summary>
+          <pre>{html.escape(json.dumps(chapter.state_delta or {}, ensure_ascii=False, indent=2))}</pre>
+        </details>
+      </section>
+"""
+
+
+def _state_change_row(change: dict[str, Any]) -> str:
+    change_type = _state_type_label(change.get("type"))
+    target = str(change.get("target") or "待确认").strip()
+    detail = str(change.get("change") or change.get("detail") or "").strip()
+    risk = _severity_label(change.get("risk"))
+    return f"""
+      <li>
+        <strong>{html.escape(change_type)} · {html.escape(target)}</strong>
+        <span class="review-row-meta"><b>{html.escape(risk)}</b><em>待人工确认</em></span>
+        <p>{html.escape(detail or "未提供明确变化内容")}</p>
+      </li>
+"""
+
+
+def _render_revision_panel(chapter: Chapter) -> str:
+    current_text = chapter.revised_text or chapter.draft_text or chapter.final_text
+    source = "AI 修订稿" if chapter.revised_text else "草稿" if chapter.draft_text else "最终稿"
+    excerpt = current_text[:180] + ("..." if len(current_text) > 180 else "")
+    return f"""
+      <section id="review-panel-revision" class="review-tab-panel" data-review-panel="revision" hidden>
+        <h2>AI 修订摘要</h2>
+        <p class="review-panel-copy">当前正文来源：{html.escape(source)}。左侧阅读区显示完整正文，右侧仅保留审核线索。</p>
+        <dl class="revision-metrics">
+          <dt>草稿字数</dt><dd>{len(chapter.draft_text)}</dd>
+          <dt>修订稿字数</dt><dd>{len(chapter.revised_text)}</dd>
+          <dt>当前候选字数</dt><dd>{len(current_text)}</dd>
+        </dl>
+        <blockquote class="revision-excerpt">{html.escape(excerpt) if excerpt else "暂无正文候选。"}</blockquote>
+      </section>
+"""
+
+
+def _render_impact_panel(changes: list[dict[str, Any]]) -> str:
+    buckets: dict[str, list[str]] = {}
+    for change in changes:
+        bucket = _state_type_label(change.get("type"))
+        buckets.setdefault(bucket, []).append(
+            str(change.get("target") or change.get("change") or "待确认")
+        )
+    if not buckets:
+        cards = """
+          <section><strong>无明确影响范围</strong><p>本章没有可自动归类的可信设定变化。</p></section>
+"""
+    else:
+        cards = "".join(
+            f"<section><strong>{html.escape(key)} ({len(values)})</strong>"
+            f"<p>{html.escape('、'.join(values[:3]))}</p></section>"
+            for key, values in buckets.items()
+        )
+    return f"""
+      <section id="review-panel-impact" class="review-tab-panel" data-review-panel="impact" hidden>
+        <h2>影响范围</h2>
+        <p class="review-panel-copy">用于判断这次批准会影响哪些设定分区。</p>
+        <div class="impact-scope inline-impact-scope"><div>{cards}</div></div>
+      </section>
+"""
+
+
+def _render_review_actions(
+    chapter: Chapter,
+    major_changes: list[dict[str, Any]],
+    locale: str,
+) -> str:
+    if chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}:
+        major_confirmation = ""
+        if chapter.status == ChapterStatus.AWAITING_REVIEW and major_changes:
+            major_confirmation = f"""
+            <p class="danger">{t("review.major_change_warning", locale)}</p>
+            <label class="inline-check"><input name="allow_major_changes" type="checkbox" value="1">{t("review.confirm_major_change", locale)}</label>
+"""
+        approve_form = ""
+        if chapter.status == ChapterStatus.AWAITING_REVIEW:
+            approve_form = f"""
+          <form id="approve-form" method="post" action="/approve-chapter" class="compact-form action-form">
+            <input type="hidden" name="chapter_id" value="{chapter.id}">
+            {major_confirmation}
+            <button type="submit">{t("action.accept_to_trusted_state", locale)}</button>
+          </form>
+"""
+        return f"""
+          <section class="review-decision-summary">
+            <h2>审核决定</h2>
+            <p>先写修改意见，再让 AI 连同审计问题一起修订；不填写意见时，仅处理未解决的 AI 审计问题。</p>
+          </section>
+          <div class="review-action-stack review-decision-panel">
+          <form method="post" action="/repair-chapter" class="compact-form action-form review-repair-form">
+            <input type="hidden" name="chapter_id" value="{chapter.id}">
+            <label>修改意见<textarea name="reviewer_note" placeholder="例如：压缩破庙环境描写，强化反杀动作，保持 3000 字左右"></textarea></label>
+            <button class="secondary" type="submit">按意见让 AI 修订</button>
+          </form>
+          {approve_form}
+          </div>
+"""
+    if chapter.status == ChapterStatus.ACCEPTED:
+        return f"""
+          {render_accepted_result(chapter)}
+          <div class="actions">
+            <a class="button" href="/chapter/{chapter.id}/export">{t("action.export_chapter", locale)}</a>
+          </div>
+"""
+    return ""
+
+
+def _review_tab_script() -> str:
+    return """
+      <script>
+        (() => {
+          const root = document.currentScript.closest('.right-panel');
+          if (!root) return;
+          const buttons = root.querySelectorAll('[data-review-tab]');
+          const panels = root.querySelectorAll('[data-review-panel]');
+          buttons.forEach((button) => {
+            button.addEventListener('click', () => {
+              const key = button.dataset.reviewTab;
+              buttons.forEach((item) => {
+                const active = item === button;
+                item.classList.toggle('active', active);
+                item.setAttribute('aria-selected', active ? 'true' : 'false');
+              });
+              panels.forEach((panel) => {
+                const active = panel.dataset.reviewPanel === key;
+                panel.classList.toggle('active', active);
+                panel.hidden = !active;
+              });
+            });
+          });
+        })();
+      </script>
+"""
+
+
+def _audit_issues(chapter: Chapter) -> list[dict[str, Any]]:
+    return [issue for issue in chapter.audit_report.get("issues", []) if isinstance(issue, dict)]
+
+
+def _visible_state_changes(chapter: Chapter) -> list[dict[str, Any]]:
+    return [
+        change
+        for change in chapter.state_delta.get("changes", [])
+        if isinstance(change, dict) and not _is_low_information_state_change(change)
+    ]
+
+
+def _is_low_information_state_change(change: dict[str, Any]) -> bool:
+    target = str(change.get("target") or change.get("name") or "").strip()
+    detail = str(change.get("change") or change.get("detail") or "").strip()
+    if target != "待确认":
+        return False
+    return detail in {
+        "人物",
+        "关系",
+        "地点",
+        "资源",
+        "伏笔",
+        "信息暴露",
+        "characters",
+        "relationships",
+        "relations",
+        "locations",
+        "resources",
+        "foreshadowing",
+        "information_exposure",
+        "foreshadowing_and_info",
+        "foreshadowing_and_information",
+    }
+
+
+def _major_state_changes(chapter: Chapter) -> list[dict[str, Any]]:
+    return [
+        change
+        for change in chapter.state_delta.get("changes", [])
+        if isinstance(change, dict) and _is_major_state_change(change)
+    ]
+
+
+def _is_major_state_change(change: dict[str, Any]) -> bool:
+    impact = str(change.get("impact", "")).lower()
+    if impact in {"major", "critical", "high"}:
+        return True
+    text = " ".join(str(change.get(key, "")) for key in ("type", "target", "change"))
+    major_terms = ("角色死亡", "人物死亡", "死亡", "牺牲", "退场", "核心设定", "改写设定")
+    return any(term in text for term in major_terms)
+
+
+def _risk_level(audit_report: dict[str, Any]) -> str:
+    value = str(audit_report.get("risk_level") or "low").lower()
+    if value in {"high", "medium", "low"}:
+        return value
+    return "low"
+
+
+def _risk_label(level: str) -> str:
+    return {"high": "高风险", "medium": "中风险", "low": "低风险"}.get(level, "低风险")
+
+
+def _severity_label(value: object) -> str:
+    normalized = str(value or "").lower()
+    if normalized in {"high", "高"}:
+        return "高"
+    if normalized in {"medium", "mid", "中"}:
+        return "中"
+    if normalized in {"low", "低"}:
+        return "低"
+    return "提示"
+
+
+def _state_type_label(value: object) -> str:
+    text = str(value or "状态变化").strip()
+    labels = {
+        "characters": "人物",
+        "character": "人物",
+        "relationships": "关系",
+        "relations": "关系",
+        "locations": "地点",
+        "resources": "资源",
+        "foreshadowing": "伏笔",
+        "information_exposure": "信息暴露",
+    }
+    return labels.get(text, text)

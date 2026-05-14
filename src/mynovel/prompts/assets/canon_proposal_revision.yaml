@@ -26,4 +26,19 @@ template: |
   You may replace only sections listed in allowed_sections. Sections listed in
   locked_sections are immutable constraints and must not appear in changed_sections.
   changed_sections must contain complete replacement arrays for every changed
-  section, not patches. Return JSON only.
+  section, not patches.
+  Return exactly one JSON object with this shape:
+  {
+    "target_section": "locations",
+    "changed_sections": {
+      "locations": [{"name": "...", "detail": "..."}],
+      "relationships": [{"from": "...", "to": "...", "detail": "..."}]
+    },
+    "blocked_sections": [{"section": "world_rules", "reason": "locked"}],
+    "summary": "One short sentence about the revision.",
+    "risks": ["One short risk, or leave empty."]
+  }
+  Do not place section names such as locations, relationships, foreshadowing, or
+  chapter_summaries directly at the top level. They must be nested under
+  changed_sections. Return JSON only.
+  Return JSON only.

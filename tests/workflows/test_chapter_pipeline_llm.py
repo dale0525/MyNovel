@@ -117,6 +117,43 @@ def test_run_chapter_pipeline_uses_model_client_for_each_generation_stage(tmp_pa
     assert traces[0].metadata_["prompt_source"] == "original"
 
 
+def test_run_chapter_pipeline_prompts_use_readable_inputs_not_raw_internal_json(
+    tmp_path,
+) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = FakeChapterModel()
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+
+        run_chapter_pipeline(
+            session,
+            chapter.id,
+            model_client=model,
+            model_name="章节模型",
+        )
+
+    prompts = {
+        stage: "\n".join(message["content"] for message in messages)
+        for stage, messages in model.messages_by_stage.items()
+    }
+
+    assert "作品：长夜图书馆" in prompts["plan"]
+    assert "本章：第 01 章《离开的召唤》" in prompts["draft"]
+    assert "待提取正文：" in prompts["extract_state"]
+    assert "候选状态变化：" in prompts["audit"]
+    assert "待修订正文：" in prompts["revise"]
+
+    combined_prompt = "\n".join(prompts.values())
+    assert '"trusted_state"' not in combined_prompt
+    assert '"context_package"' not in combined_prompt
+    assert '"draft_text"' not in combined_prompt
+    assert '"state_delta"' not in combined_prompt
+    assert '"audit_report"' not in combined_prompt
+
+
 def test_run_chapter_pipeline_normalizes_model_state_delta_shape(tmp_path) -> None:
     class LooseStateDeltaModel(FakeChapterModel):
         def complete(self, stage: str, messages, response_format: str) -> str:
@@ -162,6 +199,50 @@ def test_run_chapter_pipeline_normalizes_model_state_delta_shape(tmp_path) -> No
     ]
 
 
+def test_run_chapter_pipeline_uses_description_state_delta_items(tmp_path) -> None:
+    class DescriptionStateDeltaModel(FakeChapterModel):
+        def complete(self, stage: str, messages, response_format: str) -> str:
+            if stage == "extract_state":
+                self.calls.append(stage)
+                self.messages_by_stage[stage] = messages
+                return """
+                {
+                  "chapter": {"number": 1, "title": "离开的召唤"},
+                  "changes": [
+                    {
+                      "category": "人物",
+                      "description": "苏清月：完成腹部缝合自救，建立冷静果敢的医女形象。"
+                    }
+                  ]
+                }
+                """
+            return super().complete(stage, messages, response_format)
+
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = DescriptionStateDeltaModel()
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+
+        reviewed = run_chapter_pipeline(
+            session,
+            chapter.id,
+            model_client=model,
+            model_name="章节模型",
+        )
+
+    assert reviewed.state_delta["changes"] == [
+        {
+            "type": "人物",
+            "target": "苏清月",
+            "change": "完成腹部缝合自救，建立冷静果敢的医女形象。",
+            "risk": "low",
+        }
+    ]
+
+
 def test_run_chapter_pipeline_accepts_json_wrapped_in_model_explanation(tmp_path) -> None:
     class WrappedAuditModel(FakeChapterModel):
         def complete(self, stage: str, messages, response_format: str) -> str:
@@ -194,6 +275,59 @@ def test_run_chapter_pipeline_accepts_json_wrapped_in_model_explanation(tmp_path
         )
 
     assert reviewed.audit_report["risk_level"] == "low"
+
+
+def test_run_chapter_pipeline_parses_markdown_audit_report(tmp_path) -> None:
+    class MarkdownAuditModel(FakeChapterModel):
+        def complete(self, stage: str, messages, response_format: str) -> str:
+            if stage == "audit":
+                self.calls.append(stage)
+                self.messages_by_stage[stage] = messages
+                return """
+                ### 章节审计报告：第 1 章《离开的召唤》
+
+                #### **1. 风险评估 (Risk Level: Low)**
+
+                | 严重程度 | 问题标题 | 是否解决 | 详细描述 |
+                | :--- | :--- | :--- | :--- |
+                | **Medium** | **字数未达标** | **No** | 当前草稿偏短。 |
+                | **Low** | **结尾钩子稳定** | **Yes** | 已满足章节钩子要求。 |
+
+                #### **4. 改进建议 (Suggestions)**
+
+                1. **扩充细节：** 增加感官描写。
+                2. **强化生理反馈：** 补充体力消耗。
+                """
+            return super().complete(stage, messages, response_format)
+
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = MarkdownAuditModel()
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+
+        reviewed = run_chapter_pipeline(
+            session,
+            chapter.id,
+            model_client=model,
+            model_name="章节模型",
+        )
+
+    assert reviewed.audit_report["risk_level"] == "low"
+    assert reviewed.audit_report["issues"][0] == {
+        "severity": "medium",
+        "title": "字数未达标",
+        "resolved": False,
+        "detail": "当前草稿偏短。",
+    }
+    assert reviewed.audit_report["issues"][1]["resolved"] is True
+    assert "AI 审计返回格式异常" not in str(reviewed.audit_report)
+    assert reviewed.audit_report["suggestions"] == [
+        "扩充细节： 增加感官描写。",
+        "强化生理反馈： 补充体力消耗。",
+    ]
 
 
 def test_run_chapter_pipeline_falls_back_when_audit_json_is_unusable(tmp_path) -> None:
@@ -251,8 +385,8 @@ def test_chapter_plan_prompt_includes_saved_chapter_word_budget(tmp_path) -> Non
 
     plan_prompt = "\n".join(message["content"] for message in model.messages_by_stage["plan"])
 
-    assert '"current_word_budget": 3200' in plan_prompt
-    assert "如果 current_word_budget 存在，word_budget 必须沿用该数值" in plan_prompt
+    assert "已有目标字数：3200 字" in plan_prompt
+    assert "如果下方已有目标字数，word_budget 必须沿用该数值" in plan_prompt
 
 
 def test_approve_chapter_blocks_high_risk_unresolved_issues(tmp_path) -> None:
@@ -413,6 +547,228 @@ def test_repair_chapter_with_ai_revises_text_and_reopens_review(tmp_path) -> Non
     assert traces[-1].model == "章节模型"
 
 
+def test_repair_chapter_prompt_combines_audit_issues_and_manual_instruction(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = PromptCaptureRepairModel()
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+        reviewed = run_chapter_pipeline(session, chapter.id)
+        reviewed.audit_report = {
+            "risk_level": "medium",
+            "issues": [{"severity": "medium", "title": "结尾钩子偏弱", "resolved": False}],
+            "suggestions": ["补强远处符号回应"],
+        }
+        session.add(reviewed)
+        session.commit()
+
+        repair_chapter_with_ai(
+            session,
+            reviewed.id,
+            model_client=model,
+            model_name="章节模型",
+            reviewer_note="压缩环境描写，强化动作。",
+        )
+
+    prompt = model.prompts[0]
+    assert "必须同时处理 AI 审核问题和人工修改意见" in prompt
+    assert "结尾钩子偏弱" in prompt
+    assert "压缩环境描写，强化动作。" in prompt
+    assert "待修订正文：" in prompt
+    assert "draft_text" not in prompt
+    assert "previous_candidate" not in prompt
+    assert '"reviewer_note"' not in prompt
+
+
+def test_repair_chapter_prompt_uses_only_audit_issues_when_manual_instruction_is_empty(
+    tmp_path,
+) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = PromptCaptureRepairModel()
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+        reviewed = run_chapter_pipeline(session, chapter.id)
+        reviewed.audit_report = {
+            "risk_level": "medium",
+            "issues": [{"severity": "medium", "title": "节奏偏散", "resolved": False}],
+            "suggestions": ["收紧中段节奏"],
+        }
+        session.add(reviewed)
+        session.commit()
+
+        repair_chapter_with_ai(
+            session,
+            reviewed.id,
+            model_client=model,
+            model_name="章节模型",
+            reviewer_note=None,
+        )
+
+    prompt = model.prompts[0]
+    assert "未填写人工修改意见，本次只处理 AI 审核问题" in prompt
+    assert "节奏偏散" in prompt
+    assert '"reviewer_note": null' not in prompt
+    assert "人工修改意见：" not in prompt
+
+
+def test_repair_chapter_prompt_uses_latest_text_only_for_word_count_repair(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = PromptCaptureRepairModel()
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+        reviewed = run_chapter_pipeline(session, chapter.id)
+        reviewed.plan = {**reviewed.plan, "word_budget": 40}
+        reviewed.draft_text = "草稿不应进入修订提示。"
+        reviewed.revised_text = "最终候选正文超出目标。" * 6
+        reviewed.word_count = len(reviewed.revised_text)
+        reviewed.audit_report = {
+            "risk_level": "medium",
+            "issues": [{"severity": "medium", "title": "字数达成率严重不足", "resolved": False}],
+            "suggestions": ["扩写到目标字数。"],
+        }
+        session.add(reviewed)
+        session.commit()
+
+        repaired = repair_chapter_with_ai(
+            session,
+            reviewed.id,
+            model_client=model,
+            model_name="章节模型",
+            reviewer_note="压缩到目标字数。",
+        )
+
+    assert repaired.status.value == "awaiting_review"
+    assert len(model.prompts) == 1
+    prompt = model.prompts[0]
+    assert "目标字数：40 字" in prompt
+    assert "建议区间：36-46 字" in prompt
+    assert "当前正文已经超出目标，请以删减和合并为主" in prompt
+    assert "最终候选正文超出目标。" in prompt
+    assert "草稿不应进入修订提示" not in prompt
+    assert "previous_candidate" not in prompt
+
+
+def test_repair_chapter_prompt_replaces_stale_expansion_advice_when_current_text_is_long(
+    tmp_path,
+) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = PromptCaptureRepairModel()
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+        reviewed = run_chapter_pipeline(session, chapter.id)
+        reviewed.plan = {**reviewed.plan, "word_budget": 40}
+        reviewed.revised_text = "最终候选正文已经明显超出目标，需要压缩。" * 6
+        reviewed.word_count = len(reviewed.revised_text)
+        reviewed.audit_report = {
+            "risk_level": "medium",
+            "issues": [{"severity": "medium", "title": "字数达成率严重不足", "resolved": False}],
+            "suggestions": [
+                "当前字数约1000字，远低于3000字的预算，建议在自救环节增加更多生理痛苦描写。",
+                "扩充恶仆赖大、赖二的对话内容。",
+                "增加对科研空间初次开启时的视觉与体感描写。",
+                "在反杀过程中，可加入更多利用解剖学知识精准致残的细节描写。",
+            ],
+        }
+        session.add(reviewed)
+        session.commit()
+
+        repair_chapter_with_ai(
+            session,
+            reviewed.id,
+            model_client=model,
+            model_name="章节模型",
+            reviewer_note=None,
+        )
+
+    prompt = model.prompts[0]
+    assert "当前正文已经超出目标，请以删减和合并为主" in prompt
+    assert "字数不在目标区间" in prompt
+    assert "当前字数约1000字" not in prompt
+    assert "远低于3000字" not in prompt
+    assert "扩充恶仆" not in prompt
+    assert "增加对科研空间" not in prompt
+    assert "加入更多利用解剖学知识" not in prompt
+
+
+def test_repair_chapter_prompt_includes_concise_book_boundaries(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = PromptCaptureRepairModel()
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+        reviewed = run_chapter_pipeline(session, chapter.id)
+        reviewed.audit_report = {
+            "risk_level": "medium",
+            "issues": [{"severity": "medium", "title": "节奏偏散", "resolved": False}],
+            "suggestions": [],
+        }
+        session.add(reviewed)
+        session.commit()
+
+        repair_chapter_with_ai(
+            session,
+            reviewed.id,
+            model_client=model,
+            model_name="章节模型",
+            reviewer_note="压缩旁枝。",
+        )
+
+    prompt = model.prompts[0]
+    assert "作品边界：" in prompt
+    assert "类型：奇幻连载" in prompt
+    assert "读者：喜欢成长冒险的连载读者" in prompt
+    assert "前提：失忆少女在幽谷中寻找被抹去的王朝真相" in prompt
+    assert "不得改写已锁定设定，不得新增绕过人工审核的可信状态。" in prompt
+
+
+def test_repair_chapter_records_word_count_issue_unresolved_when_model_returns_off_target(
+    tmp_path,
+) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = PromptCaptureRepairModel(response="仍然太短")
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+        reviewed = run_chapter_pipeline(session, chapter.id)
+        reviewed.plan = {**reviewed.plan, "word_budget": 40}
+        reviewed.revised_text = "短"
+        reviewed.word_count = 1
+        reviewed.audit_report = {
+            "risk_level": "medium",
+            "issues": [{"severity": "medium", "title": "字数达成率严重不足", "resolved": False}],
+            "suggestions": ["扩写到目标字数。"],
+        }
+        session.add(reviewed)
+        session.commit()
+
+        repaired = repair_chapter_with_ai(
+            session,
+            reviewed.id,
+            model_client=model,
+            model_name="章节模型",
+            reviewer_note="必须补足篇幅。",
+        )
+
+    assert len(model.prompts) == 1
+    assert repaired.revised_text == "仍然太短"
+    assert repaired.audit_report["issues"][0]["resolved"] is False
+
+
 def test_run_chapter_pipeline_records_failure_and_leaves_chapter_retryable(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
@@ -446,6 +802,49 @@ class FakeRepairModel:
         self.calls.append(stage)
         assert response_format == "text"
         return "莉拉保留离村动作，结尾处第二枚符号在雾中回应。"
+
+
+class PromptCaptureRepairModel:
+    def __init__(
+        self,
+        response: str = "莉拉按修订要求重写正文，保留离村动作，并补强远处符号回应。",
+    ) -> None:
+        self.prompts: list[str] = []
+        self.response = response
+
+    def complete(self, stage: str, messages, response_format: str) -> str:
+        self.prompts.append("\n".join(message["content"] for message in messages))
+        assert stage == "revise"
+        assert response_format == "text"
+        return self.response
+
+
+class ShortThenLongRepairModel:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.prompts: list[str] = []
+
+    def complete(self, stage: str, messages, response_format: str) -> str:
+        self.calls.append(stage)
+        self.prompts.append("\n".join(message["content"] for message in messages))
+        assert response_format == "text"
+        if len(self.calls) == 1:
+            return "仍然太短"
+        return "莉拉沿着雾谷继续向前，掌心符号反复发热，她把疼痛记成线索，并听见远处微光回应。"
+
+
+class LongThenTargetRepairModel:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.prompts: list[str] = []
+
+    def complete(self, stage: str, messages, response_format: str) -> str:
+        self.calls.append(stage)
+        self.prompts.append("\n".join(message["content"] for message in messages))
+        assert response_format == "text"
+        if len(self.calls) == 1:
+            return "莉拉沿着雾谷不断向前。" * 8
+        return "莉拉沿着雾谷继续向前，掌心符号发热，她把疼痛记成线索，并听见远处微光回应。"
 
 
 class FakeFailingChapterModel(FakeChapterModel):

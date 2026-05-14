@@ -70,7 +70,7 @@ def render_quality_center(
         </div>
       </section>
       <aside class="right-panel">
-        <h2>质量 Gate</h2>
+        <h2>质量关卡</h2>
         <p>先处理高风险审计问题，再继续批量生产。</p>
         <a class="button" href="/book/{book.id}">返回项目</a>
       </aside>

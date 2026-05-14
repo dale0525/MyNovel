@@ -22,6 +22,12 @@ from mynovel.blueprint_acceptance import (
 )
 from mynovel.blueprint_revision import create_revision_blueprint_job, revision_notes_from_form
 from mynovel import canon_proposal_server as canon_server
+from mynovel.chapter_server import (
+    chapter_model_client_from_provider_config,
+    queue_chapter_batch_run,
+    queue_chapter_repair,
+    queue_chapter_run,
+)
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import Book, BlueprintStatus, OpenBookBlueprint, ProviderConfig, utc_now
 from mynovel.domain.repositories import (
@@ -37,6 +43,7 @@ from mynovel.domain.repositories import (
     save_provider_config,
 )
 from mynovel.i18n import t
+from mynovel.import_views import render_import_project_page
 from mynovel.legacy_cleanup import remove_legacy_placeholder_data
 from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
 from mynovel.product_views import (
@@ -49,6 +56,7 @@ from mynovel.product_views import (
     render_new_book_page,
     render_trusted_state_page,
 )
+from mynovel.provider_config_forms import provider_config_from_form as _provider_config_from_form
 from mynovel.quality_views import render_quality_center
 from mynovel.review_navigation import review_destination as _review_destination
 from mynovel.update_server import handle_check_update, handle_stage_update
@@ -61,17 +69,14 @@ from mynovel.workflows.quality_enhancement import (
     generate_quality_snapshot,
     recommend_cost_strategy,
 )
-from mynovel.workflows.chapter_batch import run_chapter_batch
 from mynovel.workflows.chapter_pipeline import (
-    OpenAIChapterModelClient,
     approve_chapter,
     apply_manual_chapter_edit,
     export_chapter_text,
-    repair_chapter_with_ai,
     return_chapter_for_revision,
-    run_chapter_pipeline,
 )
 from mynovel.workflows.book_export import export_book_json, export_book_markdown
+from mynovel.workflows.book_import import import_book_json
 from mynovel.workflows.open_book_blueprint import (
     build_blueprint_messages,
     create_blueprint_job,
@@ -132,6 +137,9 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 return
             if parsed.path == "/books/new":
                 self._send_html(render_new_book_page(_load_provider_config(state.db_path)))
+                return
+            if parsed.path == "/books/import":
+                self._send_html(render_import_project_page())
                 return
             if parsed.path == "/provider-config":
                 self._send_html(
@@ -199,6 +207,9 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 return
             if parsed.path == "/provider-config":
                 self._save_provider_config(state.db_path)
+                return
+            if parsed.path == "/books/import":
+                self._import_book(state.db_path)
                 return
             if parsed.path == "/open-book":
                 self._create_blueprint(state.db_path)
@@ -372,6 +383,17 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 save_provider_config(session, _provider_config_from_form(self._read_form()))
             self._redirect_message(t("provider.saved"))
 
+        def _import_book(self, db_path: Path) -> None:
+            engine = create_engine_for_path(db_path)
+            create_db_and_tables(engine)
+            with Session(engine) as session:
+                try:
+                    book = import_book_json(session, self._read_form().get("project_json", ""))
+                except ValueError as error:
+                    self._send_html(render_import_project_page(str(error)), HTTPStatus.BAD_REQUEST)
+                    return
+            self._redirect(f"/book/{book.id or 0}")
+
         def _create_blueprint(self, db_path: Path) -> None:
             form = self._read_form()
             idea = _book_idea_from_form(form)
@@ -503,43 +525,24 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
         def _run_chapter(self, db_path: Path) -> None:
             chapter_id = int(self._read_form().get("chapter_id", "0"))
             provider_config = _load_provider_config(db_path)
-            model_client, model_name = _chapter_model_client_from_provider_config(provider_config)
-            engine = create_engine_for_path(db_path)
-            create_db_and_tables(engine)
-            with Session(engine) as session:
-                try:
-                    chapter = run_chapter_pipeline(
-                        session,
-                        chapter_id,
-                        model_client=model_client,
-                        model_name=model_name,
-                    )
-                except ValueError:
-                    self.send_error(HTTPStatus.BAD_REQUEST)
-                    return
-            self._redirect(f"/chapter/{chapter.id}")
+            try:
+                queued_chapter_id = queue_chapter_run(db_path, chapter_id, provider_config)
+            except ValueError:
+                self.send_error(HTTPStatus.BAD_REQUEST)
+                return
+            self._redirect(f"/chapter/{queued_chapter_id}")
 
         def _run_chapter_batch(self, db_path: Path) -> None:
             form = self._read_form()
             book_id = int(form.get("book_id", "0"))
             limit = _parse_batch_limit(form)
             provider_config = _load_provider_config(db_path)
-            model_client, model_name = _chapter_model_client_from_provider_config(provider_config)
-            engine = create_engine_for_path(db_path)
-            create_db_and_tables(engine)
-            with Session(engine) as session:
-                try:
-                    run_chapter_batch(
-                        session,
-                        book_id,
-                        limit,
-                        model_client=model_client,
-                        model_name=model_name,
-                    )
-                except ValueError:
-                    self.send_error(HTTPStatus.BAD_REQUEST)
-                    return
-            self._redirect(f"/book/{book_id}")
+            try:
+                queued_chapter_id = queue_chapter_batch_run(db_path, book_id, limit, provider_config)
+            except ValueError:
+                self.send_error(HTTPStatus.BAD_REQUEST)
+                return
+            self._redirect(f"/chapter/{queued_chapter_id}")
 
         def _request_revision(self, db_path: Path) -> None:
             form = self._read_form()
@@ -562,22 +565,17 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             form = self._read_form()
             chapter_id = int(form.get("chapter_id", "0"))
             provider_config = _load_provider_config(db_path)
-            model_client, model_name = _chapter_model_client_from_provider_config(provider_config)
-            engine = create_engine_for_path(db_path)
-            create_db_and_tables(engine)
-            with Session(engine) as session:
-                try:
-                    chapter = repair_chapter_with_ai(
-                        session,
-                        chapter_id,
-                        model_client=model_client,
-                        model_name=model_name,
-                        reviewer_note=form.get("reviewer_note") or None,
-                    )
-                except ValueError:
-                    self.send_error(HTTPStatus.BAD_REQUEST)
-                    return
-            self._redirect(f"/chapter/{chapter.id}")
+            try:
+                queued_chapter_id = queue_chapter_repair(
+                    db_path,
+                    chapter_id,
+                    provider_config,
+                    reviewer_note=form.get("reviewer_note") or None,
+                )
+            except ValueError:
+                self.send_error(HTTPStatus.BAD_REQUEST)
+                return
+            self._redirect(f"/chapter/{queued_chapter_id}")
 
         def _edit_chapter_text(self, db_path: Path) -> None:
             form = self._read_form()
@@ -668,7 +666,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
         def _read_form(self) -> dict[str, str]:
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length).decode("utf-8")
-            return {key: values[0].strip() for key, values in parse_qs(body).items()}
+            return {key: values[-1].strip() for key, values in parse_qs(body).items()}
 
         def _send_html(self, body: str, status: HTTPStatus = HTTPStatus.OK) -> None:
             payload = body.encode("utf-8")
@@ -773,22 +771,6 @@ def _render_quality_page_from_db(db_path: Path, book: Book) -> str:
         )
 
 
-def _provider_config_from_form(form: dict[str, str]) -> ProviderConfig:
-    return ProviderConfig(
-        llm_base_url=form.get("llm_base_url", ""),
-        llm_api_key=form.get("llm_api_key") or None,
-        llm_model=form.get("llm_model", ""),
-        embedding_use_llm_credentials=form.get("embedding_use_llm_credentials") == "1",
-        embedding_base_url=form.get("embedding_base_url", ""),
-        embedding_api_key=form.get("embedding_api_key") or None,
-        embedding_model=form.get("embedding_model", ""),
-        rerank_use_llm_credentials=form.get("rerank_use_llm_credentials") == "1",
-        rerank_base_url=form.get("rerank_base_url") or None,
-        rerank_api_key=form.get("rerank_api_key") or None,
-        rerank_model=form.get("rerank_model") or None,
-    )
-
-
 def _parse_numeric_id(path: str) -> int:
     _, _, raw_id = path.rpartition("/")
     try:
@@ -851,25 +833,8 @@ def _parse_batch_limit(form: dict[str, str]) -> int:
     return min(10, max(1, value))
 
 
-def _chapter_model_client_from_provider_config(
-    provider_config: ProviderConfig | None,
-) -> tuple[OpenAIChapterModelClient | None, str | None]:
-    if (
-        provider_config is None
-        or not provider_config.llm_base_url.strip()
-        or not provider_config.llm_model.strip()
-    ):
-        return None, None
-    return (
-        OpenAIChapterModelClient(
-            OpenAICompatibleClient(
-                base_url=provider_config.llm_base_url,
-                api_key=provider_config.llm_api_key or "",
-            ),
-            provider_config.llm_model,
-        ),
-        provider_config.llm_model,
-    )
+def _chapter_model_client_from_provider_config(provider_config: ProviderConfig | None):
+    return chapter_model_client_from_provider_config(provider_config)
 
 
 def _start_blueprint_job(

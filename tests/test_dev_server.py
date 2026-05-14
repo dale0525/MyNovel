@@ -23,6 +23,9 @@ from mynovel.canon_proposal_server import (
     is_canon_proposal_post_path,
     load_pending_canon_proposal_revision_for_book,
 )
+from mynovel.chapter_server import queue_chapter_run
+from mynovel.chapter_server import queue_chapter_batch_run
+from mynovel.chapter_server import queue_chapter_repair
 from sqlmodel import Session, select
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
@@ -195,7 +198,135 @@ def test_parse_batch_limit_clamps_to_safe_range() -> None:
     assert _parse_batch_limit({"limit": "bad"}) == 1
 
 
-def test_book_idea_from_form_keeps_only_idea_required_and_optional_presets() -> None:
+def test_queue_chapter_run_marks_chapter_running_without_blocking(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = add_book(
+            session,
+            Book(
+                title="长夜图书馆",
+                genre="奇幻",
+                audience="连载读者",
+                status=BookStatus.CANON_LOCKED,
+            ),
+        )
+        add_canon(session, Canon(book_id=book.id or 0, version=1, content={"characters": []}))
+        chapter = Chapter(
+            book_id=book.id or 0,
+            number=1,
+            title="离开的召唤",
+            status=ChapterStatus.PLANNED,
+        )
+        session.add(chapter)
+        session.commit()
+        session.refresh(chapter)
+        chapter_id = chapter.id or 0
+
+    queued_chapter_id = queue_chapter_run(db_path, chapter_id, start_background=False)
+
+    assert queued_chapter_id == chapter_id
+    with Session(engine) as session:
+        chapter = session.get(Chapter, chapter_id)
+        assert chapter is not None
+        assert chapter.status == ChapterStatus.RUNNING
+        assert chapter.draft_text == ""
+
+
+def test_queue_chapter_repair_marks_chapter_running_without_blocking(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = add_book(
+            session,
+            Book(
+                title="长夜图书馆",
+                genre="奇幻",
+                audience="连载读者",
+                status=BookStatus.PRODUCING,
+            ),
+        )
+        add_canon(session, Canon(book_id=book.id or 0, version=1, content={"characters": []}))
+        chapter = Chapter(
+            book_id=book.id or 0,
+            number=1,
+            title="离开的召唤",
+            status=ChapterStatus.AWAITING_REVIEW,
+            draft_text="旧草稿",
+            revised_text="待修复正文",
+        )
+        session.add(chapter)
+        session.commit()
+        session.refresh(chapter)
+        chapter_id = chapter.id or 0
+
+    queued_chapter_id = queue_chapter_repair(
+        db_path,
+        chapter_id,
+        reviewer_note="补足字数",
+        start_background=False,
+    )
+
+    assert queued_chapter_id == chapter_id
+    with Session(engine) as session:
+        chapter = session.get(Chapter, chapter_id)
+        assert chapter is not None
+        assert chapter.status == ChapterStatus.RUNNING
+        assert chapter.reviewer_note == "AI 修复中：补足字数"
+        assert chapter.revised_text == "待修复正文"
+
+
+def test_queue_chapter_batch_run_redirects_to_first_running_chapter(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = add_book(
+            session,
+            Book(
+                title="长夜图书馆",
+                genre="奇幻",
+                audience="连载读者",
+                status=BookStatus.CANON_LOCKED,
+            ),
+        )
+        add_canon(session, Canon(book_id=book.id or 0, version=1, content={"characters": []}))
+        first = Chapter(
+            book_id=book.id or 0,
+            number=1,
+            title="离开的召唤",
+            status=ChapterStatus.PLANNED,
+        )
+        second = Chapter(
+            book_id=book.id or 0,
+            number=2,
+            title="穿越迷雾",
+            status=ChapterStatus.PLANNED,
+        )
+        session.add(first)
+        session.add(second)
+        session.commit()
+        session.refresh(first)
+        book_id = book.id or 0
+        first_id = first.id or 0
+
+    queued_chapter_id = queue_chapter_batch_run(
+        db_path,
+        book_id,
+        limit=2,
+        start_background=False,
+    )
+
+    assert queued_chapter_id == first_id
+    with Session(engine) as session:
+        chapter = session.get(Chapter, first_id)
+        assert chapter is not None
+        assert chapter.status == ChapterStatus.RUNNING
+
+
+def test_book_idea_from_form_keeps_idea_required_and_uses_visible_presets() -> None:
     idea = _book_idea_from_form(
         {
             "idea": "失意档案员重建禁书馆",
@@ -203,8 +334,8 @@ def test_book_idea_from_form_keeps_only_idea_required_and_optional_presets() -> 
             "audience": "男频网文读者",
             "target_word_count": "300000",
             "chapter_word_count": "3200",
-            "selling_points": "旧版字段应该忽略",
-            "constraints": "旧版字段应该忽略",
+            "selling_points": "逆袭反转、智商碾压",
+            "constraints": "不写虐主",
             "style_reference": "旧版字段应该忽略",
             "length_goal": "旧版字段应该忽略",
             "serial_rhythm": "旧版字段应该忽略",
@@ -216,6 +347,8 @@ def test_book_idea_from_form_keeps_only_idea_required_and_optional_presets() -> 
     assert "目标读者：男频网文读者" in idea
     assert "全书目标字数：300000 字" in idea
     assert "单章目标字数：3200 字" in idea
+    assert "爽点偏好：逆袭反转、智商碾压" in idea
+    assert "写作禁区：不写虐主" in idea
     assert "旧版字段应该忽略" not in idea
     assert _book_idea_from_form({"idea": "", "genre": "玄幻升级"}) == ""
 
@@ -368,11 +501,13 @@ def test_blueprint_page_renders_structured_blueprint() -> None:
 
     page = render_blueprint_page(Path(".mynovel/dev.sqlite"), provider_config, blueprint)
 
-    assert "书名候选" in page
+    assert "当前选择" in page
     assert "长夜图书馆" in page
     assert 'name="selected_title"' in page
     assert 'value="长夜图书馆"' in page
-    assert "确认书名，进入下一步" in page
+    assert "确认方案，进入下一步" in page
+    assert 'type="radio"' not in page
+    assert 'data-blueprint-detail-panel' in page
     assert 'action="/revise-blueprint"' in page
     assert 'name="revision_notes"' in page
     assert 'name="revision_preset"' in page
@@ -599,6 +734,44 @@ def test_create_canon_proposal_revision_with_fake_client_redirects_to_preview(
     assert response.redirect_to is not None
     assert response.redirect_to.startswith(f"/book/{book_id}/state?revision_id=")
     assert response.redirect_to.endswith("#characters")
+
+
+def test_create_canon_proposal_revision_without_fake_client_redirects_to_running_job(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    book_id, _canon_id = _create_draft_book_with_canon(db_path)
+    engine = create_engine_for_path(db_path)
+    with Session(engine) as session:
+        save_provider_config(
+            session,
+            ProviderConfig(
+                llm_base_url="https://api.example.test/v1",
+                llm_model="gpt-test",
+                embedding_base_url="https://api.example.test/v1",
+                embedding_model="embedding-test",
+            ),
+        )
+
+    response = handle_create_canon_proposal_revision(
+        {
+            "book_id": str(book_id),
+            "target_section": "characters",
+            "instruction": "补全人物设定",
+        },
+        db_path,
+        start_background=False,
+    )
+
+    assert response.redirect_to is not None
+    assert response.redirect_to.startswith(f"/book/{book_id}/state?revision_id=")
+    assert response.redirect_to.endswith("#canon-revision-job")
+
+    revision_id = int(response.redirect_to.split("revision_id=", 1)[1].split("#", 1)[0])
+    revision = load_pending_canon_proposal_revision_for_book(db_path, book_id, revision_id)
+
+    assert revision is not None
+    assert revision.status == CanonProposalRevisionStatus.RUNNING
 
 
 def test_create_canon_proposal_revision_requires_provider_config_without_client(

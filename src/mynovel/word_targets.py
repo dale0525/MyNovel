@@ -32,6 +32,8 @@ def book_idea_from_form(form: dict[str, str]) -> str:
         ("目标读者", form.get("audience", "").strip()),
         (BOOK_TARGET_LABEL, _word_count_preference(form.get(TARGET_WORD_COUNT_KEY, ""))),
         (CHAPTER_TARGET_LABEL, _word_count_preference(form.get(CHAPTER_WORD_COUNT_KEY, ""))),
+        ("爽点偏好", form.get("selling_points", "").strip()),
+        ("写作禁区", form.get("constraints", "").strip()),
     ]
     filled_preferences = [f"- {label}：{value}" for label, value in preferences if value]
     if not filled_preferences:

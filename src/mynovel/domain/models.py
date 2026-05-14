@@ -32,10 +32,12 @@ class BlueprintStatus(StrEnum):
 
 
 class CanonProposalRevisionStatus(StrEnum):
+    RUNNING = "running"
     PENDING = "pending"
     APPLIED = "applied"
     DISCARDED = "discarded"
     STALE = "stale"
+    FAILED = "failed"
 
 
 class Book(SQLModel, table=True):

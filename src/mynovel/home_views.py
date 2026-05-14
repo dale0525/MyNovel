@@ -13,39 +13,60 @@ def render_empty_home(
     locale: str = DEFAULT_LOCALE,
 ) -> str:
     status = t("model.ready", locale) if configured else t("model.not_ready", locale)
+    status_hint = t("model.ready_hint", locale) if configured else t("model.not_ready_hint", locale)
     blueprint_entry = _latest_blueprint_entry(blueprints, locale)
-    recent_projects = (
+    recent_body = (
         f'<div class="project-list">{blueprint_entry}</div>'
         if blueprint_entry
-        else f'<div class="empty-box">{t("home.empty_recent", locale)}</div>'
+        else (
+            '<div class="recent-empty">'
+            '<span class="empty-file-icon" aria-hidden="true">▤</span>'
+            f"<p>{t('home.empty_recent', locale)}</p>"
+            "</div>"
+        )
     )
     return f"""
-      <section class="empty-hero">
-        <div class="book-mark">◇</div>
+      <section class="first-launch-hero">
+        <div class="empty-book-illustration" aria-hidden="true">{_book_icon()}</div>
         <h1>{t("home.empty_title", locale)}</h1>
         <p>{t("home.empty_copy", locale)}</p>
-        <div class="actions center">
-          <a class="button" href="/books/new">{t("home.create_first", locale)}</a>
-          <a class="button secondary" href="/">{t("home.import_project", locale)}</a>
+        <p>{t("home.local_copy", locale)}</p>
+        <div class="launch-actions">
+          <a class="button launch-primary" href="/books/new">
+            <span aria-hidden="true">＋</span>{t("home.create_first", locale)}
+          </a>
+          <a class="button secondary launch-secondary" href="/books/import">
+            <span aria-hidden="true">⇧</span>{t("home.import_project", locale)}
+          </a>
         </div>
-        <div class="local-note"><strong>{t("home.local_first", locale)}</strong><span>{t("home.local_copy", locale)}</span></div>
       </section>
-      <aside class="right-panel">
-        <h2>{t("home.recent_projects", locale)}</h2>
-        {recent_projects}
-        <h2>{t("model.status", locale)}</h2>
-        <div class="setup-card">
-          <strong>{status}</strong>
-          <a class="button secondary" href="/provider-config">{t("model.configure", locale)}</a>
-        </div>
-        <h2>快速上手</h2>
-        <div class="stack-list home-quickstart">
-          <p>了解创作流程 <span>›</span></p>
-          <p>创建第一个世界观 <span>›</span></p>
-          <p>导入已有项目 <span>›</span></p>
-        </div>
-        <h2>{t("trusted_state.title", locale)}</h2>
-        <p>{t("trusted_state.empty_hint", locale)}</p>
+      <aside class="first-launch-aside">
+        <section class="launch-card recent-projects-card">
+          <header>
+            <h2>{t("home.recent_projects", locale)}</h2>
+            <a class="button secondary compact-button" href="/books/import">{t("home.open_project", locale)}</a>
+          </header>
+          {recent_body}
+        </section>
+        <section class="launch-card model-status-card">
+          <h2>{t("model.status", locale)}</h2>
+          <div class="model-ready-row">
+            <span class="warn-icon" aria-hidden="true">△</span>
+            <div>
+              <strong>{status}</strong>
+              <p>{status_hint}</p>
+            </div>
+            <a class="button secondary compact-button" href="/provider-config">{t("model.configure", locale)}</a>
+          </div>
+        </section>
+        <section class="launch-card quickstart-card">
+          <h2>快速上手</h2>
+          <div class="quickstart-list">
+            {_quickstart_item("▤", "了解创作流程", "从开书到写入可信设定的完整流程。", "#launch-pipeline")}
+            {_quickstart_item("▣", "创建第一个世界观", "设定世界、规则与背景。", "/books/new")}
+            {_quickstart_item("⇧", "导入已有项目", "从其他格式导入你的作品。", "/books/import")}
+          </div>
+        </section>
       </aside>
       <aside class="right-panel model-form hidden-model-form" id="model-form" aria-hidden="true">
         <h2>{t("model.title", locale)}</h2>
@@ -77,7 +98,7 @@ def render_project_home(
           <a class="button" href="/books/new">{t("home.create_first", locale)}</a>
         </div>
         <div class="project-list">{rows}{blueprint_entry}</div>
-        <div class="setup-card"><strong>{model_status}</strong><a class="button secondary" href="/provider-config">AI API 设置</a></div>
+        <div class="setup-card"><strong>{model_status}</strong><a class="button secondary" href="/provider-config">模型接口设置</a></div>
       </section>
 """
 
@@ -141,6 +162,31 @@ def _blueprint_status_label(status: BlueprintStatus | str, locale: str) -> str:
         BlueprintStatus.FAILED.value: t("blueprint.failed", locale),
     }
     return labels.get(value, value)
+
+
+def _quickstart_item(icon: str, title: str, copy: str, href: str) -> str:
+    return (
+        f'<a class="quickstart-row" href="{html.escape(href, quote=True)}">'
+        f'<span class="quickstart-icon" aria-hidden="true">{html.escape(icon)}</span>'
+        "<span>"
+        f"<strong>{html.escape(title)}</strong>"
+        f"<em>{html.escape(copy)}</em>"
+        "</span>"
+        '<b aria-hidden="true">›</b>'
+        "</a>"
+    )
+
+
+def _book_icon() -> str:
+    return """
+      <svg viewBox="0 0 96 72" role="img" focusable="false">
+        <path d="M47 63c-9-7-21-10-35-8V9c14-2 26 1 35 8v46Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+        <path d="M49 63c9-7 21-10 35-8V9c-14-2-26 1-35 8v46Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+        <path d="M48 18v45" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+        <path d="M61 35c-8 2-11 7-11 15 8-2 11-7 11-15Z" fill="currentColor" opacity=".28"/>
+        <path d="M50 50c-4-7-9-11-16-12 1 8 6 12 16 12Z" fill="currentColor" opacity=".18"/>
+      </svg>
+"""
 
 
 def _input(

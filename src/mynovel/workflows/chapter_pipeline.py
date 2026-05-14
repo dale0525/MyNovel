@@ -16,7 +16,24 @@ from mynovel.domain.repositories import (
 )
 from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
 from mynovel.prompts.registry import load_prompt_by_id, render_prompt_messages
-from mynovel.word_targets import parse_word_count
+from mynovel.workflows.chapter_prompting import (
+    build_audit_messages as _build_audit_messages,
+    build_draft_messages as _build_draft_messages,
+    build_extract_state_messages as _build_extract_state_messages,
+    build_plan_messages as _build_plan_messages,
+    build_revise_messages as _build_revise_messages,
+)
+from mynovel.workflows.chapter_response_parsing import (
+    ChapterJsonStageFormatError,
+    fallback_audit_report,
+    normalize_state_delta,
+    parse_json_stage_response,
+)
+from mynovel.workflows.chapter_repair import (
+    recheck_repair_audit,
+    repair_text_locally,
+    repair_text_with_model,
+)
 from mynovel.workflows.open_book_blueprint import extract_chat_content
 from mynovel.workflows.retrieval import index_text
 from mynovel.workflows.state_validation import validate_state_delta
@@ -64,10 +81,6 @@ class ChapterStageError(RuntimeError):
         self.error = error
 
 
-class ChapterJsonStageFormatError(ValueError):
-    pass
-
-
 TRACE_STAGES = [
     ("plan", "规划本章", "chapter_plan"),
     ("context", "编译上下文", "chapter_context"),
@@ -112,6 +125,7 @@ def run_chapter_pipeline(
         return _record_pipeline_failure(session, chapter, model_label, failed_stage, error)
     chapter.summary = _summarize_chapter(chapter)
     chapter.word_count = len(chapter.revised_text)
+    recheck_repair_audit(chapter)
     chapter.status = ChapterStatus.AWAITING_REVIEW
     chapter.updated_at = utc_now()
     book.status = BookStatus.PRODUCING
@@ -180,6 +194,7 @@ def apply_manual_chapter_edit(
 
     chapter.revised_text = text
     chapter.word_count = len(text)
+    recheck_repair_audit(chapter)
     chapter.status = ChapterStatus.AWAITING_REVIEW
     chapter.reviewer_note = reviewer_note
     chapter.updated_at = utc_now()
@@ -233,18 +248,24 @@ def repair_chapter_with_ai(
     reviewer_note: str | None = None,
 ) -> Chapter:
     chapter = _required_chapter(session, chapter_id)
-    if chapter.status not in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}:
+    if chapter.status not in {
+        ChapterStatus.AWAITING_REVIEW,
+        ChapterStatus.NEEDS_REVISION,
+        ChapterStatus.RUNNING,
+    }:
         raise ValueError("Only review-stage chapters can be repaired.")
 
     if model_client is None:
-        chapter.revised_text = _repair_text_locally(chapter)
+        chapter.revised_text = repair_text_locally(chapter, _revise_text)
     else:
-        chapter.revised_text = _complete_text_stage(
+        chapter.revised_text = repair_text_with_model(
+            chapter,
             model_client,
-            "revise",
-            _build_repair_messages(chapter, reviewer_note),
+            reviewer_note,
+            _complete_text_stage,
         )
     chapter.word_count = len(chapter.revised_text)
+    recheck_repair_audit(chapter)
     chapter.status = ChapterStatus.AWAITING_REVIEW
     chapter.reviewer_note = reviewer_note
     chapter.updated_at = utc_now()
@@ -309,7 +330,7 @@ def _run_model_pipeline(
         "draft",
         _build_draft_messages(book_title, chapter),
     )
-    chapter.state_delta = _normalize_state_delta(
+    chapter.state_delta = normalize_state_delta(
         chapter.number,
         _complete_json_stage(
             model_client,
@@ -328,7 +349,7 @@ def _run_model_pipeline(
     except ChapterStageError as error:
         if not _is_recoverable_json_stage_error(error):
             raise
-        chapter.audit_report = _fallback_audit_report(error)
+        chapter.audit_report = fallback_audit_report(error.error)
     chapter.revised_text = _complete_text_stage(
         model_client,
         "revise",
@@ -347,80 +368,15 @@ def _complete_json_stage(
     except Exception as error:  # noqa: BLE001
         raise ChapterStageError(stage, error) from error
     try:
-        data = _parse_json_object(raw)
+        data = parse_json_stage_response(raw, stage)
         missing = sorted(required_fields - set(data))
         if missing:
             raise ChapterJsonStageFormatError(
                 f"Chapter stage {stage} missing fields: {', '.join(missing)}"
             )
         return data
-    except (json.JSONDecodeError, ValueError) as error:
-        raise ChapterStageError(stage, ChapterJsonStageFormatError(str(error))) from error
-
-
-def _normalize_state_delta(chapter_number: int, state_delta: dict[str, Any]) -> dict[str, Any]:
-    raw_chapter = state_delta.get("chapter")
-    if raw_chapter == chapter_number:
-        normalized_chapter = chapter_number
-    elif isinstance(raw_chapter, dict) and raw_chapter.get("number") == chapter_number:
-        normalized_chapter = chapter_number
-    else:
-        normalized_chapter = chapter_number
-
-    changes = []
-    for raw_change in state_delta.get("changes", []):
-        if isinstance(raw_change, str):
-            text = raw_change.strip()
-            if text:
-                changes.append(
-                    {
-                        "type": "状态变化",
-                        "target": "待确认",
-                        "change": text,
-                        "risk": "low",
-                    }
-                )
-            continue
-        if not isinstance(raw_change, dict):
-            continue
-        change_type = str(raw_change.get("type") or raw_change.get("category") or "状态变化").strip()
-        target = str(raw_change.get("target") or raw_change.get("subject") or "待确认").strip()
-        change = str(raw_change.get("change") or raw_change.get("content") or "").strip()
-        if not change:
-            continue
-        changes.append(
-            {
-                "type": change_type,
-                "target": target,
-                "change": change,
-                "risk": str(raw_change.get("risk") or "low").strip() or "low",
-            }
-        )
-    if not changes:
-        changes.append(
-            {
-                "type": "章节进展",
-                "target": f"第 {chapter_number:02d} 章",
-                "change": "本章已生成，未能自动提取明确状态变化，请人工确认是否写入可信设定。",
-                "risk": "medium",
-            }
-        )
-    return {"chapter": normalized_chapter, "changes": changes}
-
-
-def _fallback_audit_report(error: ChapterStageError) -> dict[str, Any]:
-    return {
-        "risk_level": "medium",
-        "issues": [
-            {
-                "severity": "medium",
-                "title": "AI 审计返回格式异常，请人工重点检查本章",
-                "resolved": False,
-                "detail": str(error.error),
-            }
-        ],
-        "suggestions": ["人工检查正文、状态变化与章节结尾钩子后再批准。"],
-    }
+    except ChapterJsonStageFormatError as error:
+        raise ChapterStageError(stage, error) from error
 
 
 def _is_recoverable_json_stage_error(error: ChapterStageError) -> bool:
@@ -439,166 +395,6 @@ def _complete_text_stage(
         return text
     except Exception as error:  # noqa: BLE001
         raise ChapterStageError(stage, error) from error
-
-
-def _parse_json_object(raw_text: str) -> dict[str, Any]:
-    text = _json_object_text(_strip_code_fence(raw_text.strip()))
-    data = json.loads(text)
-    if not isinstance(data, dict):
-        raise ValueError("Chapter model response must be a JSON object.")
-    return data
-
-
-def _json_object_text(text: str) -> str:
-    if text.startswith("{"):
-        return text
-    decoder = json.JSONDecoder()
-    for index, character in enumerate(text):
-        if character != "{":
-            continue
-        try:
-            _, end = decoder.raw_decode(text[index:])
-        except json.JSONDecodeError:
-            continue
-        return text[index : index + end]
-    return text
-
-
-def _strip_code_fence(text: str) -> str:
-    if not text.startswith("```"):
-        return text
-    lines = text.splitlines()
-    if len(lines) >= 3 and lines[-1].strip() == "```":
-        first = lines[0].strip()
-        if first in {"```", "```json"}:
-            return "\n".join(lines[1:-1]).strip()
-    return text
-
-
-def _build_plan_messages(
-    book_title: str,
-    canon: Canon,
-    chapter: Chapter,
-    volume_plan: dict[str, Any],
-) -> list[dict[str, str]]:
-    payload = {
-        "book_title": book_title,
-        "trusted_state": canon.content,
-        "volume_plan": volume_plan,
-        "chapter": {
-            "number": chapter.number,
-            "title": chapter.title,
-            "current_goal": chapter.plan.get("goal", ""),
-            "current_word_budget": parse_word_count(chapter.plan.get("word_budget")),
-        },
-    }
-    return _json_instruction_messages(
-        "你是网文章节导演。请为当前章节生成可执行的章节计划，只输出 JSON。",
-        "必须包含 goal, must_write, forbidden_drift, word_budget, ending_hook。"
-        "如果 current_word_budget 存在，word_budget 必须沿用该数值。",
-        payload,
-    )
-
-
-def _build_draft_messages(book_title: str, chapter: Chapter) -> list[dict[str, str]]:
-    payload = {
-        "book_title": book_title,
-        "chapter": {
-            "number": chapter.number,
-            "title": chapter.title,
-            "plan": chapter.plan,
-            "context": chapter.context_package,
-        },
-    }
-    return _text_instruction_messages(
-        "你是网文连载正文生成器。根据章节计划和可信上下文写本章草稿。",
-        "只输出章节正文，不要解释，不要附加元信息。",
-        payload,
-    )
-
-
-def _build_extract_state_messages(chapter: Chapter) -> list[dict[str, str]]:
-    payload = {
-        "chapter": {"number": chapter.number, "title": chapter.title, "plan": chapter.plan},
-        "draft_text": chapter.draft_text,
-    }
-    return _json_instruction_messages(
-        "你是小说状态变化提取器。从草稿提取待人工验证的状态变化，只输出 JSON。",
-        "必须包含 chapter 与 changes。changes 只记录人物、关系、地点、资源、伏笔和信息暴露变化。",
-        payload,
-    )
-
-
-def _build_audit_messages(chapter: Chapter) -> list[dict[str, str]]:
-    payload = {
-        "chapter": {"number": chapter.number, "title": chapter.title, "plan": chapter.plan},
-        "context": chapter.context_package,
-        "draft_text": chapter.draft_text,
-        "state_delta": chapter.state_delta,
-    }
-    return _json_instruction_messages(
-        "你是连载章节审计员。检查连续性、因果、动机、伏笔、节奏、字数和结尾钩子。",
-        "必须包含 risk_level, issues, suggestions。issues 内每项包含 severity, title, resolved。",
-        payload,
-    )
-
-
-def _build_revise_messages(chapter: Chapter) -> list[dict[str, str]]:
-    payload = {
-        "chapter": {"number": chapter.number, "title": chapter.title, "plan": chapter.plan},
-        "draft_text": chapter.draft_text,
-        "audit_report": chapter.audit_report,
-        "state_delta": chapter.state_delta,
-    }
-    return _text_instruction_messages(
-        "你是连载章节修订器。根据审计报告修订正文，尽量解决可自动修复的问题。",
-        "只输出修订后的最终候选正文，不要解释。",
-        payload,
-    )
-
-
-def _build_repair_messages(chapter: Chapter, reviewer_note: str | None) -> list[dict[str, str]]:
-    payload = {
-        "chapter": {"number": chapter.number, "title": chapter.title, "plan": chapter.plan},
-        "draft_text": chapter.draft_text,
-        "current_revised_text": chapter.revised_text,
-        "audit_report": chapter.audit_report,
-        "state_delta": chapter.state_delta,
-        "reviewer_note": reviewer_note,
-    }
-    return _text_instruction_messages(
-        "你是连载章节修复器。根据审核意见和审计问题修复正文。",
-        "只输出修复后的完整正文，不要解释。",
-        payload,
-    )
-
-
-def _json_instruction_messages(
-    system_prompt: str,
-    schema_prompt: str,
-    payload: dict[str, Any],
-) -> list[dict[str, str]]:
-    return [
-        {"role": "system", "content": system_prompt},
-        {
-            "role": "user",
-            "content": f"{schema_prompt}\n{json.dumps(payload, ensure_ascii=False)}",
-        },
-    ]
-
-
-def _text_instruction_messages(
-    system_prompt: str,
-    instruction: str,
-    payload: dict[str, Any],
-) -> list[dict[str, str]]:
-    return [
-        {"role": "system", "content": system_prompt},
-        {
-            "role": "user",
-            "content": f"{instruction}\n{json.dumps(payload, ensure_ascii=False)}",
-        },
-    ]
 
 
 def _build_context_package(canon: Canon, chapter: Chapter, volume_plan: dict[str, Any]) -> dict:
@@ -726,14 +522,6 @@ def _revise_text(draft_text: str, audit_report: dict) -> str:
     if unresolved:
         return f"{draft_text}\n\n修订后钩子：{hook}"
     return draft_text
-
-
-def _repair_text_locally(chapter: Chapter) -> str:
-    source_text = chapter.revised_text or chapter.draft_text
-    repaired = _revise_text(source_text, chapter.audit_report or {})
-    if repaired != source_text:
-        return repaired
-    return f"{source_text}\n\n修复补充：已按审核意见补强人物动机、因果链和章节钩子。"
 
 
 def _extract_state_delta(chapter: Chapter) -> dict:

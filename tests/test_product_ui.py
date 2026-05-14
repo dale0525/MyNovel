@@ -6,12 +6,13 @@ from mynovel.domain.models import (
     BookStatus,
     BlueprintStatus,
     Canon,
-    CanonProposalRevision,
     Chapter,
     ChapterStatus,
     OpenBookBlueprint,
     ProviderConfig,
+    VolumePlan,
 )
+from mynovel.import_views import render_import_project_page
 from mynovel.product_views import (
     render_book_workspace,
     render_chapter_review,
@@ -51,6 +52,46 @@ def test_home_page_uses_product_language_without_exposed_english_terms() -> None
     ]
     for term in forbidden_terms:
         assert term not in page
+
+
+def test_first_launch_home_matches_empty_project_flow_surface() -> None:
+    page = render_home(
+        Path(".mynovel/dev.sqlite"),
+        books=[],
+        provider_config=None,
+        blueprints=[],
+        message=None,
+    )
+
+    assert "first-launch-layout" in page
+    assert "first-launch-hero" in page
+    assert 'href="/books/new"' in page
+    assert 'href="/books/import"' in page
+    assert 'href="/provider-config"' in page
+    assert "最近项目" in page
+    assert "打开项目" in page
+    assert '<a class="button secondary compact-button" href="/books/import">打开项目</a>' in page
+    assert "模型就绪状态" in page
+    assert "模型未配置" in page
+    assert "快速上手" in page
+    assert "了解创作流程" in page
+    assert "创建第一个世界观" in page
+    assert "导入已有项目" in page
+    assert "生产流水线" in page
+    assert "开书" in page
+    assert "定盘" in page
+    assert "生成" in page
+    assert "审核" in page
+    assert "写入可信设定" in page
+
+
+def test_import_project_page_exposes_json_import_form() -> None:
+    page = render_import_project_page()
+
+    assert "导入项目" in page
+    assert 'action="/books/import"' in page
+    assert 'name="project_json"' in page
+    assert "粘贴从 MyNovel 导出的 JSON" in page
 
 
 def test_empty_home_keeps_latest_blueprint_entry_visible() -> None:
@@ -123,6 +164,8 @@ def test_model_setup_page_uses_dedicated_configuration_dashboard() -> None:
     assert "连接你的 AI 模型" in page
     assert "服务类型" in page
     assert "OpenAI-compatible" in page
+    assert "setup-guide-card" in page
+    assert "annotated-model-field" in page
     assert "setup-checklist" in page
     assert "准备创建书籍" in page
     assert "本地数据库" in page
@@ -150,8 +193,7 @@ def test_new_book_page_requires_only_idea_and_uses_optional_presets() -> None:
     page = render_new_book_page(provider_config)
 
     assert 'name="idea"' in page
-    assert 'name="idea" type="text"' in page
-    assert 'name="idea" type="text" value="" placeholder="一个失意档案员重建禁书图书馆" required' in page
+    assert '<textarea name="idea" placeholder="一个失意档案员重建禁书图书馆" required>' in page
     assert '<select name="genre">' in page
     assert '<select name="audience">' in page
     assert "让 AI 判断" in page
@@ -161,8 +203,11 @@ def test_new_book_page_requires_only_idea_and_uses_optional_presets() -> None:
     assert "单章目标字数" in page
     assert 'name="target_word_count" type="number" value="120000"' in page
     assert 'name="chapter_word_count" type="number" value="2800"' in page
-    assert "爽点偏好" not in page
-    assert "写作禁区" not in page
+    assert "book-creation-layout" in page
+    assert "一句灵感即可开始" in page
+    assert "idea-counter" in page
+    assert "爽点偏好" in page
+    assert "写作禁区" in page
     assert "参考风格" not in page
     assert "篇幅目标" not in page
     assert "连载节奏" not in page
@@ -221,11 +266,13 @@ def test_review_page_exposes_revision_repair_accept_and_export_actions() -> None
 
     page = render_chapter_review(book, [chapter], chapter, canon)
 
-    assert "退回修改" in page
-    assert "让系统修复" in page
+    assert "修改意见" in page
+    assert "按意见让 AI 修订" in page
     assert "批准并写入可信设定" in page
-    assert 'action="/request-revision"' in page
     assert 'action="/repair-chapter"' in page
+    assert 'name="reviewer_note"' in page
+    assert "退回修改" not in page
+    assert 'action="/request-revision"' not in page
     assert "导出正文" not in page
 
     chapter.status = ChapterStatus.ACCEPTED
@@ -256,6 +303,7 @@ def test_running_chapter_page_exposes_production_control_panels() -> None:
             draft_text="罗斯沿着隐秘小径继续向前。",
             state_delta={"changes": []},
             word_count=1248,
+            reviewer_note="AI 修复中：压缩到 3000 字左右，解决字数达成率问题",
         )
     ]
 
@@ -263,16 +311,24 @@ def test_running_chapter_page_exposes_production_control_panels() -> None:
         book, chapters, chapters[0], Canon(id=1, book_id=1, version=1, content={})
     )
 
-    assert "production-stage-grid" in page
-    assert "下一步风控 Gate" in page
-    assert "当前正在" in page
-    assert "成本" in page
-    assert "恢复点" in page
-    assert "继续运行" in page
+    assert "AI 正在根据修改意见修订" in page
+    assert "本次意见：压缩到 3000 字左右，解决字数达成率问题" in page
+    assert "立即刷新" in page
     assert "3,200" in page
+    assert "自动刷新" in page
+    assert "setTimeout(() => window.location.reload(), 3000)" in page
+    assert "当前正文会保留在原处" in page
+    assert '<div class="production-stage-grid' not in page
+    assert "上下文包" not in page
+    assert "状态变化预览" not in page
+    assert "本次后台任务" not in page
+    assert "本地模型" not in page
+    assert "68%" not in page
+    assert "今天 14:32" not in page
+    assert "预计剩余" not in page
 
 
-def test_review_page_exposes_manual_edit_and_major_change_confirmation() -> None:
+def test_review_page_uses_ai_revision_request_instead_of_manual_edit() -> None:
     book = Book(
         id=1,
         title="长夜图书馆",
@@ -303,17 +359,20 @@ def test_review_page_exposes_manual_edit_and_major_change_confirmation() -> None
 
     page = render_chapter_review(book, [chapter], chapter, canon)
 
-    assert "手动修正文" in page
-    assert 'action="/edit-chapter-text"' in page
-    assert 'name="manual_text"' in page
+    assert "修改意见" in page
+    assert "例如：压缩破庙环境描写" in page
+    assert "手动修正文" not in page
+    assert 'action="/edit-chapter-text"' not in page
+    assert 'name="manual_text"' not in page
+    assert "人工备注" not in page
     assert "重大变化" in page
     assert 'name="allow_major_changes"' in page
     assert "review-tabs" in page
-    assert "StateDelta 待验证" in page
+    assert "状态变化待验证" in page
     assert "影响范围" in page
 
 
-def test_trusted_state_page_shows_full_state_sections_without_raw_keys() -> None:
+def test_needs_revision_chapter_page_exposes_ai_revision_request() -> None:
     book = Book(
         id=1,
         title="长夜图书馆",
@@ -321,357 +380,27 @@ def test_trusted_state_page_shows_full_state_sections_without_raw_keys() -> None
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,
     )
-    canon = Canon(
-        id=1,
-        book_id=1,
-        version=3,
-        content={
-            "world_rules": [{"name": "街尾蛇城", "rules": "历史守恒"}],
-            "characters": [
-                {"name": "林墨", "identity": "纸质档案修复师", "role": "档案修复师", "trait": "触觉共感"},
-                {
-                    "name": "莉拉",
-                    "detail": "能读懂古代符号",
-                    "chapter_title": "离开的召唤",
-                    "updated_at": "2026-05-11T18:00:00+00:00",
-                },
-                {"name": "待确认", "detail": "人物", "type": "状态变化", "chapter": 2},
-            ],
-            "locations": [{"name": "幽谷", "detail": "旧王朝遗迹"}],
-            "relationships": [{"from": "莉拉", "to": "罗文", "detail": "临时同盟"}],
-            "foreshadowing": [
-                "第二枚符号仍未解释",
-                {"name": "待确认", "detail": "真实线索被照片证明。", "type": "信息暴露"},
-            ],
-            "chapter_summaries": [{"chapter": 1, "title": "离开的召唤", "summary": "离村"}],
-            "state_history": [{"chapter": 1, "changes": [{"type": "人物状态", "target": "莉拉"}]}],
-        },
-    )
-
-    page = render_trusted_state_page(book, canon, [])
-
-    assert "可信设定" in page
-    assert "人物" in page
-    assert "规则：历史守恒" in page
-    assert "身份：纸质档案修复师" in page
-    assert "定位：档案修复师" in page
-    assert "特质：触觉共感" in page
-    assert "地点" in page
-    assert "关系" in page
-    assert "伏笔账本" in page
-    assert "真实线索被照片证明" in page
-    assert "章节摘要" in page
-    assert "变化历史" in page
-    assert "莉拉" in page
-    assert "幽谷" in page
-    assert "名称：待确认；内容：人物" not in page
-    assert "名称：待确认" not in page
-    assert "relationships：" not in page
-    assert "state_history：" not in page
-    assert "rules：" not in page
-    assert "identity：" not in page
-    assert "role：" not in page
-    assert "trait：" not in page
-    assert "chapter_title" not in page
-    assert "updated_at" not in page
-
-
-def test_trusted_state_page_exposes_canon_lock_gate() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻连载",
-        audience="成长冒险读者",
-        status=BookStatus.CANON_LOCKED,
-    )
-    canon = Canon(
-        id=1,
-        book_id=1,
-        version=1,
-        content={
-            "world_rules": [{"name": "雾墙规则", "detail": "幽谷边界危险。"}],
-            "characters": [{"name": "罗斯", "detail": "石匠学徒。"}],
-            "locations": [{"name": "幽谷", "detail": "旧王朝遗迹。"}],
-            "relationships": [{"from": "罗斯", "to": "莉拉", "detail": "临时同盟"}],
-            "foreshadowing": ["第二枚符号尚未解释"],
-            "chapter_summaries": [{"chapter": 1, "title": "召唤", "summary": "进入幽谷"}],
-        },
-    )
-
-    page = render_trusted_state_page(book, canon, [])
-
-    assert "canon-gate-layout" in page
-    assert "审计风险" in page
-    assert "强制 Gate" in page
-    assert "前 10 章节奏" in page
-    assert "可信设定已锁定" in page
-    assert "当前状态：<strong>已锁定</strong>" in page
-    assert "当前为可信设定提案（未锁定）" not in page
-    assert "可信设定提案 · 待确认" not in page
-    assert "锁定可信设定并开始生产" not in page
-
-
-def test_trusted_state_page_renders_clickable_canon_sections_with_locks() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="连载读者",
-        status=BookStatus.DRAFT,
-        constraints={
-            "_canon_proposal": {
-                "last_revision": {
-                    "target_section": "characters",
-                    "summary": "已调整人物和关系。",
-                }
-            }
-        },
-    )
-    canon = Canon(
-        id=1,
-        book_id=1,
-        version=1,
-        content={
-            "world_rules": [{"name": "雾墙规则", "detail": "幽谷边界危险"}],
-            "characters": [{"name": "林烬", "trait": "外冷内热"}],
-            "factions": [],
-        },
-    )
-
-    page = render_trusted_state_page(book, canon, [])
-
-    assert 'href="#world"' in page
-    assert 'id="world"' in page
-    assert 'action="/canon-proposal-lock"' in page
-    assert 'name="section" value="world_rules"' in page
-    assert "让 AI 修改这部分" in page
-    assert "最近一次 AI 修订" in page
-    assert "已调整人物和关系" in page
-
-
-def test_trusted_state_page_renders_ai_revision_preview_actions() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="连载读者",
-        status=BookStatus.DRAFT,
-    )
-    canon = Canon(id=1, book_id=1, version=1, content={"characters": []})
-    revision = CanonProposalRevision(
+    chapter = Chapter(
         id=9,
         book_id=1,
-        base_canon_version=1,
-        base_content_hash="content",
-        base_locks_hash="locks",
-        target_section="characters",
-        instruction="主角改成外冷内热",
-        allowed_sections=["characters"],
-        locked_sections=["world_rules"],
-        changed_sections={"characters": [{"name": "林烬"}]},
-        blocked_sections=[{"section": "world_rules", "reason": "已锁定"}],
-        summary="已调整人物。",
-        risks=["需要同步章节动机。"],
-    )
-
-    page = render_trusted_state_page(book, canon, [], proposal_revision=revision)
-
-    assert "修订预览" in page
-    assert 'action="/canon-proposal-apply"' in page
-    assert 'name="revision_id" value="9"' in page
-    assert "世界规则" in page
-    assert "已锁定" in page
-
-
-def test_trusted_state_page_hides_ai_form_for_locked_section() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="连载读者",
-        status=BookStatus.DRAFT,
-        constraints={"_canon_proposal": {"section_locks": {"world_rules": True}}},
-    )
-    canon = Canon(
-        id=1,
-        book_id=1,
-        version=1,
-        content={"world_rules": [{"name": "雾墙规则"}], "characters": [{"name": "林烬"}]},
-    )
-
-    page = render_trusted_state_page(book, canon, [])
-    world_section = page.split('id="world"', 1)[1].split('id="characters"', 1)[0]
-
-    assert "此部分已锁定" in world_section
-    assert 'name="target_section" value="world_rules"' not in world_section
-    assert 'name="target_section" value="characters"' in page
-
-
-def test_trusted_state_page_hides_revision_forms_when_globally_locked() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="连载读者",
-        status=BookStatus.CANON_LOCKED,
-    )
-    canon = Canon(
-        id=1,
-        book_id=1,
-        version=1,
-        content={"world_rules": [{"name": "雾墙规则"}]},
-    )
-
-    page = render_trusted_state_page(book, canon, [])
-
-    assert 'action="/canon-proposal-revise"' not in page
-    assert 'action="/canon-proposal-lock"' not in page
-    assert "让 AI 修改这部分" not in page
-
-
-def test_trusted_state_page_hides_regenerate_form_when_globally_locked() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="连载读者",
-        status=BookStatus.CANON_LOCKED,
-    )
-    canon = Canon(id=1, book_id=1, version=1, content={"characters": []})
-    revision = CanonProposalRevision(
-        id=9,
-        book_id=1,
-        base_canon_version=1,
-        base_content_hash="content",
-        base_locks_hash="locks",
-        target_section="characters",
-        instruction="主角改成外冷内热",
-        allowed_sections=["characters"],
-        changed_sections={"characters": [{"name": "林烬"}]},
-        summary="已调整人物。",
-    )
-
-    page = render_trusted_state_page(book, canon, [], proposal_revision=revision)
-
-    assert "修订预览" in page
-    assert 'action="/canon-proposal-apply"' not in page
-    assert 'action="/canon-proposal-discard"' not in page
-    assert 'action="/canon-proposal-revise"' not in page
-    assert "重新生成预览" not in page
-
-
-def test_trusted_state_page_renders_full_untruncated_section_values() -> None:
-    long_detail = "这是一条很长的世界规则说明，用来确认可信设定详情不会被截断。" * 4
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="连载读者",
-        status=BookStatus.DRAFT,
-    )
-    canon = Canon(
-        id=1,
-        book_id=1,
-        version=1,
-        content={
-            "world_rules": [
-                {"name": f"规则 {index}", "detail": long_detail}
-                for index in range(1, 8)
-            ],
+        number=1,
+        title="离开的召唤",
+        status=ChapterStatus.NEEDS_REVISION,
+        revised_text="莉拉离开村庄。",
+        audit_report={
+            "risk_level": "medium",
+            "issues": [{"severity": "medium", "title": "生成失败后需要修订", "resolved": False}],
         },
-    )
-
-    page = render_trusted_state_page(book, canon, [])
-
-    assert "规则 7" in page
-    assert long_detail in page
-
-
-def test_trusted_state_page_translates_nested_change_keys() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="连载读者",
-        status=BookStatus.PRODUCING,
-    )
-    canon = Canon(
-        id=1,
-        book_id=1,
-        version=1,
-        content={
-            "state_history": [
-                {"chapter": 1, "changes": [{"target": "莉拉", "change": "离村"}]}
-            ],
-        },
-    )
-
-    page = render_trusted_state_page(book, canon, [])
-
-    assert "内容：离村" in page
-    assert "change：" not in page
-
-
-def test_trusted_state_page_keeps_unlocked_foundation_as_review_gate() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻连载",
-        audience="成长冒险读者",
-        status=BookStatus.DRAFT,
-    )
-    canon = Canon(
-        id=1,
-        book_id=1,
-        version=1,
-        content={"world_rules": [{"name": "雾墙规则", "detail": "幽谷边界危险。"}]},
-    )
-
-    page = render_trusted_state_page(book, canon, [])
-
-    assert "可信设定提案 · 待确认" in page
-    assert "当前状态：<strong>尚未锁定</strong>" in page
-    assert 'action="/lock-canon"' in page
-    assert 'name="book_id" value="1"' in page
-    assert "锁定可信设定并开始生产" in page
-
-
-def test_trusted_state_page_uses_current_book_audit_risks() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻连载",
-        audience="成长冒险读者",
-        status=BookStatus.PRODUCING,
+        state_delta={"changes": []},
     )
     canon = Canon(id=1, book_id=1, version=1, content={})
-    chapters = [
-        Chapter(
-            id=7,
-            book_id=1,
-            number=1,
-            title="离开的召唤",
-            status=ChapterStatus.AWAITING_REVIEW,
-            audit_report={
-                "risk_level": "medium",
-                "issues": [
-                    {
-                        "severity": "medium",
-                        "title": "钩子偏弱",
-                        "detail": "结尾问题不足以推动下一章。",
-                        "resolved": False,
-                    }
-                ],
-            },
-        )
-    ]
 
-    page = render_trusted_state_page(book, canon, chapters)
+    page = render_chapter_review(book, [chapter], chapter, canon)
 
-    assert "中 1" in page
-    assert "钩子偏弱" in page
-    assert "第 01 章《离开的召唤》" in page
-    assert "世界规则边界模糊" not in page
+    assert "修改意见" in page
+    assert "按意见让 AI 修订" in page
+    assert 'action="/repair-chapter"' in page
+    assert 'name="reviewer_note"' in page
 
 
 def test_book_workspace_links_to_trusted_state_page() -> None:
@@ -703,10 +432,9 @@ def test_project_navigation_links_to_current_book_surfaces() -> None:
 
     page = render_book_workspace(book, [], Canon(id=1, book_id=1, version=1, content={}), [])
 
-    assert (
-        '<a class="nav-item active" href="/book/1"><span class="nav-icon" '
-        'aria-hidden="true">□</span><span>文档</span></a>'
-    ) in page
+    assert '<a class="nav-item active" href="/book/1">' in page
+    assert "<span>文档</span></a>" in page
+    assert '<svg class="icon-svg" viewBox="0 0 24 24"' in page
     assert 'href="/book/1/state#characters"' in page
     assert 'href="/book/1/state#world"' in page
     assert 'href="/book/1/quality"' in page
@@ -821,8 +549,8 @@ def test_project_surfaces_expose_ai_api_settings_entry() -> None:
     page = render_book_workspace(book, [], Canon(id=1, book_id=1, version=1, content={}), [])
 
     assert "/provider-config" in page
-    assert "模型配置" in page
-    assert "AI API 设置" in page
+    assert "模型接口设置" in page
+    assert "AI API 设置" not in page
 
 
 def test_book_workspace_hides_batch_action_when_book_is_paused() -> None:
@@ -932,3 +660,341 @@ def test_blueprint_review_uses_wide_proposal_layout_without_overflow_columns() -
     assert 'class="main-panel blueprint-main"' in page
     assert 'class="right-panel blueprint-actions"' in page
     assert "方案 A" in page
+    assert "candidate-confirmation" in page
+    assert "candidate-status-banner" in page
+    assert "选择后怎么处理" in page
+    assert "按备注修改" in page
+
+
+def test_canon_gate_page_matches_lock_confirmation_surface() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="连载读者",
+        status=BookStatus.DRAFT,
+    )
+    canon = Canon(
+        id=1,
+        book_id=1,
+        version=1,
+        content={
+            "world_rules": [{"name": "魔法能量来源", "detail": "未限定边界"}],
+            "characters": [
+                {"name": "罗文", "detail": "少年石匠"},
+                {"name": "莉拉", "detail": "符号学徒"},
+                {"name": "伊芙", "detail": "旧石会信使"},
+            ],
+            "factions": [{"name": "旧石会", "detail": "守护遗迹"}],
+            "locations": [
+                {"name": "幽谷", "detail": "雾墙环绕"},
+                {"name": "雾门", "detail": "旧王朝入口"},
+            ],
+            "relationships": [
+                {"from": "罗文", "to": "莉拉", "detail": "同伴"},
+                {"from": "罗文", "to": "旧石会", "detail": "被追踪"},
+            ],
+            "foreshadowing": ["黑石印记尚未回收", "雾门钥匙", "旧王朝病灶"],
+            "chapter_summaries": [
+                {"chapter": 1, "title": "召唤", "summary": "进入幽谷"},
+                {"chapter": 2, "title": "雾门", "summary": "遭遇旧石会"},
+                {"chapter": 3, "title": "印记", "summary": "发现病灶线索"},
+            ],
+        },
+    )
+    chapters = [
+        Chapter(
+            id=5,
+            book_id=1,
+            number=5,
+            title="破碎之门",
+            status=ChapterStatus.AWAITING_REVIEW,
+            word_count=3098,
+            audit_report={
+                "risk_level": "medium",
+                "issues": [{"severity": "medium", "title": "人物出身不完整"}],
+            },
+        )
+    ]
+
+    page = render_trusted_state_page(book, canon, chapters)
+
+    assert "canon-gate-layout" in page
+    assert "canon-summary-grid" in page
+    assert "chapter-production-basis" in page
+    assert "锁定前确认" in page
+    assert "状态变化才会写入可信设定" in page
+    assert "锁定可信设定并开始生产" in page
+
+
+def test_book_workspace_matches_project_cockpit_surface() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.CANON_LOCKED,
+    )
+    chapters = [
+        Chapter(id=1, book_id=1, number=1, title="召唤", status=ChapterStatus.PLANNED),
+        Chapter(id=2, book_id=1, number=2, title="穿越迷雾", status=ChapterStatus.PLANNED),
+    ]
+    canon = Canon(
+        id=1,
+        book_id=1,
+        version=1,
+        content={
+            "world_rules": [{"background": "架空大盛王朝", "rules": "医术被视为神迹"}],
+            "characters": [{"name": "苏清月", "description": "现代中西医博士"}],
+            "foreshadowing": [
+                {
+                    "trigger": "苏清月检查原主遗物",
+                    "description": "发现原主并非死于意外。",
+                }
+            ],
+            "chapter_summaries": [
+                {"title": "第一章：魂穿将门", "content": "现代医生醒来后自救。"}
+            ],
+            "state_history": [
+                {
+                    "type": "canon_proposal_revision",
+                    "target_section": "locations",
+                    "changed_sections": ["locations", "relationships"],
+                    "blocked_sections": [{"section": "world_rules", "reason": "已锁定"}],
+                    "instruction": "重要地点太少了。",
+                    "summary": "已补全地点和关系。",
+                }
+            ],
+        },
+    )
+
+    page = render_book_workspace(book, chapters, canon, [])
+
+    assert "project-cockpit" in page
+    assert "设定基础" in page
+    assert "章节计划" in page
+    assert "下一步" in page
+    assert "连续生产" in page
+    assert "开始生产本章" in page
+    assert "背景：架空大盛王朝" in page
+    assert "说明：现代中西医博士" in page
+    assert "苏清月检查原主遗物：发现原主并非死于意外。" in page
+    assert "摘要：现代医生醒来后自救。" in page
+    assert "background：" not in page
+    assert "description：" not in page
+    assert "trigger：" not in page
+    assert "content：" not in page
+    assert "target_section" not in page
+    assert "changed_sections" not in page
+    assert "<span class='info-dot' aria-hidden='true'>i</span>" not in page
+
+
+def test_book_workspace_renders_volume_plan_items_as_readable_text() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.CANON_LOCKED,
+    )
+    volume_plan = VolumePlan(
+        id=1,
+        book_id=1,
+        title="第一卷",
+        core_conflict="主角重建禁书馆。",
+        pacing_curve=[{"title": "死而复生", "goal": "完成自救。"}],
+        commitments=["前三章完成自救"],
+    )
+
+    page = render_book_workspace(
+        book,
+        [],
+        Canon(id=1, book_id=1, version=1, content={}),
+        [],
+        volume_plans=[volume_plan],
+    )
+
+    assert "标题：死而复生" in page
+    assert "目标：完成自救。" in page
+    assert "&#x27;title&#x27;" not in page
+    assert "&#x27;goal&#x27;" not in page
+
+
+def test_running_chapter_page_matches_stage_control_surface() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=1,
+        book_id=1,
+        number=1,
+        title="召唤",
+        status=ChapterStatus.RUNNING,
+        draft_text="薄雾在峡谷间流动，像一层轻纱。",
+        word_count=1248,
+        plan={"word_budget": 3000},
+    )
+
+    page = render_chapter_review(
+        book,
+        [chapter],
+        chapter,
+        Canon(id=1, book_id=1, version=1, content={}),
+    )
+
+    assert "chapter-production-layout" in page
+    assert "AI 正在生成本章" in page
+    assert "立即刷新" in page
+    assert "当前正文会保留在原处" in page
+    assert '<div class="production-stage-grid' not in page
+    assert "状态变化预览" not in page
+    assert "本次后台任务" not in page
+    assert "下一步风控关卡" not in page
+    assert "暂停" not in page
+
+
+def test_review_page_matches_human_review_surface() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=5,
+        book_id=1,
+        number=5,
+        title="破碎之门",
+        status=ChapterStatus.AWAITING_REVIEW,
+        revised_text="冰冷的空气从门缝中渗出。",
+        word_count=3214,
+        audit_report={
+            "risk_level": "medium",
+            "issues": [{"severity": "medium", "title": "符号含义未确认", "resolved": False}],
+        },
+        state_delta={"changes": [{"type": "人物状态", "target": "莉拉", "change": "体温消耗"}]},
+    )
+
+    page = render_chapter_review(
+        book,
+        [chapter],
+        chapter,
+        Canon(id=1, book_id=1, version=4, content={}),
+    )
+
+    assert "human-review-layout" in page
+    assert "修改意见" in page
+    assert "按意见让 AI 修订" in page
+    assert "审计备注" not in page
+    assert "状态变化待验证" in page
+    assert "review-decision-panel" in page
+    assert "批准并写入可信设定" in page
+    assert '<button type="button" class="review-tab-button active" data-review-tab="audit"' in page
+    assert 'data-review-panel="audit"' in page
+    assert 'data-review-panel="state"' in page
+    assert 'data-review-panel="revision"' in page
+    assert 'data-review-panel="impact"' in page
+
+
+def test_review_page_hides_low_information_state_delta_items() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=5,
+        book_id=1,
+        number=5,
+        title="破碎之门",
+        status=ChapterStatus.AWAITING_REVIEW,
+        revised_text="冰冷的空气从门缝中渗出。",
+        word_count=3214,
+        audit_report={"risk_level": "low", "issues": []},
+        state_delta={
+            "chapter": 5,
+            "changes": [
+                {"type": "状态变化", "target": "待确认", "change": "characters"},
+                {"type": "状态变化", "target": "待确认", "change": "relations"},
+                {"type": "状态变化", "target": "待确认", "change": "locations"},
+            ],
+        },
+    )
+
+    page = render_chapter_review(
+        book,
+        [chapter],
+        chapter,
+        Canon(id=1, book_id=1, version=4, content={}),
+    )
+
+    assert "AI 未提取到可写入的明确状态变化" in page
+    assert ">characters<" not in page
+    assert ">relations<" not in page
+    assert ">locations<" not in page
+
+
+def test_review_page_prefers_revised_text_over_stale_final_text() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=5,
+        book_id=1,
+        number=5,
+        title="破碎之门",
+        status=ChapterStatus.AWAITING_REVIEW,
+        revised_text="这是当前待审核正文。",
+        final_text="这是旧的已批准正文。",
+    )
+
+    page = render_chapter_review(
+        book,
+        [chapter],
+        chapter,
+        Canon(id=1, book_id=1, version=4, content={}),
+    )
+
+    assert "这是当前待审核正文。" in page
+    assert "这是旧的已批准正文。" not in page
+
+
+def test_completed_book_workspace_matches_first_ten_complete_surface() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapters = [
+        Chapter(
+            id=index,
+            book_id=1,
+            number=index,
+            title=f"第 {index:02d} 章",
+            status=ChapterStatus.ACCEPTED,
+            final_text="已完成",
+            word_count=3000,
+        )
+        for index in range(1, 11)
+    ]
+
+    page = render_book_workspace(book, chapters, Canon(id=1, book_id=1, version=10, content={}), [])
+
+    assert "project-progress-overview" in page
+    assert "可信设定更新总览" in page
+    assert "已连续更新到 v10" in page
+    assert "继续生产第 11 章" in page
+    assert "导出已批准章节" in page

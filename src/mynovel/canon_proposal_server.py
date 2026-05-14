@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
+from threading import Thread
 from typing import Any
 
 from sqlmodel import Session
@@ -21,10 +22,13 @@ from mynovel.product_views import is_provider_config_complete
 from mynovel.workflows.canon_proposal import (
     SECTION_REGISTRY,
     apply_canon_proposal_revision,
+    complete_canon_proposal_revision_job,
     content_hash,
     create_canon_proposal_revision,
+    create_canon_proposal_revision_job,
     discard_canon_proposal_revision,
     locks_hash,
+    mark_canon_proposal_revision_failed,
     section_locks_for_book,
     set_canon_proposal_section_lock,
 )
@@ -111,14 +115,52 @@ def handle_create_canon_proposal_revision(
     form: dict[str, str],
     db_path: Path,
     model_client=None,
+    start_background: bool = True,
 ) -> CanonProposalServerResponse:
     book_id = _parse_int(form.get("book_id"))
     target_section = form.get("target_section", "")
     instruction = form.get("instruction", "")
     if not instruction.strip():
         return _bad_request(ValueError("Canon proposal revision instruction is required."))
+    if model_client is not None:
+        return _handle_create_canon_proposal_revision_inline(
+            book_id,
+            target_section,
+            instruction,
+            db_path,
+            model_client,
+        )
     try:
-        client = model_client or _model_client_from_db(db_path)
+        client = _model_client_from_db(db_path)
+        engine = create_engine_for_path(db_path)
+        create_db_and_tables(engine)
+        with Session(engine) as session:
+            revision = create_canon_proposal_revision_job(
+                session,
+                book_id,
+                target_section,
+                instruction,
+            )
+    except ValueError as error:
+        return _bad_request(error)
+    except Exception as error:  # noqa: BLE001
+        return _bad_gateway(error)
+    revision_id = revision.id or 0
+    if start_background:
+        _start_canon_proposal_revision_job(db_path, revision_id, client)
+    return CanonProposalServerResponse(
+        redirect_to=f"/book/{book_id or 0}/state?revision_id={revision_id}#canon-revision-job"
+    )
+
+
+def _handle_create_canon_proposal_revision_inline(
+    book_id: int | None,
+    target_section: str,
+    instruction: str,
+    db_path: Path,
+    model_client,
+) -> CanonProposalServerResponse:
+    try:
         engine = create_engine_for_path(db_path)
         create_db_and_tables(engine)
         with Session(engine) as session:
@@ -127,7 +169,7 @@ def handle_create_canon_proposal_revision(
                 book_id,
                 target_section,
                 instruction,
-                client,
+                model_client,
             )
     except ValueError as error:
         return _bad_request(error)
@@ -191,7 +233,12 @@ def load_pending_canon_proposal_revision_for_book(
         if (
             revision is None
             or revision.book_id != book_id
-            or revision.status != CanonProposalRevisionStatus.PENDING
+            or revision.status
+            not in {
+                CanonProposalRevisionStatus.RUNNING,
+                CanonProposalRevisionStatus.PENDING,
+                CanonProposalRevisionStatus.FAILED,
+            }
         ):
             return None
         book = get_book(session, book_id)
@@ -205,6 +252,34 @@ def load_pending_canon_proposal_revision_for_book(
         ):
             return None
         return revision
+
+
+def _start_canon_proposal_revision_job(
+    db_path: Path,
+    revision_id: int,
+    model_client,
+) -> None:
+    thread = Thread(
+        target=_run_canon_proposal_revision_job,
+        args=(db_path, revision_id, model_client),
+        daemon=True,
+    )
+    thread.start()
+
+
+def _run_canon_proposal_revision_job(
+    db_path: Path,
+    revision_id: int,
+    model_client,
+) -> None:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    try:
+        with Session(engine) as session:
+            complete_canon_proposal_revision_job(session, revision_id, model_client)
+    except Exception as error:  # noqa: BLE001
+        with Session(engine) as session:
+            mark_canon_proposal_revision_failed(session, revision_id, str(error))
 
 
 def _model_client_from_db(db_path: Path) -> OpenAICanonProposalModelClient:
