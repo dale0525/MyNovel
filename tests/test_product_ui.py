@@ -1150,6 +1150,46 @@ def test_running_chapter_page_uses_translations_for_task_board_copy(monkeypatch)
     assert "无审计问题_TEST" in page
 
 
+def test_running_chapter_page_uses_translations_for_mode_and_chapter_number(monkeypatch) -> None:
+    locale = "test-locale"
+    monkeypatch.setitem(TRANSLATIONS, locale, dict(TRANSLATIONS["zh-CN"]))
+    monkeypatch.setitem(TRANSLATIONS[locale], "running_board.mode_generate", "AI 生成_TEST")
+    monkeypatch.setitem(
+        TRANSLATIONS[locale],
+        "running_board.mode_generate_status",
+        "阶段状态_TEST",
+    )
+    monkeypatch.setitem(TRANSLATIONS[locale], "chapter.number", "章节编号_TEST {number}")
+
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=1,
+        book_id=1,
+        number=3,
+        title="召唤",
+        status=ChapterStatus.RUNNING,
+        plan={"word_budget": 3000},
+    )
+
+    page = render_chapter_review(
+        book,
+        [chapter],
+        chapter,
+        Canon(id=1, book_id=1, version=1, content={}),
+        locale=locale,
+    )
+
+    assert page.count("AI 生成_TEST") == 2
+    assert page.count("阶段状态_TEST") == 2
+    assert "章节编号_TEST 3 召唤" in page
+
+
 def test_completed_book_workspace_matches_first_ten_complete_surface() -> None:
     book = Book(
         id=1,

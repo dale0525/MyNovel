@@ -346,13 +346,13 @@ def render_chapter_production_main(
     target_words = chapter_word_budget(chapter)
     current_text = _current_chapter_candidate(chapter)
     current_words = chapter.word_count or len(current_text)
-    mode_title, status_copy = _chapter_running_mode(chapter)
+    mode_title, status_copy = _chapter_running_mode(chapter, locale)
     return f"""
       <section class="reader-panel production-main chapter-task-board">
         <div class="chapter-toolbar">
           <div>
             <p class="muted">{html.escape(status_copy)}</p>
-            <h1>第 {chapter.number:02d} 章 {html.escape(chapter.title)}</h1>
+            <h1>{t("chapter.number", locale, number=chapter.number)} {html.escape(chapter.title)}</h1>
           </div>
           <div class="toolbar-metrics">
             <span>{t("running_board.word_stats", locale, current=current_words, target=format_word_count(target_words))}</span>
