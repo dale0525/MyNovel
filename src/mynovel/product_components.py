@@ -18,7 +18,7 @@ from mynovel.workflows.canon_proposal import (
     section_locks_for_book,
 )
 from mynovel.word_targets import chapter_word_budget, format_word_count
-from mynovel.i18n import DEFAULT_LOCALE
+from mynovel.i18n import DEFAULT_LOCALE, t
 
 
 def render_model_setup_content(
@@ -339,18 +339,16 @@ def _render_revision_gate_state(
     return gate_title, status, gate_copy, confirmation, actions
 
 
-def render_chapter_production_main(chapter: Chapter) -> str:
+def render_chapter_production_main(
+    chapter: Chapter,
+    locale: str = DEFAULT_LOCALE,
+) -> str:
     target_words = chapter_word_budget(chapter)
     current_text = _current_chapter_candidate(chapter)
     current_words = chapter.word_count or len(current_text)
     mode_title, status_copy = _chapter_running_mode(chapter)
-    text_preview = (
-        html.escape(current_text).replace(chr(10), "<br>")
-        if current_text
-        else "正文尚未生成，后台完成后会自动刷新。"
-    )
     return f"""
-      <section class="reader-panel production-main">
+      <section class="reader-panel production-main chapter-task-board">
         <div class="chapter-toolbar">
           <div>
             <p class="muted">{html.escape(status_copy)}</p>
@@ -364,25 +362,49 @@ def render_chapter_production_main(chapter: Chapter) -> str:
         <section class="run-status-strip">
           <div>
             <strong>{html.escape(mode_title)}</strong>
-            <span>当前正文会保留在原处，后台完成后自动刷新为新候选。</span>
+            <span>{t("running_board.refresh_copy", locale)}</span>
             {_running_note_line(chapter)}
           </div>
           <a class="button secondary" href="/chapter/{chapter.id or 0}">立即刷新</a>
         </section>
-        <article class="chapter-text running-chapter-text">{text_preview}</article>
+        <section class="chapter-stage-chain" aria-label="{html.escape(t('running_board.stage_chain', locale), quote=True)}">
+          {_render_stage_chain(chapter, locale)}
+        </section>
+        <section class="chapter-result-grid">
+          {_render_result_slot("plan", t("running_board.slot_plan", locale), chapter.plan, _slot_ready_copy("plan", locale), _slot_waiting_copy("plan", locale))}
+          {_render_result_slot("context", t("running_board.slot_context", locale), chapter.context_package, _slot_ready_copy("context", locale), _slot_waiting_copy("context", locale))}
+          {_render_result_slot("draft", t("running_board.slot_draft", locale), current_text, _slot_ready_copy("draft", locale), _slot_waiting_copy("draft", locale))}
+          {_render_result_slot("delta", t("running_board.slot_delta", locale), chapter.state_delta.get("changes", []), _slot_ready_copy("delta", locale), _slot_waiting_copy("delta", locale))}
+          {_render_result_slot("audit", t("running_board.slot_audit", locale), chapter.audit_report.get("issues", []), _slot_ready_copy("audit", locale), _slot_waiting_copy("audit", locale))}
+        </section>
         <script>setTimeout(() => window.location.reload(), 3000)</script>
       </section>
 """
 
 
-def render_chapter_production_aside(chapter: Chapter) -> str:
+def render_chapter_production_aside(
+    chapter: Chapter,
+    locale: str = DEFAULT_LOCALE,
+) -> str:
     mode_title, status_copy = _chapter_running_mode(chapter)
+    current_stage = _running_stage_key(chapter)
+    target_words = chapter_word_budget(chapter)
+    current_text = _current_chapter_candidate(chapter)
+    current_words = chapter.word_count or len(current_text)
     return f"""
       <aside class="right-panel production-aside">
         <section class="current-run">
           <h2>{html.escape(mode_title)}</h2>
           <p><span class="status-dot warn"></span>{html.escape(status_copy)}</p>
           {_render_running_request(chapter)}
+        </section>
+        <section class="current-run">
+          <h2>{t("running_board.side_status", locale)}</h2>
+          <dl class="revision-metrics">
+            <dt>{t("running_board.side_current_stage", locale)}</dt><dd>{html.escape(_stage_title(current_stage, locale))}</dd>
+            <dt>{t("running_board.side_word_progress", locale)}</dt><dd>{current_words} / {html.escape(format_word_count(target_words))}</dd>
+            <dt>{t("running_board.side_next_decision", locale)}</dt><dd>{t("running_board.side_next_decision_copy", locale)}</dd>
+          </dl>
         </section>
         <a class="button secondary" href="/chapter/{chapter.id or 0}">立即刷新</a>
       </aside>
@@ -400,33 +422,142 @@ def _current_chapter_candidate(chapter: Chapter) -> str:
     return chapter.revised_text or chapter.draft_text or chapter.final_text or ""
 
 
-def _running_stage_card(
-    chapter: Chapter,
-    number: int,
-    title: str,
-    completed: bool,
-    copy: str,
-) -> str:
-    if completed:
-        return _stage_card(number, title, "已完成", copy, "done")
-    current = _current_running_stage_number(chapter)
-    if number == current:
-        return _stage_card(number, title, "进行中", copy, "current")
-    return _stage_card(number, title, "等待中", copy, "pending")
+def _render_stage_chain(chapter: Chapter, locale: str) -> str:
+    current_key = _running_stage_key(chapter)
+    stage_keys = ("plan", "context", "draft", "delta", "audit")
+    items = []
+    for index, key in enumerate(stage_keys, start=1):
+        if index > 1:
+            items.append('<span class="chapter-stage-link" aria-hidden="true"></span>')
+        state = _stage_state(chapter, key, current_key)
+        items.append(
+            f'<article class="chapter-stage {state}" data-stage="{html.escape(key, quote=True)}">'
+            f"<span>{index}</span>"
+            f"<strong>{html.escape(_stage_title(key, locale))}</strong>"
+            f"<em>{html.escape(_stage_status_label(state, locale))}</em>"
+            f"<p>{html.escape(_stage_copy(key, state, locale))}</p>"
+            "</article>"
+        )
+    return "".join(items)
 
 
-def _current_running_stage_number(chapter: Chapter) -> int:
+def _running_stage_key(chapter: Chapter) -> str:
     if not chapter.plan:
-        return 1
+        return "plan"
     if not chapter.context_package:
-        return 2
-    if not chapter.draft_text:
-        return 3
+        return "context"
+    if not _current_chapter_candidate(chapter):
+        return "draft"
     if not chapter.state_delta.get("changes"):
-        return 4
+        return "delta"
     if not chapter.audit_report.get("issues"):
-        return 5
-    return 6
+        return "audit"
+    return "audit"
+
+
+def _stage_state(chapter: Chapter, key: str, current_key: str) -> str:
+    if key == "plan" and chapter.plan:
+        return "done"
+    if key == "context" and chapter.context_package:
+        return "done"
+    if key == "draft" and _current_chapter_candidate(chapter):
+        return "done"
+    if key == "delta" and chapter.state_delta.get("changes"):
+        return "done"
+    if key == "audit" and chapter.audit_report.get("issues"):
+        return "done"
+    if key == current_key:
+        return "current"
+    return "pending"
+
+
+def _stage_title(key: str, locale: str) -> str:
+    return {
+        "plan": t("pipeline.plan", locale),
+        "context": t("pipeline.context", locale),
+        "draft": t("pipeline.draft_cn", locale),
+        "delta": t("pipeline.extract", locale),
+        "audit": t("pipeline.audit", locale),
+    }[key]
+
+
+def _stage_status_label(state: str, locale: str) -> str:
+    return {
+        "done": t("running_board.stage_done", locale),
+        "current": t("running_board.stage_current", locale),
+        "pending": t("running_board.stage_pending", locale),
+    }[state]
+
+
+def _stage_copy(key: str, state: str, locale: str) -> str:
+    if state == "done":
+        return _slot_ready_copy(key, locale)
+    if state == "current":
+        return _slot_waiting_copy(key, locale)
+    return t("running_board.stage_pending_copy", locale)
+
+
+def _render_result_slot(
+    slot: str,
+    title: str,
+    value: Any,
+    ready_copy: str,
+    waiting_copy: str,
+) -> str:
+    ready = _has_slot_value(slot, value)
+    preview = _render_result_slot_preview(slot, value)
+    status = ready_copy if ready else waiting_copy
+    state = "ready" if ready else "pending"
+    return f"""
+      <article class="chapter-result-slot {state}" data-slot="{html.escape(slot, quote=True)}">
+        <header>
+          <strong>{html.escape(title)}</strong>
+          <span>{html.escape(status)}</span>
+        </header>
+        <div class="chapter-slot-preview">{preview}</div>
+      </article>
+"""
+
+
+def _has_slot_value(slot: str, value: Any) -> bool:
+    if slot in {"plan", "context"}:
+        return isinstance(value, dict) and bool(value)
+    if slot == "draft":
+        return bool(str(value or "").strip())
+    if slot in {"delta", "audit"}:
+        return isinstance(value, list) and bool(value)
+    return bool(value)
+
+
+def _render_result_slot_preview(slot: str, value: Any) -> str:
+    if not _has_slot_value(slot, value):
+        return "<p>待产出</p>"
+    if slot == "draft":
+        text = html.escape(str(value)[:180])
+        if len(str(value)) > 180:
+            text += "..."
+        return f"<p>{text}</p>"
+    return _render_value(value)
+
+
+def _slot_ready_copy(key: str, locale: str) -> str:
+    return {
+        "plan": t("running_board.plan_ready", locale),
+        "context": t("running_board.context_ready", locale),
+        "draft": t("running_board.draft_ready", locale),
+        "delta": t("running_board.delta_ready", locale),
+        "audit": t("running_board.audit_ready", locale),
+    }[key]
+
+
+def _slot_waiting_copy(key: str, locale: str) -> str:
+    return {
+        "plan": t("running_board.plan_waiting", locale),
+        "context": t("running_board.context_waiting", locale),
+        "draft": t("running_board.draft_waiting", locale),
+        "delta": t("running_board.delta_waiting", locale),
+        "audit": t("running_board.audit_waiting", locale),
+    }[key]
 
 
 def _render_running_request(chapter: Chapter) -> str:

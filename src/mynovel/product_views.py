@@ -28,13 +28,19 @@ from mynovel.open_book_views import (
 )
 from mynovel.product_components import (
     render_canon_gate_aside,
+    render_chapter_production_aside,
     render_chapter_production_main,
     render_completed_aside,
     render_completed_progress,
     render_model_setup_content,
 )
+from mynovel.workspace_views import render_workspace_focus_card, render_workspace_result_sidebar
 from mynovel.ui_shell import PipelineStep, render_app_page, render_pipeline, render_project_sidebar
-from mynovel.ui_status_views import render_global_status_strip
+from mynovel.ui_status_views import (
+    render_global_status_strip,
+    render_running_chapter_status_strip,
+    render_workspace_status_strip,
+)
 from mynovel.word_target_views import render_word_target_form
 from mynovel.word_targets import DEFAULT_CHAPTER_WORD_COUNT, DEFAULT_TARGET_WORD_COUNT
 
@@ -198,48 +204,31 @@ def render_book_workspace(
     all_first_ten_done = len(chapters) >= 10 and all(
         chapter.status == ChapterStatus.ACCEPTED for chapter in chapters[:10]
     )
+    content_class = "content-grid"
+    status_strip = None
     if all_first_ten_done:
         center = render_completed_progress(book, chapters, canon)
         aside = render_completed_aside(book, canon)
     else:
-        center = f"""
-      <section class="main-panel project-cockpit">
-        <div class="panel-head">
-          <div>
-            <h1>{html.escape(book.title)}</h1>
-            <p>{_book_status_label(book.status, locale)} · {html.escape(book.genre)} · {html.escape(book.audience)}</p>
-          </div>
-          <span class="status-pill trusted">{t("trusted_state.locked", locale)}</span>
-        </div>
-        <div class="metric-grid">
-          <div><strong>{len([c for c in chapters if c.status == ChapterStatus.ACCEPTED])}</strong><span>{t("dashboard.accepted", locale)}</span></div>
-          <div><strong>{len([c for c in chapters if c.status == ChapterStatus.AWAITING_REVIEW])}</strong><span>{t("dashboard.reviewing", locale)}</span></div>
-          <div><strong>{len(chapters)}</strong><span>{t("dashboard.chapter_plan", locale)}</span></div>
-        </div>
-        <div class="actions state-link">
-          <a class="button secondary" href="/book/{book.id}/state">{t("trusted_state.open", locale)}</a>
-          <a class="button secondary" href="/book/{book.id}/quality">{t("quality.open", locale)}</a>
-          <a class="button secondary" href="/book/{book.id}/export.md">{t("export.markdown", locale)}</a>
-          <a class="button secondary" href="/book/{book.id}/export.json">{t("export.json", locale)}</a>
-        </div>
-        <h2>设定基础 <span class="muted">概览（来自可信设定）</span></h2>
-        {_render_foundation_board(canon, locale)}
-        {_render_volume_plan_board(volume_plans or [])}
-        {_render_chapter_table(chapters, locale)}
-      </section>
-"""
-        aside = f"""
-      <aside class="right-panel cockpit-aside">
-        <h2>{t("dashboard.next_action", locale)} <span class="status-pill trusted">2</span></h2>
-        {_render_next_action(active_chapter, locale)}
-        <h2>{t("batch.title", locale)}</h2>
-        {_render_batch_action(book, active_chapter, locale)}
-        <h2>目标字数</h2>
-        {render_word_target_form(book)}
-        <h2>{t("dashboard.recent_trace", locale)}</h2>
-        {_render_trace_list(traces, locale)}
-      </aside>
-"""
+        center = render_workspace_focus_card(
+            book,
+            chapters,
+            active_chapter,
+            canon,
+            volume_plans or [],
+            _render_workspace_primary_action(active_chapter, locale),
+            locale,
+        )
+        aside = render_workspace_result_sidebar(
+            canon,
+            traces,
+            _render_workspace_project_actions(book, locale),
+            render_word_target_form(book),
+            _render_batch_action(book, active_chapter, locale),
+            locale,
+        )
+        content_class = "content-grid workspace-focus-layout"
+        status_strip = render_workspace_status_strip(book, active_chapter, locale)
     main = f"""
       {_render_book_sidebar(book, chapters, locale)}
       {center}
@@ -253,6 +242,8 @@ def render_book_workspace(
         bottom=_render_production_pipeline(None, locale),
         locale=locale,
         nav_book_id=book.id,
+        content_class=content_class,
+        status_strip=status_strip,
     )
 
 
@@ -309,8 +300,9 @@ def render_chapter_review(
 ) -> str:
     if chapter.status == ChapterStatus.RUNNING:
         main = f"""
-      {_render_book_sidebar(book, chapters, locale)}
-      {render_chapter_production_main(chapter)}
+      {_render_book_sidebar(book, chapters, locale, active_chapter_id=chapter.id)}
+      {render_chapter_production_main(chapter, locale)}
+      {render_chapter_production_aside(chapter, locale)}
 """
         return _page(
             title=chapter.title,
@@ -322,10 +314,11 @@ def render_chapter_review(
             eyebrow="章节生产",
             content_class="content-grid production-layout chapter-production-layout",
             nav_book_id=book.id,
+            status_strip=render_running_chapter_status_strip(chapter, locale),
         )
 
     main = f"""
-      {_render_book_sidebar(book, chapters, locale)}
+      {_render_book_sidebar(book, chapters, locale, active_chapter_id=chapter.id)}
       <section class="reader-panel">
         <div class="chapter-toolbar">
           <div>
@@ -390,8 +383,43 @@ def _page(
     )
 
 
-def _render_book_sidebar(book: Book, chapters: list[Chapter], locale: str) -> str:
-    return render_project_sidebar(book, chapters, locale=locale)
+def _render_book_sidebar(
+    book: Book,
+    chapters: list[Chapter],
+    locale: str,
+    active_chapter_id: int | None = None,
+) -> str:
+    return render_project_sidebar(
+        book,
+        chapters,
+        active_chapter_id=active_chapter_id,
+        locale=locale,
+    )
+
+
+def _render_workspace_primary_action(chapter: Chapter | None, locale: str) -> str:
+    if chapter is None:
+        return (
+            '<a class="button secondary" href="/review">'
+            f"{t('workspace.open_review_queue', locale)}</a>"
+        )
+    if chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION, ChapterStatus.RUNNING}:
+        return f"<a class='button' href='/chapter/{chapter.id}'>{t('workspace.open_current_chapter', locale)}</a>"
+    return f"""
+      <form method="post" action="/run-chapter" class="compact-form">
+        <input type="hidden" name="chapter_id" value="{chapter.id}">
+        <button type="submit">{t("action.run_chapter", locale)}</button>
+      </form>
+"""
+
+
+def _render_workspace_project_actions(book: Book, locale: str) -> str:
+    return f"""
+      <a class="button secondary" href="/book/{book.id}/state">{t("trusted_state.open", locale)}</a>
+      <a class="button secondary" href="/book/{book.id}/quality">{t("quality.open", locale)}</a>
+      <a class="button secondary" href="/book/{book.id}/export.md">{t("export.markdown", locale)}</a>
+      <a class="button secondary" href="/book/{book.id}/export.json">{t("export.json", locale)}</a>
+"""
 
 
 def _render_foundation_board(canon: Canon | None, locale: str) -> str:

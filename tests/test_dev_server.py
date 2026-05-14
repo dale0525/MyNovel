@@ -11,7 +11,9 @@ from mynovel.dev_server import (
     _parse_book_state_id,
     _review_destination,
     build_health_payload,
+    render_book_workspace,
     render_blueprint_page,
+    render_chapter_review,
     render_home,
     run_server,
 )
@@ -132,6 +134,63 @@ def test_home_page_renders_focused_next_action_language() -> None:
     assert "你现在只需要做什么" in page
     assert "开书方案 · 生成完成" in page
     assert "可以开始创建书籍并调用本地模型。" not in page
+
+
+def test_book_workspace_rendered_via_dev_server_focuses_current_action() -> None:
+    book = Book(
+        id=3,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="连载读者",
+        status=BookStatus.CANON_LOCKED,
+    )
+    chapters = [
+        Chapter(id=1, book_id=3, number=1, title="召唤", status=ChapterStatus.PLANNED),
+        Chapter(id=2, book_id=3, number=2, title="穿越迷雾", status=ChapterStatus.PLANNED),
+    ]
+    canon = Canon(
+        id=1,
+        book_id=3,
+        version=1,
+        content={"characters": [{"name": "罗文", "detail": "石匠学徒"}]},
+    )
+
+    page = render_book_workspace(book, chapters, canon, [])
+
+    assert "workspace-focus-card" in page
+    assert "推进第 01 章" in page
+    assert "可信设定摘要" in page
+    assert 'class="main-panel project-cockpit"' not in page
+
+
+def test_running_chapter_rendered_via_dev_server_shows_stage_chain_and_slots() -> None:
+    book = Book(
+        id=3,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="连载读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=5,
+        book_id=3,
+        number=5,
+        title="雾门",
+        status=ChapterStatus.RUNNING,
+        plan={"word_budget": 3200, "beat": "潜入雾门"},
+        context_package={"canon": "雾门规则", "characters": ["罗文", "莉拉"]},
+        draft_text="罗文把手按在雾门表面。",
+        word_count=1350,
+    )
+
+    page = render_chapter_review(book, [chapter], chapter, Canon(id=1, book_id=3, version=1, content={}))
+
+    assert "chapter-task-board" in page
+    assert "chapter-stage-chain" in page
+    assert 'data-slot="plan"' in page
+    assert 'data-slot="audit"' in page
+    assert "章节规划" in page
+    assert "待产出" in page
 
 
 def test_home_page_normalizes_windows_database_path() -> None:

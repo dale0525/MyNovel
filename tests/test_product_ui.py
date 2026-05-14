@@ -457,11 +457,11 @@ def test_running_chapter_page_exposes_production_control_panels() -> None:
     assert "3,200" in page
     assert "自动刷新" in page
     assert "setTimeout(() => window.location.reload(), 3000)" in page
-    assert "当前正文会保留在原处" in page
-    assert '<div class="production-stage-grid' not in page
-    assert "上下文包" not in page
-    assert "状态变化预览" not in page
-    assert "本次后台任务" not in page
+    assert "阶段完成后会自动刷新" in page
+    assert "chapter-stage-chain" in page
+    assert "chapter-result-grid" in page
+    assert "上下文包" in page
+    assert "本次后台任务" in page
     assert "本地模型" not in page
     assert "68%" not in page
     assert "今天 14:32" not in page
@@ -963,12 +963,15 @@ def test_book_workspace_matches_project_cockpit_surface() -> None:
 
     page = render_book_workspace(book, chapters, canon, [])
 
-    assert "project-cockpit" in page
-    assert "设定基础" in page
-    assert "章节计划" in page
-    assert "下一步" in page
-    assert "连续生产" in page
+    assert "workspace-focus-layout" in page
+    assert "workspace-focus-card" in page
+    assert "workspace-result-sidebar" in page
+    assert "当前任务" in page
+    assert "推进第 01 章" in page
     assert "开始生产本章" in page
+    assert "AI 最近进展" in page
+    assert "可信设定摘要" in page
+    assert "章节队列" in page
     assert "背景：架空大盛王朝" in page
     assert "说明：现代中西医博士" in page
     assert "苏清月检查原主遗物：发现原主并非死于意外。" in page
@@ -979,6 +982,7 @@ def test_book_workspace_matches_project_cockpit_surface() -> None:
     assert "content：" not in page
     assert "target_section" not in page
     assert "changed_sections" not in page
+    assert 'class="main-panel project-cockpit"' not in page
     assert "<span class='info-dot' aria-hidden='true'>i</span>" not in page
 
 
@@ -1027,9 +1031,8 @@ def test_running_chapter_page_matches_stage_control_surface() -> None:
         number=1,
         title="召唤",
         status=ChapterStatus.RUNNING,
-        draft_text="薄雾在峡谷间流动，像一层轻纱。",
-        word_count=1248,
         plan={"word_budget": 3000},
+        context_package={"canon": "雾门规则", "characters": ["罗文", "莉拉"]},
     )
 
     page = render_chapter_review(
@@ -1040,14 +1043,29 @@ def test_running_chapter_page_matches_stage_control_surface() -> None:
     )
 
     assert "chapter-production-layout" in page
-    assert "AI 正在生成本章" in page
+    assert "chapter-task-board" in page
+    assert "chapter-stage-chain" in page
+    assert "chapter-result-grid" in page
+    assert 'data-stage="plan"' in page
+    assert 'data-stage="context"' in page
+    assert 'data-stage="draft"' in page
+    assert 'data-stage="delta"' in page
+    assert 'data-stage="audit"' in page
+    assert 'data-slot="plan"' in page
+    assert 'data-slot="context"' in page
+    assert 'data-slot="draft"' in page
+    assert 'data-slot="delta"' in page
+    assert 'data-slot="audit"' in page
+    assert "章节规划" in page
+    assert "上下文包" in page
+    assert "草稿正文" in page
+    assert "状态变化" in page
+    assert "审计结果" in page
     assert "立即刷新" in page
-    assert "当前正文会保留在原处" in page
-    assert '<div class="production-stage-grid' not in page
-    assert "状态变化预览" not in page
-    assert "本次后台任务" not in page
-    assert "下一步风控关卡" not in page
-    assert "暂停" not in page
+    assert "正在生成草稿" in page
+    assert "待产出" in page
+    assert "已生成章节规划" in page
+    assert "已编译上下文包" in page
 
 
 def test_completed_book_workspace_matches_first_ten_complete_surface() -> None:
