@@ -76,6 +76,7 @@ def render_generating_blueprint(
           <p><strong>模型</strong><span>{model_label}</span></p>
           <p><strong>提示词编号</strong><span>open_book_v0.1.0</span></p>
           <p><strong>自动刷新</strong><span>{t("blueprint.auto_refreshing_hint", locale)}</span></p>
+          <p><strong>完成后动作</strong><span>{t("blueprint.generating_next", locale)}</span></p>
         </div>
         <div class="actions">
           <a class="button secondary" href="{href}">{t("blueprint.refresh_now", locale)}</a>

@@ -111,6 +111,26 @@ def test_new_book_idea_field_is_multiline() -> None:
     assert "系统将生成什么" in page
 
 
+def test_new_book_flow_uses_explicit_action_and_result_copy() -> None:
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-test",
+    )
+
+    page = render_new_book_page(provider_config)
+
+    assert "点击“生成开书方案”后" in page
+    assert "先生成几条可比较的开书方向，接着由你选定一个书名去生成可信设定定盘预览。" in page
+    assert "锁定可信设定，再开始章节生产" in page
+    assert "点击这个按钮后，系统会把开书方向整理成可挑选的方案页。" in page
+    assert "提交后" not in page
+    assert "确认进入生产" not in page
+    assert "整理给你确认" not in page
+
+
 def test_pending_blueprint_uses_configured_model_and_hides_unpriced_cost() -> None:
     provider_config = ProviderConfig(
         llm_base_url="https://api.example.test/v1",
@@ -165,6 +185,32 @@ def test_blueprint_proposal_cards_are_clickable_and_drive_selected_detail() -> N
     assert '{"name":' not in page
     assert '{"premise":' not in page
     assert "selectBlueprintCandidate" in page
+
+
+def test_blueprint_flow_uses_explicit_selection_and_foundation_actions() -> None:
+    review_page = render_blueprint_page(
+        Path(".mynovel/dev.sqlite"), None, _blueprint_with_distinct_candidates()
+    )
+    generating_page = render_blueprint_page(
+        Path(".mynovel/dev.sqlite"),
+        None,
+        OpenBookBlueprint(
+            id=9,
+            idea="失意档案员重建禁书馆",
+            version=1,
+            status=BlueprintStatus.PENDING,
+            instruction=None,
+            content={},
+            raw_response="",
+        ),
+    )
+
+    assert "选定这个书名，生成可信设定定盘预览" in review_page
+    assert "选定书名后才会生成可信设定定盘预览。" in review_page
+    assert "下一步：选定一个书名，生成可信设定定盘预览。" in generating_page
+    assert "确认方案，进入下一步" not in review_page
+    assert "确认书名，进入下一步" not in review_page
+    assert "选择书名并进入可信设定确认" not in generating_page
 
 
 def test_blueprint_selection_script_initializes_after_selected_title_input() -> None:

@@ -41,7 +41,7 @@ def render_blueprint_review(
             <input id="selected_title" name="selected_title" type="hidden" value="{html.escape(selected_title, quote=True)}">
             <h3>当前选择</h3>
             <p class="selected-title-summary" data-selected-title-label>{html.escape(selected_title or "请选择一个方案")}</p>
-            <button type="submit">确认方案，进入下一步 · 可信设定定盘</button>
+            <button type="submit">{t("blueprint.continue", locale)}</button>
           </form>
           <form method="post" action="/revise-blueprint" class="compact-form action-form blueprint-revision-form">
             <input type="hidden" name="blueprint_id" value="{blueprint.id}">

@@ -712,7 +712,7 @@ def test_blueprint_page_renders_structured_blueprint() -> None:
     assert "长夜图书馆" in page
     assert 'name="selected_title"' in page
     assert 'value="长夜图书馆"' in page
-    assert "确认方案，进入下一步" in page
+    assert "选定这个书名，生成可信设定定盘预览" in page
     assert 'type="radio"' not in page
     assert "data-blueprint-detail-panel" in page
     assert 'action="/revise-blueprint"' in page
@@ -759,10 +759,10 @@ def test_blueprint_page_renders_title_required_message() -> None:
         Path(".mynovel/dev.sqlite"),
         provider_config,
         blueprint,
-        message="请选择一个书名后再进入下一步。",
+        message="请先选定一个书名，再生成可信设定定盘预览。",
     )
 
-    assert "请选择一个书名后再进入下一步。" in page
+    assert "请先选定一个书名，再生成可信设定定盘预览。" in page
 
 
 def test_i18n_defaults_to_simplified_chinese() -> None:
