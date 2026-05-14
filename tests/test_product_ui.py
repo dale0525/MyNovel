@@ -20,6 +20,7 @@ from mynovel.product_views import (
     render_new_book_page,
     render_trusted_state_page,
 )
+from mynovel.ui_shell import render_app_page
 
 
 def test_home_page_uses_product_language_without_exposed_english_terms() -> None:
@@ -598,12 +599,44 @@ def test_application_shell_uses_icon_navigation_and_project_context() -> None:
         [],
     )
 
-    assert 'class="app-shell"' in page
+    assert 'class="app-shell app-shell-compact"' in page
     assert 'class="nav-icon"' in page
     assert 'aria-hidden="true"' in page
     assert "项目概览" in page
     assert "300,000 字" in page
     assert "章节队列" in page
+
+
+def test_application_shell_exposes_compact_global_status_strip_tokens() -> None:
+    page = render_home(
+        Path(".mynovel/dev.sqlite"),
+        books=[],
+        provider_config=None,
+        blueprints=[],
+        message=None,
+    )
+
+    assert 'class="app-shell app-shell-compact"' in page
+    assert 'class="global-status-strip"' in page
+    assert "你现在要做" in page
+    assert "AI 正在做" in page
+    assert "完成后你要决定" in page
+    assert "--bg-canvas:" in page
+    assert "--panel-elevated:" in page
+    assert "--accent-strong:" in page
+
+
+def test_application_shell_accepts_custom_status_strip_slot() -> None:
+    page = render_app_page(
+        title="Status Strip Test",
+        active="workspace",
+        main="<section>Body</section>",
+        status_strip='<section class="custom-status-strip">Only this strip</section>',
+    )
+
+    assert 'class="custom-status-strip"' in page
+    assert "Only this strip" in page
+    assert 'class="global-status-strip"' not in page
 
 
 def test_pipeline_renders_stateful_steps_with_icons_and_connectors() -> None:
