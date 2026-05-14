@@ -9,7 +9,20 @@ from mynovel.domain.models import Chapter
 from mynovel.word_targets import parse_word_count
 
 WORD_COUNT_REPAIR_TERMS = ("字数", "篇幅", "达成率", "word count")
-EXPANSION_ADVICE_TERMS = ("扩写", "扩充", "增加", "补充", "加入更多", "更多", "拉长", "拉升", "远低于", "低于", "不足", "偏短")
+EXPANSION_ADVICE_TERMS = (
+    "扩写",
+    "扩充",
+    "增加",
+    "补充",
+    "加入更多",
+    "更多",
+    "拉长",
+    "拉升",
+    "远低于",
+    "低于",
+    "不足",
+    "偏短",
+)
 REDUCTION_ADVICE_TERMS = ("删减", "压缩", "合并", "缩短", "超出", "过长", "偏长")
 WORD_COUNT_MIN_RATIO = 0.9
 WORD_COUNT_MAX_RATIO = 1.15
@@ -217,7 +230,11 @@ def recheck_repair_audit(
     current_text = chapter.revised_text or chapter.draft_text or ""
     current_count = len(current_text)
     word_count_window = _word_count_window_from_plan(chapter)
-    in_window = _word_count_in_window(current_count, word_count_window) if word_count_window is not None else False
+    in_window = (
+        _word_count_in_window(current_count, word_count_window)
+        if word_count_window is not None
+        else False
+    )
     target = parse_word_count(chapter.plan.get("word_budget"))
     addressed = {title.strip() for title in addressed_issue_titles or [] if title.strip()}
     for issue in issues:
@@ -271,7 +288,11 @@ def recheck_repair_audit(
             issue["detail"] = _non_word_issue_recheck_detail(issue.get("detail"), source="text")
             changed = True
 
-    if changed and _all_issues_resolved(issues) and str(audit_report.get("risk_level", "")).lower() != "high":
+    if (
+        changed
+        and _all_issues_resolved(issues)
+        and str(audit_report.get("risk_level", "")).lower() != "high"
+    ):
         audit_report["risk_level"] = "low"
     if changed and word_count_window is not None:
         audit_report["suggestions"] = _refresh_word_count_suggestions(
@@ -317,9 +338,7 @@ def repair_trace_cost(
     response_text: str,
 ) -> dict[str, int]:
     prompt_chars = (
-        sum(len(message["content"]) for message in request.messages)
-        if request is not None
-        else 0
+        sum(len(message["content"]) for message in request.messages) if request is not None else 0
     )
     return {
         "estimated": 0,
@@ -329,7 +348,9 @@ def repair_trace_cost(
     }
 
 
-def repair_trace_prompt_id(request: RepairRequest | None, word_count_repair_mode: str | None) -> str | None:
+def repair_trace_prompt_id(
+    request: RepairRequest | None, word_count_repair_mode: str | None
+) -> str | None:
     if request is None:
         return None
     if word_count_repair_mode is not None:
@@ -406,15 +427,15 @@ def repair_validation_warning(
         return None
     if response_text == source_text:
         return (
-            f"AI 修复未改变正文：当前 {after_count} 字，"
-            f"仍未进入 {minimum}-{maximum} 字目标区间。"
+            f"AI 修复未改变正文：当前 {after_count} 字，仍未进入 {minimum}-{maximum} 字目标区间。"
         )
     if after_count == request.before_word_count:
         return (
-            f"AI 修复未改变字数：当前 {after_count} 字，"
-            f"仍未进入 {minimum}-{maximum} 字目标区间。"
+            f"AI 修复未改变字数：当前 {after_count} 字，仍未进入 {minimum}-{maximum} 字目标区间。"
         )
-    if _word_count_window_distance(after_count, request.word_count_window) > _word_count_window_distance(
+    if _word_count_window_distance(
+        after_count, request.word_count_window
+    ) > _word_count_window_distance(
         request.before_word_count,
         request.word_count_window,
     ):
@@ -520,7 +541,10 @@ def _build_repair_messages(
     )
     return [
         {"role": "system", "content": "你是连载章节修复器。根据审核问题修订小说正文。"},
-        {"role": "user", "content": "\n".join(part for part in instructions if part) + "\n\n" + body},
+        {
+            "role": "user",
+            "content": "\n".join(part for part in instructions if part) + "\n\n" + body,
+        },
     ]
 
 
@@ -571,7 +595,7 @@ def _build_word_count_patch_messages(
             issue_priority,
             allowed_ops,
             count_constraint,
-            f"只返回 JSON，不要返回完整正文。格式：{{\"operations\":[{{\"op\":\"{allowed_op_names}\",\"paragraph_id\":1,\"text\":\"可选\",\"reason\":\"原因\",\"addresses\":[\"审核项标题\"]}}]}}",
+            f'只返回 JSON，不要返回完整正文。格式：{{"operations":[{{"op":"{allowed_op_names}","paragraph_id":1,"text":"可选","reason":"原因","addresses":["审核项标题"]}}]}}',
             _chapter_goal_text(chapter),
             _audit_issue_text(
                 chapter.audit_report or {},
@@ -592,7 +616,9 @@ def _build_word_count_patch_messages(
 
 def _numbered_paragraphs(text: str) -> str:
     paragraphs = text.split("\n\n")
-    return "\n".join(f"段落 {index}：{paragraph}" for index, paragraph in enumerate(paragraphs, start=1))
+    return "\n".join(
+        f"段落 {index}：{paragraph}" for index, paragraph in enumerate(paragraphs, start=1)
+    )
 
 
 def _patch_paragraph_id(value: object, paragraph_count: int) -> int:
@@ -649,8 +675,7 @@ def _word_count_instruction(
     current_count = len(current_text)
     target_text = f"目标字数：{target} 字\n" if target is not None else ""
     base = (
-        f"{target_text}建议区间：{minimum}-{maximum} 字\n"
-        "不要用提纲、摘要、重复段落或冗余扩写凑字。"
+        f"{target_text}建议区间：{minimum}-{maximum} 字\n不要用提纲、摘要、重复段落或冗余扩写凑字。"
     )
     if current_count > maximum:
         over_by = current_count - maximum
@@ -721,7 +746,9 @@ def _audit_issue_text(
 ) -> str:
     lines = ["AI 审核问题："]
     unresolved = [
-        issue for issue in audit_report.get("issues", []) if isinstance(issue, dict) and not issue.get("resolved")
+        issue
+        for issue in audit_report.get("issues", [])
+        if isinstance(issue, dict) and not issue.get("resolved")
     ]
     if not unresolved:
         lines.append("- 无未解决审计问题。")
@@ -803,9 +830,17 @@ def _filter_stale_word_count_suggestions(
 ) -> list[str]:
     minimum, maximum = word_count_window
     if current_count > maximum:
-        return [suggestion for suggestion in suggestions if not _contains_any(suggestion, EXPANSION_ADVICE_TERMS)]
+        return [
+            suggestion
+            for suggestion in suggestions
+            if not _contains_any(suggestion, EXPANSION_ADVICE_TERMS)
+        ]
     if current_count < minimum:
-        return [suggestion for suggestion in suggestions if not _contains_any(suggestion, REDUCTION_ADVICE_TERMS)]
+        return [
+            suggestion
+            for suggestion in suggestions
+            if not _contains_any(suggestion, REDUCTION_ADVICE_TERMS)
+        ]
     return [
         suggestion
         for suggestion in suggestions
@@ -951,11 +986,14 @@ def _word_count_direction(word_count: int, word_count_window: tuple[int, int]) -
 
 def _word_count_issue_direction(issue: dict[str, Any]) -> str | None:
     text = " ".join(
-        str(issue.get(key) or "") for key in ("title", "detail", "description", "message", "suggested_fix")
+        str(issue.get(key) or "")
+        for key in ("title", "detail", "description", "message", "suggested_fix")
     )
     if _contains_any(text, REDUCTION_ADVICE_TERMS):
         return "long"
-    if _contains_any(text, EXPANSION_ADVICE_TERMS + ("未达标", "缺口", "达成度偏低", "达成率严重不足")):
+    if _contains_any(
+        text, EXPANSION_ADVICE_TERMS + ("未达标", "缺口", "达成度偏低", "达成率严重不足")
+    ):
         return "short"
     return None
 

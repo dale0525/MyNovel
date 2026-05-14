@@ -321,7 +321,9 @@ def test_chapter_job_failure_records_error_type_when_message_is_empty(tmp_path: 
     assert traces[-1].metadata_["error_type"] == "RuntimeError"
 
 
-def test_chapter_job_failure_records_raw_model_response_for_json_parse_errors(tmp_path: Path) -> None:
+def test_chapter_job_failure_records_raw_model_response_for_json_parse_errors(
+    tmp_path: Path,
+) -> None:
     db_path = tmp_path / "dev.sqlite"
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
@@ -527,7 +529,7 @@ def test_blueprint_page_renders_pending_job_without_content() -> None:
     assert "立即刷新" in page
     assert "失意档案员重建禁书馆" in page
     assert "blueprint.generating_title" not in page
-    assert 'setTimeout(() => window.location.reload(), 3000)' in page
+    assert "setTimeout(() => window.location.reload(), 3000)" in page
     assert "重新尝试" not in page
 
 
@@ -596,7 +598,7 @@ def test_blueprint_page_renders_structured_blueprint() -> None:
     assert 'value="长夜图书馆"' in page
     assert "确认方案，进入下一步" in page
     assert 'type="radio"' not in page
-    assert 'data-blueprint-detail-panel' in page
+    assert "data-blueprint-detail-panel" in page
     assert 'action="/revise-blueprint"' in page
     assert 'name="revision_notes"' in page
     assert 'name="revision_preset"' in page
@@ -791,7 +793,9 @@ def test_load_pending_canon_proposal_revision_ignores_cross_book_and_non_pending
     other_book_id, _other_canon_id = _create_draft_book_with_canon(db_path)
     revision_id = _add_pending_revision(db_path, book_id)
 
-    assert load_pending_canon_proposal_revision_for_book(db_path, other_book_id, revision_id) is None
+    assert (
+        load_pending_canon_proposal_revision_for_book(db_path, other_book_id, revision_id) is None
+    )
 
     engine = create_engine_for_path(db_path)
     with Session(engine) as session:
@@ -971,7 +975,9 @@ def test_load_pending_canon_proposal_revision_returns_none_for_unknown_stale_and
         session.add(canon)
         session.commit()
 
-    assert load_pending_canon_proposal_revision_for_book(db_path, book_id, stale_revision_id) is None
+    assert (
+        load_pending_canon_proposal_revision_for_book(db_path, book_id, stale_revision_id) is None
+    )
 
     applied_revision_id = _add_pending_revision(db_path, book_id)
     with Session(engine) as session:
@@ -981,4 +987,6 @@ def test_load_pending_canon_proposal_revision_returns_none_for_unknown_stale_and
         session.add(revision)
         session.commit()
 
-    assert load_pending_canon_proposal_revision_for_book(db_path, book_id, applied_revision_id) is None
+    assert (
+        load_pending_canon_proposal_revision_for_book(db_path, book_id, applied_revision_id) is None
+    )

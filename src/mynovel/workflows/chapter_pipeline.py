@@ -312,7 +312,9 @@ def repair_chapter_with_ai(
                 {"operations"},
             )
             patch_operations = [
-                operation for operation in patch_payload.get("operations", []) if isinstance(operation, dict)
+                operation
+                for operation in patch_payload.get("operations", [])
+                if isinstance(operation, dict)
             ]
             patch_application = apply_word_count_patch_bounded(
                 source_text,
@@ -327,7 +329,9 @@ def repair_chapter_with_ai(
                 applied_patch_operations,
                 repair_request.unresolved_audit_issues,
             )
-    validation_warning = repair_validation_warning(repair_request, source_text, applied_response_text)
+    validation_warning = repair_validation_warning(
+        repair_request, source_text, applied_response_text
+    )
     rejected_response = repair_response_should_be_rejected(
         repair_request,
         source_text,
@@ -339,7 +343,9 @@ def repair_chapter_with_ai(
         chapter,
         addressed_issue_titles=[] if rejected_response else addressed_issue_titles,
     )
-    chapter.status = ChapterStatus.NEEDS_REVISION if validation_warning else ChapterStatus.AWAITING_REVIEW
+    chapter.status = (
+        ChapterStatus.NEEDS_REVISION if validation_warning else ChapterStatus.AWAITING_REVIEW
+    )
     chapter.reviewer_note = validation_warning or reviewer_note
     chapter.updated_at = utc_now()
 

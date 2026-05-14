@@ -152,7 +152,9 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if parsed.path.startswith("/book/") and parsed.path.endswith("/state"):
                 raw_revision_id = parse_qs(parsed.query).get("revision_id", [""])[0]
                 revision_id = int(raw_revision_id) if raw_revision_id.isdigit() else None
-                self._send_trusted_state_page(state.db_path, _parse_book_state_id(parsed.path), revision_id)
+                self._send_trusted_state_page(
+                    state.db_path, _parse_book_state_id(parsed.path), revision_id
+                )
                 return
             if parsed.path.startswith("/book/") and parsed.path.endswith("/quality"):
                 self._send_quality_page(state.db_path, _parse_book_quality_id(parsed.path))
@@ -295,12 +297,16 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 )
             )
 
-        def _send_trusted_state_page(self, db_path: Path, book_id: int, revision_id: int | None = None) -> None:
+        def _send_trusted_state_page(
+            self, db_path: Path, book_id: int, revision_id: int | None = None
+        ) -> None:
             book = _load_book(db_path, book_id)
             if book is None:
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
-            revision = canon_server.load_pending_canon_proposal_revision_for_book(db_path, book_id, revision_id)
+            revision = canon_server.load_pending_canon_proposal_revision_for_book(
+                db_path, book_id, revision_id
+            )
             self._send_html(
                 render_trusted_state_page(
                     book,
@@ -507,7 +513,11 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             try:
                 book = accept_blueprint_for_foundation_review(db_path, form)
             except (BlueprintNotFoundError, BlueprintNotReadyError) as error:
-                status = HTTPStatus.NOT_FOUND if isinstance(error, BlueprintNotFoundError) else HTTPStatus.BAD_REQUEST
+                status = (
+                    HTTPStatus.NOT_FOUND
+                    if isinstance(error, BlueprintNotFoundError)
+                    else HTTPStatus.BAD_REQUEST
+                )
                 self.send_error(status)
                 return
             except BlueprintTitleSelectionError as error:
@@ -553,7 +563,9 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             limit = _parse_batch_limit(form)
             provider_config = _load_provider_config(db_path)
             try:
-                queued_chapter_id = queue_chapter_batch_run(db_path, book_id, limit, provider_config)
+                queued_chapter_id = queue_chapter_batch_run(
+                    db_path, book_id, limit, provider_config
+                )
             except ValueError:
                 self.send_error(HTTPStatus.BAD_REQUEST)
                 return

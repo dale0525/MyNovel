@@ -79,7 +79,8 @@ def create_draft_book_from_blueprint(
         raise ValueError("Book must be persisted before creating production state.")
 
     add_canon(
-        session, Canon(book_id=book.id, version=1, content=_initial_canon_content(book, selected_content))
+        session,
+        Canon(book_id=book.id, version=1, content=_initial_canon_content(book, selected_content)),
     )
     add_volume_plan(session, _volume_plan_from_blueprint(book.id, selected_content))
     for chapter in _chapters_from_blueprint(

@@ -87,7 +87,9 @@ def _render_proposal_card(
 ) -> str:
     selected_class = " selected" if candidate.index == 0 else ""
     aria_pressed = "true" if candidate.index == 0 else "false"
-    label = labels[candidate.index] if candidate.index < len(labels) else f"方案 {candidate.index + 1}"
+    label = (
+        labels[candidate.index] if candidate.index < len(labels) else f"方案 {candidate.index + 1}"
+    )
     content = candidate.content
     selling_points = _list_preview(content.get("selling_points"))
     central_conflict = _short_text(content.get("central_conflict") or "待确认", 80)
@@ -217,7 +219,10 @@ def _render_value(value: Any) -> str:
     if isinstance(value, dict):
         return (
             "<dl>"
-            + "".join(f"<dt>{_label_key(key)}</dt><dd>{_render_nested(item)}</dd>" for key, item in value.items())
+            + "".join(
+                f"<dt>{_label_key(key)}</dt><dd>{_render_nested(item)}</dd>"
+                for key, item in value.items()
+            )
             + "</dl>"
         )
     if value in (None, ""):
@@ -268,7 +273,16 @@ def _world_summary(value: Any) -> str:
     if isinstance(value, dict):
         summary = _first_text(
             value,
-            ("premise", "setting", "background", "worldview", "core_rule", "location", "detail", "description"),
+            (
+                "premise",
+                "setting",
+                "background",
+                "worldview",
+                "core_rule",
+                "location",
+                "detail",
+                "description",
+            ),
         )
         if summary:
             return _short_text(summary, 72)

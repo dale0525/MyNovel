@@ -13,7 +13,9 @@ def test_repair_chapter_prompt_uses_latest_text_only_for_word_count_repair(tmp_p
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
     target_text = "终" * 40
-    model = WordCountPatchModel({"operations": [{"op": "replace", "paragraph_id": 1, "text": target_text}]})
+    model = WordCountPatchModel(
+        {"operations": [{"op": "replace", "paragraph_id": 1, "text": target_text}]}
+    )
 
     with Session(engine) as session:
         book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
@@ -57,7 +59,9 @@ def test_repair_chapter_prompt_replaces_stale_expansion_advice_when_current_text
 ) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
-    model = WordCountPatchModel({"operations": [{"op": "replace", "paragraph_id": 1, "text": "压" * 40}]})
+    model = WordCountPatchModel(
+        {"operations": [{"op": "replace", "paragraph_id": 1, "text": "压" * 40}]}
+    )
 
     with Session(engine) as session:
         book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
@@ -103,7 +107,9 @@ def test_repair_chapter_prompt_replaces_stale_reduction_advice_with_current_coun
 ) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
-    model = WordCountPatchModel({"operations": [{"op": "replace", "paragraph_id": 1, "text": "莉" * 3000}]})
+    model = WordCountPatchModel(
+        {"operations": [{"op": "replace", "paragraph_id": 1, "text": "莉" * 3000}]}
+    )
 
     with Session(engine) as session:
         book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
@@ -147,7 +153,9 @@ def test_repair_chapter_prompt_replaces_stale_reduction_advice_with_current_coun
 def test_word_count_patch_prompt_keeps_non_word_audit_issues_first_class(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
-    model = WordCountPatchModel({"operations": [{"op": "replace", "paragraph_id": 1, "text": "莉" * 40}]})
+    model = WordCountPatchModel(
+        {"operations": [{"op": "replace", "paragraph_id": 1, "text": "莉" * 40}]}
+    )
 
     with Session(engine) as session:
         book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
@@ -561,8 +569,7 @@ def test_repair_chapter_rejects_word_count_patch_that_moves_farther_from_window(
     assert repaired.revised_text == source_text
     assert repaired.word_count == len(source_text)
     assert repaired.reviewer_note == (
-        "AI 修复结果被拒绝：模型将正文从 88 字扩写到 132 字，"
-        "更偏离 36-46 字目标区间。"
+        "AI 修复结果被拒绝：模型将正文从 88 字扩写到 132 字，更偏离 36-46 字目标区间。"
     )
     assert traces[-1].metadata_["validation_warning"] == repaired.reviewer_note
     assert traces[-1].metadata_["after_word_count"] == len(source_text)
@@ -756,7 +763,9 @@ def test_repair_chapter_uses_structured_patch_to_expand_short_text(tmp_path) -> 
 def test_repair_chapter_refreshes_stale_word_count_issue_when_text_is_too_long(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
-    model = WordCountPatchModel({"operations": [{"op": "replace", "paragraph_id": 1, "text": "莉" * 60}]})
+    model = WordCountPatchModel(
+        {"operations": [{"op": "replace", "paragraph_id": 1, "text": "莉" * 60}]}
+    )
 
     with Session(engine) as session:
         book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
@@ -804,7 +813,9 @@ def test_repair_chapter_refreshes_stale_reduction_suggestion_to_current_count(
 ) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
-    model = WordCountPatchModel({"operations": [{"op": "replace", "paragraph_id": 1, "text": "莉" * 3627}]})
+    model = WordCountPatchModel(
+        {"operations": [{"op": "replace", "paragraph_id": 1, "text": "莉" * 3627}]}
+    )
 
     with Session(engine) as session:
         book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")

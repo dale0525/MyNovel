@@ -27,7 +27,19 @@ def test_release_workflow_reserves_desktop_release_metadata_steps() -> None:
 
     assert "pixi run pytest" in commands
     assert any(command.startswith("pixi run native-package") for command in commands)
-    assert workflow["on"]["push"]["tags"] == ["v*"]
+    assert workflow["on"]["push"]["branches"] == ["main"]
+    assert "tags" not in workflow["on"]["push"]
+
+
+def test_release_workflow_publishes_main_push_with_generated_version() -> None:
+    workflow = yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8"))
+    workflow_text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    assert workflow["env"]["RELEASE_VERSION"] == "0.1.${{ github.run_number }}"
+    assert workflow["env"]["RELEASE_TAG"] == "v0.1.${{ github.run_number }}"
+    assert '--version "${{ env.RELEASE_VERSION }}"' in workflow_text
+    assert "github.ref_name" not in workflow_text
+    assert workflow["jobs"]["publish"]["steps"][-1]["with"]["tag_name"] == "${{ env.RELEASE_TAG }}"
 
 
 def test_release_workflow_builds_macos_and_windows_without_linux() -> None:

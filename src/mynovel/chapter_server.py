@@ -7,7 +7,12 @@ from sqlmodel import Session
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import BookStatus, ChapterStatus, ProviderConfig, RunTrace, utc_now
-from mynovel.domain.repositories import get_book, get_chapter, get_latest_canon, list_chapters_for_book
+from mynovel.domain.repositories import (
+    get_book,
+    get_chapter,
+    get_latest_canon,
+    list_chapters_for_book,
+)
 from mynovel.llm.openai_compatible import OpenAICompatibleClient
 from mynovel.workflows.chapter_batch import run_chapter_batch
 from mynovel.workflows.chapter_pipeline import (

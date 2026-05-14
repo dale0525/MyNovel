@@ -753,9 +753,7 @@ def test_book_workspace_matches_project_cockpit_surface() -> None:
                     "description": "发现原主并非死于意外。",
                 }
             ],
-            "chapter_summaries": [
-                {"title": "第一章：魂穿将门", "content": "现代医生醒来后自救。"}
-            ],
+            "chapter_summaries": [{"title": "第一章：魂穿将门", "content": "现代医生醒来后自救。"}],
             "state_history": [
                 {
                     "type": "canon_proposal_revision",

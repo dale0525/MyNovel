@@ -25,7 +25,12 @@ def test_trusted_state_page_shows_full_state_sections_without_raw_keys() -> None
         content={
             "world_rules": [{"name": "街尾蛇城", "rules": "历史守恒"}],
             "characters": [
-                {"name": "林墨", "identity": "纸质档案修复师", "role": "档案修复师", "trait": "触觉共感"},
+                {
+                    "name": "林墨",
+                    "identity": "纸质档案修复师",
+                    "role": "档案修复师",
+                    "trait": "触觉共感",
+                },
                 {
                     "name": "莉拉",
                     "detail": "能读懂古代符号",
@@ -432,8 +437,7 @@ def test_trusted_state_page_renders_full_untruncated_section_values() -> None:
         version=1,
         content={
             "world_rules": [
-                {"name": f"规则 {index}", "detail": long_detail}
-                for index in range(1, 8)
+                {"name": f"规则 {index}", "detail": long_detail} for index in range(1, 8)
             ],
         },
     )
@@ -457,9 +461,7 @@ def test_trusted_state_page_translates_nested_change_keys() -> None:
         book_id=1,
         version=1,
         content={
-            "state_history": [
-                {"chapter": 1, "changes": [{"target": "莉拉", "change": "离村"}]}
-            ],
+            "state_history": [{"chapter": 1, "changes": [{"target": "莉拉", "change": "离村"}]}],
         },
     )
 

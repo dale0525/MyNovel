@@ -172,11 +172,17 @@ def _trusted_state_text(content: dict[str, Any]) -> str:
     book = content.get("book")
     if isinstance(book, dict):
         lines.extend(_book_lines(book))
-    lines.extend(_entity_lines("关键人物", content.get("characters"), ("name", "identity", "motivation"), 8))
-    lines.extend(_entity_lines("近期关系", content.get("relationships"), ("name", "detail", "type"), 5))
+    lines.extend(
+        _entity_lines("关键人物", content.get("characters"), ("name", "identity", "motivation"), 8)
+    )
+    lines.extend(
+        _entity_lines("近期关系", content.get("relationships"), ("name", "detail", "type"), 5)
+    )
     lines.extend(_entity_lines("关键地点", content.get("locations"), ("name", "detail", "type"), 5))
     lines.extend(_entity_lines("资源道具", content.get("resources"), ("name", "detail", "type"), 5))
-    lines.extend(_entity_lines("伏笔线索", content.get("foreshadowing"), ("description", "trigger"), 6))
+    lines.extend(
+        _entity_lines("伏笔线索", content.get("foreshadowing"), ("description", "trigger"), 6)
+    )
     lines.extend(_chapter_summary_lines(content.get("chapter_summaries")))
     return "可信设定摘要：\n" + "\n".join(lines or ["- 暂无可信设定摘要。"])
 
@@ -196,7 +202,9 @@ def _volume_plan_text(volume_plan: dict[str, Any], chapter_number: int) -> str:
         lines.append(pacing)
     commitments = volume_plan.get("commitments")
     if isinstance(commitments, list) and commitments:
-        commitment_text = "；".join(str(item).strip() for item in commitments[:4] if str(item).strip())
+        commitment_text = "；".join(
+            str(item).strip() for item in commitments[:4] if str(item).strip()
+        )
         if commitment_text:
             lines.append("- 承诺：" + commitment_text)
     return "卷纲摘要：\n" + "\n".join(lines or ["- 暂无卷纲。"])
@@ -242,7 +250,9 @@ def _state_delta_text(state_delta: dict[str, Any]) -> str:
 def _audit_report_text(audit_report: dict[str, Any]) -> str:
     lines = ["AI 审核问题："]
     issues = audit_report.get("issues") if isinstance(audit_report, dict) else None
-    unresolved = [issue for issue in issues or [] if isinstance(issue, dict) and not issue.get("resolved")]
+    unresolved = [
+        issue for issue in issues or [] if isinstance(issue, dict) and not issue.get("resolved")
+    ]
     if not unresolved:
         lines.append("- 无未解决审计问题。")
     for issue in unresolved:

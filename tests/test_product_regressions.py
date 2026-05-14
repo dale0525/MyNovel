@@ -140,11 +140,20 @@ def test_blueprint_proposal_cards_are_clickable_and_drive_selected_detail() -> N
 
     assert 'id="blueprint-accept-form"' in page
     assert 'id="selected_title" name="selected_title" type="hidden" value="长夜图书馆"' in page
-    assert 'role="button" tabindex="0" data-blueprint-choice="0" data-selected-title="长夜图书馆"' in page
-    assert 'role="button" tabindex="0" data-blueprint-choice="1" data-selected-title="禁书归途"' in page
-    assert 'role="button" tabindex="0" data-blueprint-choice="2" data-selected-title="群星档案"' in page
+    assert (
+        'role="button" tabindex="0" data-blueprint-choice="0" data-selected-title="长夜图书馆"'
+        in page
+    )
+    assert (
+        'role="button" tabindex="0" data-blueprint-choice="1" data-selected-title="禁书归途"'
+        in page
+    )
+    assert (
+        'role="button" tabindex="0" data-blueprint-choice="2" data-selected-title="群星档案"'
+        in page
+    )
     assert 'type="radio"' not in page
-    assert 'data-blueprint-detail-panel' in page
+    assert "data-blueprint-detail-panel" in page
     assert 'data-blueprint-detail="1"' in page
     assert "地铁遗迹" in page
     assert "高冷封印师" in page

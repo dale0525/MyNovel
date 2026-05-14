@@ -171,11 +171,15 @@ def _render_section_detail(
 """
 
 
-def _render_section_controls(book: Book, section_key: str, section_locked: bool, editable: bool) -> str:
+def _render_section_controls(
+    book: Book, section_key: str, section_locked: bool, editable: bool
+) -> str:
     section = SECTION_REGISTRY[section_key]
     state = "已锁定" if section_locked else "可修订"
     if not editable:
-        return f'<span class="status-pill {"trusted" if section_locked else "pending"}">{state}</span>'
+        return (
+            f'<span class="status-pill {"trusted" if section_locked else "pending"}">{state}</span>'
+        )
 
     next_locked = "false" if section_locked else "true"
     action = "解除锁定" if section_locked else "锁定此部分"
@@ -360,7 +364,7 @@ def _render_preview_section_value(section_key: str, value: Any) -> str:
 
 def _render_chapter_summary_preview(value: Any) -> str:
     if not isinstance(value, list) or not value:
-        return "<p class=\"muted\">暂无内容</p>"
+        return '<p class="muted">暂无内容</p>'
     items = []
     for index, item in enumerate(value, start=1):
         if not isinstance(item, dict):
@@ -395,7 +399,11 @@ def _render_blocked_sections(blocked_sections: list[Any]) -> str:
             items.append(f"<li><strong>{html.escape(label)}</strong>：{html.escape(reason)}</li>")
         else:
             items.append(f"<li>{html.escape(str(item))}</li>")
-    return "<section class=\"canon-preview-section\"><h3>未修改分区</h3><ul>" + "".join(items) + "</ul></section>"
+    return (
+        '<section class="canon-preview-section"><h3>未修改分区</h3><ul>'
+        + "".join(items)
+        + "</ul></section>"
+    )
 
 
 def _render_risks(risks: list[Any]) -> str:
@@ -460,7 +468,12 @@ def _section_summary(value: Any) -> str:
             relationship = _relationship_text(first)
             if relationship:
                 return html.escape(_truncate(relationship, 120))
-            text = first.get("name") or first.get("title") or first.get("summary") or first.get("detail")
+            text = (
+                first.get("name")
+                or first.get("title")
+                or first.get("summary")
+                or first.get("detail")
+            )
             if text:
                 return html.escape(_truncate(str(text)))
             return _truncate(_render_inline_value(first), 120)
@@ -518,10 +531,12 @@ def _render_full_value(value: Any) -> str:
     if isinstance(value, list):
         visible_items = [item for item in value if not _is_low_information_state_item(item)]
         if not visible_items:
-            return "<p class=\"muted\">暂无内容</p>"
-        return "<ul class=\"value-list\">" + "".join(
-            f"<li>{_render_full_value(item)}</li>" for item in visible_items
-        ) + "</ul>"
+            return '<p class="muted">暂无内容</p>'
+        return (
+            '<ul class="value-list">'
+            + "".join(f"<li>{_render_full_value(item)}</li>" for item in visible_items)
+            + "</ul>"
+        )
     if isinstance(value, dict):
         history = _state_history_text(value)
         if history:
@@ -536,17 +551,12 @@ def _render_full_value(value: Any) -> str:
         if concise:
             return f"<p>{html.escape(concise)}</p>"
         if not value:
-            return "<p class=\"muted\">暂无内容</p>"
-        dict_items = (
-            (key, item) for key, item in value.items() if not _is_internal_state_key(key)
-        )
-        parts = [
-            f"{_label_key(key)}：{_render_inline_value(item)}"
-            for key, item in dict_items
-        ]
+            return '<p class="muted">暂无内容</p>'
+        dict_items = ((key, item) for key, item in value.items() if not _is_internal_state_key(key))
+        parts = [f"{_label_key(key)}：{_render_inline_value(item)}" for key, item in dict_items]
         return "<p>" + "；".join(parts) + "</p>"
     if value in (None, ""):
-        return "<p class=\"muted\">暂无内容</p>"
+        return '<p class="muted">暂无内容</p>'
     return f"<p>{html.escape(str(value))}</p>"
 
 
@@ -605,9 +615,7 @@ def _render_inline_value(value: Any) -> str:
         )
     if isinstance(value, list):
         return "、".join(
-            _render_inline_value(item)
-            for item in value
-            if not _is_low_information_state_item(item)
+            _render_inline_value(item) for item in value if not _is_low_information_state_item(item)
         )
     return html.escape(str(value))
 

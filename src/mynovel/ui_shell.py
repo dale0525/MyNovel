@@ -152,7 +152,7 @@ def _icon(name: str) -> str:
     path = ICON_PATHS[name]
     return (
         '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
-        f'{path}'
+        f"{path}"
         "</svg>"
     )
 

@@ -94,7 +94,12 @@ def test_sparse_canon_proposal_needs_ai_completion_before_locking() -> None:
     target = canon_proposal_completion_target(content, section_locks_for_book(book))
 
     assert readiness.complete is False
-    assert readiness.missing_sections[:4] == ["characters", "factions", "locations", "relationships"]
+    assert readiness.missing_sections[:4] == [
+        "characters",
+        "factions",
+        "locations",
+        "relationships",
+    ]
     assert "人物至少 3 条" in readiness.messages
     assert target == "characters"
 
@@ -173,9 +178,7 @@ class ArrayChangedSectionsClient(TargetSectionClient):
                     },
                     {
                         "section": "relationships",
-                        "replacement": [
-                            {"from": "林烬", "to": "旧王朝", "detail": "血缘牵连"}
-                        ],
+                        "replacement": [{"from": "林烬", "to": "旧王朝", "detail": "血缘牵连"}],
                     },
                 ],
                 "blocked_sections": [],
@@ -368,7 +371,9 @@ def test_create_revision_preview_accepts_bare_section_object_from_model(
     assert revision.target_section == "locations"
     assert revision.changed_sections["locations"][0]["name"] == "清风阁"
     assert revision.changed_sections["relationships"][0]["relation"] == "契约盟友/恋人"
-    assert revision.changed_sections["chapter_summaries"][0]["title"] == "第一章：魂穿将门，死而复生"
+    assert (
+        revision.changed_sections["chapter_summaries"][0]["title"] == "第一章：魂穿将门，死而复生"
+    )
 
 
 def test_running_canon_proposal_revision_job_completes_to_pending_preview(
@@ -431,9 +436,7 @@ def test_apply_revision_replaces_unlocked_sections_and_appends_history(
                 locked_sections=[],
                 changed_sections={
                     "characters": [{"name": "林烬", "trait": "外冷内热"}],
-                    "relationships": [
-                        {"from": "林烬", "to": "旧王朝", "detail": "血缘牵连"}
-                    ],
+                    "relationships": [{"from": "林烬", "to": "旧王朝", "detail": "血缘牵连"}],
                 },
                 summary="已调整人物和关系。",
                 risks=["第 3-5 章动机需要同步。"],

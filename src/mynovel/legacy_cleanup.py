@@ -68,7 +68,9 @@ def _delete_book_children(session: Session, book_id: int) -> None:
         session.delete(vector_entry)
     for style_asset in session.exec(select(StyleAsset).where(StyleAsset.book_id == book_id)):
         session.delete(style_asset)
-    for study in session.exec(select(DeconstructionStudy).where(DeconstructionStudy.book_id == book_id)):
+    for study in session.exec(
+        select(DeconstructionStudy).where(DeconstructionStudy.book_id == book_id)
+    ):
         session.delete(study)
     for snapshot in session.exec(select(QualitySnapshot).where(QualitySnapshot.book_id == book_id)):
         session.delete(snapshot)

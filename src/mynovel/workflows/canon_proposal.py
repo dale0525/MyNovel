@@ -317,7 +317,9 @@ def apply_canon_proposal_revision(
         _mark_revision_stale(session, revision)
         raise ValueError("Canon proposal revision is stale.")
 
-    changed_sections = _validated_changed_sections(revision.__dict__, revision.allowed_sections, locks)
+    changed_sections = _validated_changed_sections(
+        revision.__dict__, revision.allowed_sections, locks
+    )
     updated_content = dict(canon.content)
     for section, replacement in changed_sections.items():
         updated_content[section] = replacement

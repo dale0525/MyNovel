@@ -59,7 +59,9 @@ def target_word_counts_from_text(text: str) -> dict[str, int]:
 
 
 def book_target_word_count(book: Book) -> int:
-    return parse_word_count(book.constraints.get(TARGET_WORD_COUNT_KEY)) or DEFAULT_TARGET_WORD_COUNT
+    return (
+        parse_word_count(book.constraints.get(TARGET_WORD_COUNT_KEY)) or DEFAULT_TARGET_WORD_COUNT
+    )
 
 
 def chapter_word_budget(chapter: Chapter) -> int:

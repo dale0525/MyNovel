@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import html
 
-from mynovel.domain.models import Book, BookStatus, BlueprintStatus, OpenBookBlueprint, ProviderConfig
+from mynovel.domain.models import (
+    Book,
+    BookStatus,
+    BlueprintStatus,
+    OpenBookBlueprint,
+    ProviderConfig,
+)
 from mynovel.i18n import DEFAULT_LOCALE, t
 
 

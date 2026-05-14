@@ -20,7 +20,9 @@ def test_update_book_word_targets_can_leave_existing_chapters_unchanged(tmp_path
                 constraints={"target_word_count": 120000, "chapter_word_count": 2800},
             ),
         )
-        add_chapter(session, Chapter(book_id=book.id, number=1, title="召唤", plan={"word_budget": 2800}))
+        add_chapter(
+            session, Chapter(book_id=book.id, number=1, title="召唤", plan={"word_budget": 2800})
+        )
 
         update_book_word_targets(
             session,
@@ -52,8 +54,12 @@ def test_update_book_word_targets_can_sync_existing_chapters(tmp_path) -> None:
                 constraints={"selling_points": ["禁书体系"]},
             ),
         )
-        add_chapter(session, Chapter(book_id=book.id, number=1, title="召唤", plan={"word_budget": 2800}))
-        add_chapter(session, Chapter(book_id=book.id, number=2, title="迷雾", plan={"goal": "入谷"}))
+        add_chapter(
+            session, Chapter(book_id=book.id, number=1, title="召唤", plan={"word_budget": 2800})
+        )
+        add_chapter(
+            session, Chapter(book_id=book.id, number=2, title="迷雾", plan={"goal": "入谷"})
+        )
 
         update_book_word_targets(
             session,

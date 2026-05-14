@@ -19,9 +19,13 @@ def blueprint_candidates_from_content(content: dict[str, Any]) -> list[Blueprint
         return []
     raw_candidates = content.get("candidates")
     candidates = raw_candidates if isinstance(raw_candidates, list) else []
-    matched_candidates = [_candidate_for_title(candidates, title, index) for index, title in enumerate(titles)]
+    matched_candidates = [
+        _candidate_for_title(candidates, title, index) for index, title in enumerate(titles)
+    ]
     return [
-        BlueprintCandidate(index=index, title=title, content=_candidate_content(content, title, raw))
+        BlueprintCandidate(
+            index=index, title=title, content=_candidate_content(content, title, raw)
+        )
         for index, (title, raw) in enumerate(zip(titles, matched_candidates, strict=True))
     ]
 
@@ -51,7 +55,9 @@ def _candidate_content(
     candidate: dict[str, Any],
 ) -> dict[str, Any]:
     merged = dict(base_content)
-    merged.update({key: value for key, value in candidate.items() if key not in CANDIDATE_TITLE_KEYS})
+    merged.update(
+        {key: value for key, value in candidate.items() if key not in CANDIDATE_TITLE_KEYS}
+    )
     merged["title_options"] = [title]
     merged["selected_title"] = title
     return merged

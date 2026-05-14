@@ -45,8 +45,12 @@ def normalize_state_delta(chapter_number: int, state_delta: dict[str, Any]) -> d
             continue
         if not isinstance(raw_change, dict):
             continue
-        change_type = str(raw_change.get("type") or raw_change.get("category") or "状态变化").strip()
-        target = str(raw_change.get("target") or raw_change.get("subject") or raw_change.get("name") or "").strip()
+        change_type = str(
+            raw_change.get("type") or raw_change.get("category") or "状态变化"
+        ).strip()
+        target = str(
+            raw_change.get("target") or raw_change.get("subject") or raw_change.get("name") or ""
+        ).strip()
         change = str(
             raw_change.get("change")
             or raw_change.get("content")

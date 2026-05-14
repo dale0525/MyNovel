@@ -564,7 +564,7 @@ def render_completed_aside(book: Book, canon: Canon | None) -> str:
 def _setup_guide_card(number: str, title: str, copy: str) -> str:
     return (
         '<section class="setup-guide-card">'
-        f'<span>{html.escape(number)}</span><h2>{html.escape(title)}</h2>'
+        f"<span>{html.escape(number)}</span><h2>{html.escape(title)}</h2>"
         f"<p>{html.escape(copy)}</p></section>"
     )
 

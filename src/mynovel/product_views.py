@@ -470,9 +470,7 @@ def _render_volume_plan_board(volume_plans: list[VolumePlan]) -> str:
         ("阶段承诺", "；".join(_render_nested(item) for item in plan.commitments[:4])),
     ]
     content = "".join(
-        f"<p><strong>{html.escape(label)}</strong> {value}</p>"
-        for label, value in rows
-        if value
+        f"<p><strong>{html.escape(label)}</strong> {value}</p>" for label, value in rows if value
     )
     return f"<section class='data-card'><h3>{html.escape(plan.title)}</h3>{content}</section>"
 
@@ -564,7 +562,9 @@ def _render_start_pipeline(active: str | None, locale: str) -> str:
 def _render_first_launch_pipeline(locale: str) -> str:
     steps = [
         PipelineStep("open_book", t("pipeline.open_book", locale), "locked", "设定方向与边界", "▣"),
-        PipelineStep("foundation", t("pipeline.foundation", locale), "locked", "确认世界与可信设定", "▤"),
+        PipelineStep(
+            "foundation", t("pipeline.foundation", locale), "locked", "确认世界与可信设定", "▤"
+        ),
         PipelineStep("generate", t("pipeline.generate", locale), "locked", "AI 生成故事内容", "✦"),
         PipelineStep("review", t("pipeline.review", locale), "locked", "人工审核与修正", "✓"),
         PipelineStep("accept", t("pipeline.accept", locale), "locked", "可信设定成为事实源", "◇"),

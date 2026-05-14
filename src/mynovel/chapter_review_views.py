@@ -470,14 +470,16 @@ def _word_count_recheck_detail(
 
 def _is_word_count_issue(issue: dict[str, Any]) -> bool:
     text = " ".join(
-        str(issue.get(key) or "") for key in ("title", "detail", "description", "message", "suggested_fix")
+        str(issue.get(key) or "")
+        for key in ("title", "detail", "description", "message", "suggested_fix")
     )
     return any(term in text.lower() for term in ("字数", "篇幅", "达成率", "word count"))
 
 
 def _word_count_issue_direction(issue: dict[str, Any]) -> str | None:
     text = " ".join(
-        str(issue.get(key) or "") for key in ("title", "detail", "description", "message", "suggested_fix")
+        str(issue.get(key) or "")
+        for key in ("title", "detail", "description", "message", "suggested_fix")
     ).lower()
     if any(term in text for term in ("删减", "压缩", "合并", "缩短", "超出", "过长", "偏长")):
         return "long"
