@@ -260,6 +260,87 @@ def test_chapter_and_completion_surfaces_do_not_show_hardcoded_prices() -> None:
     assert "累计成本" not in completed_page
 
 
+def test_review_primary_actions_use_explicit_verbs() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=7,
+        book_id=1,
+        number=7,
+        title="灰塔复燃",
+        status=ChapterStatus.AWAITING_REVIEW,
+        draft_text="灰塔在风雪中重新亮起。",
+        revised_text="灰塔在风雪中重新亮起，巡夜人决定冒险登塔。",
+        summary="主角确认灰塔复燃，并决定进塔调查。",
+        word_count=3120,
+    )
+
+    page = render_chapter_review(book, [chapter], chapter, Canon(id=1, book_id=1, version=3, content={}))
+
+    assert "批准并写入可信设定" in page
+    assert "让 AI 按这轮决定重新修订本章" in page
+    assert "提交修改决定，按意见让 AI 修订" not in page
+
+
+def test_running_waiting_copy_explains_current_work_and_next_decision() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=3,
+        book_id=1,
+        number=3,
+        title="塔底回声",
+        status=ChapterStatus.RUNNING,
+        plan={"goal": "确认塔底异响来源"},
+        context_package={"characters": ["林烬"], "summary": "上一章进入灰塔"},
+        word_count=0,
+    )
+
+    page = render_chapter_review(book, [chapter], chapter, Canon(id=1, book_id=1, version=2, content={}))
+
+    assert "AI 正在生成草稿正文；完成后会继续提取状态变化。" in page
+    assert "AI 正在提取本章状态变化；完成后你就能核对是否写入可信设定。" in page
+    assert "等待审计结果出来后，再决定是继续修订还是批准写入可信设定。" in page
+    assert ">正在生成草稿<" not in page
+    assert "等待本章产出后进入人工审核。" not in page
+
+
+def test_shell_css_uses_auto_fit_for_status_and_review_summary_layouts() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=5,
+        book_id=1,
+        number=5,
+        title="雨夜誓约",
+        status=ChapterStatus.AWAITING_REVIEW,
+        draft_text="雨夜里，誓约被重新说出。",
+        revised_text="雨夜里，誓约被重新说出，旧约也因此改写。",
+        summary="主角在雨夜重申誓约并触发旧约回响。",
+        word_count=3050,
+    )
+
+    page = render_chapter_review(book, [chapter], chapter, Canon(id=1, book_id=1, version=4, content={}))
+
+    assert "grid-template-columns:repeat(auto-fit,minmax(240px,1fr))" in page
+    assert "grid-template-columns:repeat(auto-fit,minmax(220px,1fr))" in page
+
+
 def _blueprint_with_three_titles() -> OpenBookBlueprint:
     return OpenBookBlueprint(
         id=1,

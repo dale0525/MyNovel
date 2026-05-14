@@ -37,7 +37,7 @@ def render_chapter_review_inspector(
     traces: list[RunTrace] | None = None,
 ) -> str:
     if chapter.status == ChapterStatus.PLANNED:
-        return f"<h2>{t('review.waiting', locale)}</h2><p>{t('chapter.not_started', locale)}</p>"
+        return f"<h2>{t('review.waiting', locale)}</h2><p>{t('review.waiting_copy', locale)}</p>"
 
     issues = _audit_issues(chapter)
     visible_changes = _visible_state_changes(chapter)
