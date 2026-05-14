@@ -7,7 +7,10 @@ from typing import Any
 from mynovel.blueprint_review_views import render_blueprint_review
 from mynovel.blueprint_views import render_blueprint_sidebar, render_generating_blueprint
 from mynovel.canon_proposal_views import render_canon_proposal_surface
-from mynovel.chapter_review_views import render_chapter_review_inspector
+from mynovel.chapter_review_views import (
+    render_chapter_review_inspector,
+    render_review_decision_summary,
+)
 from mynovel.domain.models import (
     Book,
     BookStatus,
@@ -42,6 +45,7 @@ from mynovel.workspace_views import (
 from mynovel.ui_shell import PipelineStep, render_app_page, render_pipeline, render_project_sidebar
 from mynovel.ui_status_views import (
     render_global_status_strip,
+    render_review_status_strip,
     render_running_chapter_status_strip,
     render_workspace_status_strip,
 )
@@ -319,9 +323,14 @@ def render_chapter_review(
             status_strip=render_running_chapter_status_strip(chapter, locale),
         )
 
+    review_summary = (
+        render_review_decision_summary(chapter, canon, locale, traces or [])
+        if chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}
+        else ""
+    )
     main = f"""
       {_render_book_sidebar(book, chapters, locale, active_chapter_id=chapter.id)}
-      <section class="reader-panel">
+      <section class="reader-panel review-decision-surface">
         <div class="chapter-toolbar">
           <div>
             <h1>{t("chapter.number", locale, number=chapter.number)} {html.escape(chapter.title)}</h1>
@@ -329,12 +338,18 @@ def render_chapter_review(
           </div>
           <a class="button secondary" href="/book/{book.id}">{t("action.back_to_project", locale)}</a>
         </div>
+        {review_summary}
         {_render_chapter_body(chapter, locale)}
       </section>
       <aside class="right-panel review">
         {render_chapter_review_inspector(chapter, canon, locale, traces or [])}
       </aside>
 """
+    status_strip = (
+        render_review_status_strip(locale)
+        if chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.NEEDS_REVISION}
+        else None
+    )
     return _page(
         title=chapter.title,
         active="docs",
@@ -344,6 +359,7 @@ def render_chapter_review(
         locale=locale,
         content_class="content-grid human-review-layout",
         nav_book_id=book.id,
+        status_strip=status_strip,
     )
 
 

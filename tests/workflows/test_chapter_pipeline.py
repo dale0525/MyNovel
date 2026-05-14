@@ -74,6 +74,25 @@ def test_run_chapter_pipeline_prepares_human_review(tmp_path) -> None:
     assert reviewed.state_delta["changes"]
 
 
+def test_run_chapter_pipeline_prepares_state_delta_and_audit_for_result_first_review(
+    tmp_path,
+) -> None:
+    engine = create_engine_for_path(tmp_path / "review.sqlite")
+    create_db_and_tables(engine)
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        lock_canon_foundation(session, book.id)
+        chapter = list_chapters_for_book(session, book.id)[0]
+
+        reviewed = run_chapter_pipeline(session, chapter.id)
+
+    assert isinstance(reviewed.audit_report, dict)
+    assert isinstance(reviewed.state_delta, dict)
+    assert "issues" in reviewed.audit_report
+    assert "changes" in reviewed.state_delta
+
+
 def test_approve_chapter_writes_state_delta_to_latest_canon(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)

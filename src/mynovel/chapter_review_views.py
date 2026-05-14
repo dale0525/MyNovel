@@ -11,6 +11,23 @@ from mynovel.product_components import render_accepted_result
 from mynovel.word_targets import chapter_word_budget, format_word_count
 
 
+def render_review_decision_summary(
+    chapter: Chapter,
+    canon: Canon | None,
+    locale: str = DEFAULT_LOCALE,
+    traces: list[RunTrace] | None = None,
+) -> str:
+    _ = canon
+    return f"""
+      <div class="review-summary-stack">
+        {_render_completion_summary(chapter, locale)}
+        {_render_state_change_summary(chapter, locale)}
+        {_render_ai_fixed_summary(chapter, locale, traces or [])}
+        {_render_remaining_decisions_summary(chapter, locale)}
+      </div>
+"""
+
+
 def render_chapter_review_inspector(
     chapter: Chapter,
     canon: Canon | None,
@@ -117,9 +134,9 @@ def _render_state_panel(
     if changes:
         delta_rows = "".join(_state_change_row(change) for change in changes)
     else:
-        delta_rows = """
+        delta_rows = f"""
           <li class="empty-review-row">
-            <span>AI 未提取到可写入的明确状态变化</span>
+            <span>{t("review.summary_state_empty", locale)}</span>
             <em>可以批准正文，但不要把空泛分类写入可信设定。</em>
           </li>
 """
@@ -304,14 +321,14 @@ def _render_review_actions(
 """
         return f"""
           <section class="review-decision-summary">
-            <h2>审核决定</h2>
-            <p>先写修改意见，再让 AI 连同审计问题一起修订；不填写意见时，仅处理未解决的 AI 审计问题。</p>
+            <h2>{t("review.decision_note_title", locale)}</h2>
+            <p>{t("review.decision_note_copy", locale)}</p>
           </section>
           <div class="review-action-stack review-decision-panel">
           <form method="post" action="/repair-chapter" class="compact-form action-form review-repair-form">
             <input type="hidden" name="chapter_id" value="{chapter.id}">
-            <label>修改意见<textarea name="reviewer_note" placeholder="例如：压缩破庙环境描写，强化反杀动作，保持 3000 字左右"></textarea></label>
-            <button class="secondary" type="submit">按意见让 AI 修订</button>
+            <label>{t("review.decision_note_label", locale)}<textarea name="reviewer_note" placeholder="{html.escape(t('review.decision_note_placeholder', locale), quote=True)}"></textarea></label>
+            <button class="secondary" type="submit">{t("review.decision_note_submit", locale)}</button>
           </form>
           {approve_form}
           </div>
@@ -592,3 +609,120 @@ def _state_type_label(value: object) -> str:
         "information_exposure": "信息暴露",
     }
     return labels.get(text, text)
+
+
+def _render_completion_summary(chapter: Chapter, locale: str) -> str:
+    summary = str(chapter.summary or "").strip() or t(
+        "review.summary_completion_fallback",
+        locale,
+        number=chapter.number,
+    )
+    return (
+        '<section class="review-summary-card">'
+        f"<h2>{t('review.summary_completion_title', locale)}</h2>"
+        f"<p>{html.escape(summary)}</p>"
+        "</section>"
+    )
+
+
+def _render_state_change_summary(chapter: Chapter, locale: str) -> str:
+    changes = _visible_state_changes(chapter)
+    if not changes:
+        return (
+            '<section class="review-summary-card">'
+            f"<h2>{t('review.summary_state_title', locale)}</h2>"
+            f"<p>{t('review.summary_state_empty', locale)}</p>"
+            "</section>"
+        )
+    rows = "".join(_state_change_summary_row(change) for change in changes[:5])
+    return (
+        '<section class="review-summary-card">'
+        f"<h2>{t('review.summary_state_title', locale)}</h2>"
+        f'<ul class="decision-question-list">{rows}</ul>'
+        "</section>"
+    )
+
+
+def _state_change_summary_row(change: dict[str, Any]) -> str:
+    label = _state_type_label(change.get("type"))
+    target = str(change.get("target") or "").strip()
+    detail = str(change.get("change") or change.get("detail") or "待人工确认").strip()
+    target_prefix = f"{html.escape(target)}：" if target and target != "待确认" else ""
+    return (
+        "<li>"
+        f'<span class="state-change-pill">{html.escape(label)}</span>'
+        f"{target_prefix}{html.escape(detail)}"
+        "</li>"
+    )
+
+
+def _render_ai_fixed_summary(
+    chapter: Chapter,
+    locale: str,
+    traces: list[RunTrace],
+) -> str:
+    rows: list[str] = []
+    for issue in _audit_issues(chapter):
+        if issue.get("resolved"):
+            rows.append(f"<li>{html.escape(str(issue.get('title') or '已处理问题'))}</li>")
+
+    trace = _latest_repair_trace(chapter, traces)
+    if trace is not None and not rows:
+        reviewer_note = str((trace.metadata_ or {}).get("reviewer_note") or "").strip()
+        if reviewer_note:
+            rows.append(
+                f"<li>{html.escape(t('review.summary_ai_fixed_trace', locale, note=reviewer_note))}</li>"
+            )
+
+    if not rows:
+        return (
+            '<section class="review-summary-card">'
+            f"<h2>{t('review.summary_ai_fixed_title', locale)}</h2>"
+            f"<p>{t('review.summary_ai_fixed_empty', locale)}</p>"
+            "</section>"
+        )
+    return (
+        '<section class="review-summary-card">'
+        f"<h2>{t('review.summary_ai_fixed_title', locale)}</h2>"
+        f'<ul class="decision-question-list">{"".join(rows)}</ul>'
+        "</section>"
+    )
+
+
+def _render_remaining_decisions_summary(chapter: Chapter, locale: str) -> str:
+    unresolved = _remaining_decision_items(chapter, locale)
+    if not unresolved:
+        body = f"<p>{t('review.summary_decisions_empty', locale)}</p>"
+    else:
+        items = "".join(f"<li>{item}</li>" for item in unresolved)
+        body = f'<ul class="decision-question-list">{items}</ul>'
+    return (
+        '<section class="review-summary-card decision-questions">'
+        f"<h2>{t('review.summary_decisions_title', locale)}</h2>"
+        f"{body}"
+        f"<p>{t('review.summary_decisions_hint', locale)}</p>"
+        "</section>"
+    )
+
+
+def _remaining_decision_items(chapter: Chapter, locale: str) -> list[str]:
+    items: list[str] = []
+    for issue in _audit_issues(chapter):
+        if issue.get("resolved"):
+            continue
+        title = str(issue.get("title") or "").strip()
+        if title:
+            items.append(html.escape(title))
+
+    for change in _major_state_changes(chapter):
+        target = str(change.get("target") or "").strip() or t("review.summary_state_pending", locale)
+        detail = str(change.get("change") or change.get("detail") or "").strip()
+        decision = t(
+            "review.summary_major_decision",
+            locale,
+            target=target,
+            detail=detail or t("review.summary_state_pending", locale),
+        )
+        items.append(html.escape(decision))
+
+    return items[:5]

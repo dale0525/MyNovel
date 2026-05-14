@@ -46,6 +46,45 @@ def test_review_page_matches_human_review_surface() -> None:
     assert 'data-review-panel="impact"' in page
 
 
+def test_review_page_starts_with_result_summary_before_full_body() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻",
+        audience="男频网文读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=5,
+        book_id=1,
+        number=5,
+        title="破碎之门",
+        status=ChapterStatus.AWAITING_REVIEW,
+        summary="莉拉确认石门背后存在活体守卫，离村行动正式进入遗迹线。",
+        revised_text="冰冷的空气从门缝中渗出。",
+        word_count=3214,
+        audit_report={
+            "risk_level": "medium",
+            "issues": [{"severity": "medium", "title": "符号含义未确认", "resolved": False}],
+        },
+        state_delta={"changes": [{"type": "人物状态", "target": "莉拉", "change": "体温消耗"}]},
+    )
+
+    page = render_chapter_review(
+        book,
+        [chapter],
+        chapter,
+        Canon(id=1, book_id=1, version=4, content={}),
+    )
+
+    assert "本章完成了什么" in page
+    assert "关键状态变化" in page
+    assert "AI 已自动修复" in page
+    assert "还需要你决定什么" in page
+    assert 'class="review-summary-stack"' in page
+    assert page.index("本章完成了什么") < page.index('<article class="chapter-text">')
+
+
 def test_review_page_exposes_latest_repair_trace_diagnostics() -> None:
     book = Book(
         id=1,
@@ -245,7 +284,7 @@ def test_review_page_hides_low_information_state_delta_items() -> None:
         Canon(id=1, book_id=1, version=4, content={}),
     )
 
-    assert "AI 未提取到可写入的明确状态变化" in page
+    assert "本章无关键状态变更，主要推进为情节执行与铺垫。" in page
     assert ">characters<" not in page
     assert ">relations<" not in page
     assert ">locations<" not in page

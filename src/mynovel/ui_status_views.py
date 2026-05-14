@@ -104,6 +104,32 @@ def build_running_chapter_status_stages(
     )
 
 
+def build_review_status_stages(locale: str = DEFAULT_LOCALE) -> tuple[StatusStage, ...]:
+    return (
+        StatusStage(
+            key="current-task",
+            label=t("status_strip.current_label", locale),
+            title=t("status_strip.review_current_title", locale),
+            detail=t("status_strip.review_current_detail", locale),
+            state="current",
+        ),
+        StatusStage(
+            key="ai-progress",
+            label=t("status_strip.ai_label", locale),
+            title=t("status_strip.review_ai_title", locale),
+            detail=t("status_strip.review_ai_detail", locale),
+            state="working",
+        ),
+        StatusStage(
+            key="decision",
+            label=t("status_strip.decision_label", locale),
+            title=t("status_strip.review_decision_title", locale),
+            detail=t("status_strip.review_decision_detail", locale),
+            state="decision",
+        ),
+    )
+
+
 def render_global_status_strip(
     locale: str = DEFAULT_LOCALE,
     stages: Sequence[StatusStage] | None = None,
@@ -129,6 +155,12 @@ def render_running_chapter_status_strip(
     locale: str = DEFAULT_LOCALE,
 ) -> str:
     return render_global_status_strip(locale, build_running_chapter_status_stages(chapter, locale))
+
+
+def render_review_status_strip(
+    locale: str = DEFAULT_LOCALE,
+) -> str:
+    return render_global_status_strip(locale, build_review_status_stages(locale))
 
 
 def render_status_stage(stage: StatusStage) -> str:

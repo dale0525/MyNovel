@@ -407,8 +407,9 @@ def test_review_page_exposes_revision_repair_accept_and_export_actions() -> None
 
     page = render_chapter_review(book, [chapter], chapter, canon)
 
-    assert "修改意见" in page
-    assert "按意见让 AI 修订" in page
+    assert "还需要你决定什么" in page
+    assert "你也可以补充其他修改意见，但不需要先处理 AI 已自动修复的问题。" in page
+    assert "修改决定" in page
     assert "批准并写入可信设定" in page
     assert 'action="/repair-chapter"' in page
     assert 'name="reviewer_note"' in page
@@ -422,6 +423,33 @@ def test_review_page_exposes_revision_repair_accept_and_export_actions() -> None
 
     assert "导出正文" in page
     assert "/chapter/9/export" in page
+
+
+def test_review_page_uses_result_first_status_strip() -> None:
+    book = Book(
+        id=1,
+        title="长夜图书馆",
+        genre="奇幻连载",
+        audience="成长冒险读者",
+        status=BookStatus.PRODUCING,
+    )
+    chapter = Chapter(
+        id=9,
+        book_id=1,
+        number=1,
+        title="离开的召唤",
+        status=ChapterStatus.AWAITING_REVIEW,
+        revised_text="莉拉离开村庄。",
+        audit_report={"risk_level": "low", "issues": []},
+        state_delta={"changes": [{"type": "人物状态", "target": "莉拉", "change": "离村"}]},
+    )
+
+    page = render_chapter_review(book, [chapter], chapter, Canon(id=1, book_id=1, version=1, content={}))
+
+    assert 'class="global-status-strip"' in page
+    assert "先看结果摘要，再决定是否接受本章" in page
+    assert "已完成正文生成、自检和高置信度修复" in page
+    assert "回答剩余分歧，或直接接受这版正文" in page
 
 
 def test_running_chapter_page_exposes_production_control_panels() -> None:
