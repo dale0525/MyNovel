@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import html
 import json
+from copy import deepcopy
 from typing import Any
 
-from mynovel.domain.models import Canon, Chapter, ChapterStatus
+from mynovel.domain.models import Canon, Chapter, ChapterStatus, RunTrace
 from mynovel.i18n import DEFAULT_LOCALE, t
 from mynovel.product_components import render_accepted_result
+from mynovel.word_targets import chapter_word_budget, format_word_count
 
 
 def render_chapter_review_inspector(
     chapter: Chapter,
     canon: Canon | None,
     locale: str = DEFAULT_LOCALE,
+    traces: list[RunTrace] | None = None,
 ) -> str:
     if chapter.status == ChapterStatus.PLANNED:
         return f"<h2>{t('review.waiting', locale)}</h2><p>{t('chapter.not_started', locale)}</p>"
@@ -38,6 +41,7 @@ def render_chapter_review_inspector(
         {_render_revision_panel(chapter)}
         {_render_impact_panel(visible_changes)}
       </div>
+      {_render_repair_trace_panel(chapter, traces or [])}
       {_render_review_actions(chapter, major_changes, locale)}
       {_review_tab_script()}
 """
@@ -156,11 +160,17 @@ def _render_revision_panel(chapter: Chapter) -> str:
     current_text = chapter.revised_text or chapter.draft_text or chapter.final_text
     source = "AI 修订稿" if chapter.revised_text else "草稿" if chapter.draft_text else "最终稿"
     excerpt = current_text[:180] + ("..." if len(current_text) > 180 else "")
+    target_words = chapter_word_budget(chapter)
+    minimum, maximum = _word_count_window(target_words)
+    current_words = len(current_text)
+    word_status = _word_count_status(current_words, minimum, maximum)
     return f"""
       <section id="review-panel-revision" class="review-tab-panel" data-review-panel="revision" hidden>
         <h2>AI 修订摘要</h2>
         <p class="review-panel-copy">当前正文来源：{html.escape(source)}。左侧阅读区显示完整正文，右侧仅保留审核线索。</p>
+        <p class="review-panel-copy">目标区间 {minimum:,}-{maximum:,} 字，{html.escape(word_status)}。</p>
         <dl class="revision-metrics">
+          <dt>目标字数</dt><dd>{html.escape(format_word_count(target_words))}</dd>
           <dt>草稿字数</dt><dd>{len(chapter.draft_text)}</dd>
           <dt>修订稿字数</dt><dd>{len(chapter.revised_text)}</dd>
           <dt>当前候选字数</dt><dd>{len(current_text)}</dd>
@@ -192,6 +202,81 @@ def _render_impact_panel(changes: list[dict[str, Any]]) -> str:
         <h2>影响范围</h2>
         <p class="review-panel-copy">用于判断这次批准会影响哪些设定分区。</p>
         <div class="impact-scope inline-impact-scope"><div>{cards}</div></div>
+      </section>
+"""
+
+
+def _render_repair_trace_panel(chapter: Chapter, traces: list[RunTrace]) -> str:
+    trace = _latest_repair_trace(chapter, traces)
+    if trace is None:
+        return ""
+
+    metadata = trace.metadata_ or {}
+    cost = trace.cost or {}
+    before_words = _optional_int(metadata.get("before_word_count"))
+    after_words = _optional_int(metadata.get("after_word_count"))
+    target_words = _optional_int(metadata.get("target_word_count"))
+    window = _word_count_window_text(metadata.get("word_count_window"))
+    reviewer_note = str(metadata.get("reviewer_note") or "").strip()
+    prompt_text = _prompt_messages_text(metadata.get("prompt_messages"))
+    has_raw_response = bool(str(metadata.get("raw_response_text") or "").strip())
+    legacy_patch_response = (
+        not has_raw_response
+        and bool(metadata.get("word_count_repair_mode"))
+        and bool(metadata.get("patch_operations"))
+    )
+    raw_response_text = str(
+        metadata.get("raw_response_text")
+        or ("" if legacy_patch_response else metadata.get("response_text"))
+        or ""
+    ).strip()
+    applied_text = str(
+        metadata.get("applied_text")
+        or (metadata.get("response_text") if legacy_patch_response else "")
+        or ""
+    ).strip()
+    transition = _word_count_transition(before_words, after_words)
+    target_line = (
+        f"<span>目标 {target_words:,} 字 · 区间 {html.escape(window)}</span>"
+        if target_words and window
+        else ""
+    )
+    note_line = (
+        f"<p class='review-panel-copy'>本次意见：{html.escape(reviewer_note)}</p>"
+        if reviewer_note
+        else ""
+    )
+    prompt_chars = _optional_int(cost.get("prompt_chars")) or 0
+    completion_chars = _optional_int(cost.get("completion_chars")) or 0
+    prompt_details = (
+        f"<details><summary>查看提示词</summary><pre>{html.escape(prompt_text)}</pre></details>"
+        if prompt_text
+        else ""
+    )
+    response_details = (
+        f"<details><summary>查看模型原始返回</summary><pre>{html.escape(raw_response_text)}</pre></details>"
+        if raw_response_text
+        else ""
+    )
+    applied_details = (
+        f"<details><summary>{'查看旧版应用后正文' if legacy_patch_response else '查看应用后正文'}</summary>"
+        f"<pre>{html.escape(applied_text)}</pre></details>"
+        if applied_text and applied_text != raw_response_text
+        else ""
+    )
+
+    return f"""
+      <section class="repair-trace-panel">
+        <h2>AI 修复记录</h2>
+        <p class="review-panel-copy">最近一次修复：{html.escape(trace.model or "未记录模型")} · 提示词 {prompt_chars} 字符 · 模型返回 {completion_chars} 字符</p>
+        <div class="repair-trace-metrics">
+          <span>{html.escape(transition)}</span>
+          {target_line}
+        </div>
+        {note_line}
+        {prompt_details}
+        {response_details}
+        {applied_details}
       </section>
 """
 
@@ -270,7 +355,33 @@ def _review_tab_script() -> str:
 
 
 def _audit_issues(chapter: Chapter) -> list[dict[str, Any]]:
-    return [issue for issue in chapter.audit_report.get("issues", []) if isinstance(issue, dict)]
+    return [
+        _display_audit_issue(chapter, issue)
+        for issue in chapter.audit_report.get("issues", [])
+        if isinstance(issue, dict)
+    ]
+
+
+def _display_audit_issue(chapter: Chapter, issue: dict[str, Any]) -> dict[str, Any]:
+    display = deepcopy(issue)
+    if display.get("resolved") or not _is_word_count_issue(display):
+        return display
+
+    current_text = chapter.revised_text or chapter.draft_text or chapter.final_text
+    current_words = len(current_text)
+    target_words = chapter_word_budget(chapter)
+    minimum, maximum = _word_count_window(target_words)
+    current_direction = _word_count_direction(current_words, minimum, maximum)
+    if current_direction == "ok":
+        return display
+
+    issue_direction = _word_count_issue_direction(display)
+    if issue_direction == current_direction and "自动复核" not in str(display.get("detail") or ""):
+        return display
+
+    display["title"] = "字数不在目标区间"
+    display["detail"] = _word_count_recheck_detail(current_words, minimum, maximum, target_words)
+    return display
 
 
 def _visible_state_changes(chapter: Chapter) -> list[dict[str, Any]]:
@@ -320,6 +431,128 @@ def _is_major_state_change(change: dict[str, Any]) -> bool:
     text = " ".join(str(change.get(key, "")) for key in ("type", "target", "change"))
     major_terms = ("角色死亡", "人物死亡", "死亡", "牺牲", "退场", "核心设定", "改写设定")
     return any(term in text for term in major_terms)
+
+
+def _word_count_window(target_words: int) -> tuple[int, int]:
+    minimum = max(1, round(target_words * 0.9))
+    maximum = max(minimum, round(target_words * 1.15))
+    return minimum, maximum
+
+
+def _word_count_status(current_words: int, minimum: int, maximum: int) -> str:
+    if current_words > maximum:
+        return "当前偏长"
+    if current_words < minimum:
+        return "当前偏短"
+    return "当前在目标区间内"
+
+
+def _word_count_direction(current_words: int, minimum: int, maximum: int) -> str:
+    if current_words > maximum:
+        return "long"
+    if current_words < minimum:
+        return "short"
+    return "ok"
+
+
+def _word_count_recheck_detail(
+    current_words: int,
+    minimum: int,
+    maximum: int,
+    target_words: int,
+) -> str:
+    status = _word_count_status(current_words, minimum, maximum)
+    return (
+        f"页面实时复核：当前约 {current_words} 字，目标区间 {minimum:,}-{maximum:,} 字，"
+        f"目标约 {target_words:,} 字；{status}。"
+    )
+
+
+def _is_word_count_issue(issue: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(issue.get(key) or "") for key in ("title", "detail", "description", "message", "suggested_fix")
+    )
+    return any(term in text.lower() for term in ("字数", "篇幅", "达成率", "word count"))
+
+
+def _word_count_issue_direction(issue: dict[str, Any]) -> str | None:
+    text = " ".join(
+        str(issue.get(key) or "") for key in ("title", "detail", "description", "message", "suggested_fix")
+    ).lower()
+    if any(term in text for term in ("删减", "压缩", "合并", "缩短", "超出", "过长", "偏长")):
+        return "long"
+    if any(
+        term in text
+        for term in (
+            "扩写",
+            "扩充",
+            "增加",
+            "补充",
+            "加入更多",
+            "更多",
+            "拉长",
+            "拉升",
+            "远低于",
+            "低于",
+            "不足",
+            "偏短",
+            "未达标",
+            "缺口",
+            "达成度偏低",
+            "达成率严重不足",
+        )
+    ):
+        return "short"
+    return None
+
+
+def _latest_repair_trace(chapter: Chapter, traces: list[RunTrace]) -> RunTrace | None:
+    for trace in reversed(traces):
+        if trace.stage != "修复问题":
+            continue
+        trace_chapter = (trace.metadata_ or {}).get("chapter")
+        if trace_chapter in {chapter.number, str(chapter.number), chapter.id, str(chapter.id)}:
+            return trace
+    return None
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _word_count_window_text(value: object) -> str:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return ""
+    minimum = _optional_int(value[0])
+    maximum = _optional_int(value[1])
+    if minimum is None or maximum is None:
+        return ""
+    return f"{minimum:,}-{maximum:,} 字"
+
+
+def _word_count_transition(before_words: int | None, after_words: int | None) -> str:
+    if before_words is None or after_words is None:
+        return "字数变化未记录"
+    return f"{before_words:,} → {after_words:,}"
+
+
+def _prompt_messages_text(value: object) -> str:
+    if not isinstance(value, list):
+        return ""
+    lines: list[str] = []
+    for message in value:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "message")
+        content = str(message.get("content") or "").strip()
+        if content:
+            lines.append(f"[{role}]\n{content}")
+    return "\n\n".join(lines)
 
 
 def _risk_level(audit_report: dict[str, Any]) -> str:

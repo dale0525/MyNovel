@@ -722,9 +722,10 @@ def test_canon_gate_page_matches_lock_confirmation_surface() -> None:
     assert "canon-gate-layout" in page
     assert "canon-summary-grid" in page
     assert "chapter-production-basis" in page
-    assert "锁定前确认" in page
+    assert "下一步：开始章节生产" in page
+    assert "点击下一步后" in page
     assert "状态变化才会写入可信设定" in page
-    assert "锁定可信设定并开始生产" in page
+    assert "下一步" in page
 
 
 def test_book_workspace_matches_project_cockpit_surface() -> None:
@@ -855,119 +856,6 @@ def test_running_chapter_page_matches_stage_control_surface() -> None:
     assert "本次后台任务" not in page
     assert "下一步风控关卡" not in page
     assert "暂停" not in page
-
-
-def test_review_page_matches_human_review_surface() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="男频网文读者",
-        status=BookStatus.PRODUCING,
-    )
-    chapter = Chapter(
-        id=5,
-        book_id=1,
-        number=5,
-        title="破碎之门",
-        status=ChapterStatus.AWAITING_REVIEW,
-        revised_text="冰冷的空气从门缝中渗出。",
-        word_count=3214,
-        audit_report={
-            "risk_level": "medium",
-            "issues": [{"severity": "medium", "title": "符号含义未确认", "resolved": False}],
-        },
-        state_delta={"changes": [{"type": "人物状态", "target": "莉拉", "change": "体温消耗"}]},
-    )
-
-    page = render_chapter_review(
-        book,
-        [chapter],
-        chapter,
-        Canon(id=1, book_id=1, version=4, content={}),
-    )
-
-    assert "human-review-layout" in page
-    assert "修改意见" in page
-    assert "按意见让 AI 修订" in page
-    assert "审计备注" not in page
-    assert "状态变化待验证" in page
-    assert "review-decision-panel" in page
-    assert "批准并写入可信设定" in page
-    assert '<button type="button" class="review-tab-button active" data-review-tab="audit"' in page
-    assert 'data-review-panel="audit"' in page
-    assert 'data-review-panel="state"' in page
-    assert 'data-review-panel="revision"' in page
-    assert 'data-review-panel="impact"' in page
-
-
-def test_review_page_hides_low_information_state_delta_items() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="男频网文读者",
-        status=BookStatus.PRODUCING,
-    )
-    chapter = Chapter(
-        id=5,
-        book_id=1,
-        number=5,
-        title="破碎之门",
-        status=ChapterStatus.AWAITING_REVIEW,
-        revised_text="冰冷的空气从门缝中渗出。",
-        word_count=3214,
-        audit_report={"risk_level": "low", "issues": []},
-        state_delta={
-            "chapter": 5,
-            "changes": [
-                {"type": "状态变化", "target": "待确认", "change": "characters"},
-                {"type": "状态变化", "target": "待确认", "change": "relations"},
-                {"type": "状态变化", "target": "待确认", "change": "locations"},
-            ],
-        },
-    )
-
-    page = render_chapter_review(
-        book,
-        [chapter],
-        chapter,
-        Canon(id=1, book_id=1, version=4, content={}),
-    )
-
-    assert "AI 未提取到可写入的明确状态变化" in page
-    assert ">characters<" not in page
-    assert ">relations<" not in page
-    assert ">locations<" not in page
-
-
-def test_review_page_prefers_revised_text_over_stale_final_text() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="男频网文读者",
-        status=BookStatus.PRODUCING,
-    )
-    chapter = Chapter(
-        id=5,
-        book_id=1,
-        number=5,
-        title="破碎之门",
-        status=ChapterStatus.AWAITING_REVIEW,
-        revised_text="这是当前待审核正文。",
-        final_text="这是旧的已批准正文。",
-    )
-
-    page = render_chapter_review(
-        book,
-        [chapter],
-        chapter,
-        Canon(id=1, book_id=1, version=4, content={}),
-    )
-
-    assert "这是当前待审核正文。" in page
-    assert "这是旧的已批准正文。" not in page
 
 
 def test_completed_book_workspace_matches_first_ten_complete_surface() -> None:

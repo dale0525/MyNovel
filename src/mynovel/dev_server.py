@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from sqlmodel import Session, select
 
+from mynovel.book_abandonment import AbandonBookError, abandon_draft_book_from_form
 from mynovel.blueprint_acceptance import (
     BlueprintNotFoundError,
     BlueprintNotReadyError,
@@ -195,11 +196,15 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             if canon_server.is_canon_proposal_post_path(parsed.path):
-                response = canon_server.dispatch_canon_proposal_post(parsed.path, self._read_form(), state.db_path)
-                if response.redirect_to:
-                    self._redirect(response.redirect_to)
+                canon_response = canon_server.dispatch_canon_proposal_post(
+                    parsed.path,
+                    self._read_form(),
+                    state.db_path,
+                )
+                if canon_response.redirect_to:
+                    self._redirect(canon_response.redirect_to)
                 else:
-                    self._send_html(response.body, status=response.status)
+                    self._send_html(canon_response.body, status=canon_response.status)
                 return
             if parsed.path == "/init":
                 create_db_and_tables(create_engine_for_path(state.db_path))
@@ -225,6 +230,8 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 return
             if parsed.path == "/lock-canon":
                 return self._lock_canon(state.db_path)
+            if parsed.path == "/abandon-book":
+                return self._abandon_book(state.db_path)
             if parsed.path == "/run-chapter":
                 self._run_chapter(state.db_path)
                 return
@@ -261,12 +268,12 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 self._create_quality_snapshot(state.db_path)
                 return
             if parsed.path == "/check-update":
-                response = handle_check_update(self._read_form())
-                self._send_html(response.body, status=response.status)
+                update_response = handle_check_update(self._read_form())
+                self._send_html(update_response.body, status=update_response.status)
                 return
             if parsed.path == "/stage-update":
-                response = handle_stage_update(self._read_form(), state.db_path)
-                self._send_html(response.body, status=response.status)
+                stage_response = handle_stage_update(self._read_form(), state.db_path)
+                self._send_html(stage_response.body, status=stage_response.status)
                 return
             self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -347,6 +354,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     _load_chapters_for_book(db_path, book.id),
                     chapter,
                     _load_latest_canon(db_path, book.id),
+                    traces=_load_run_traces_for_book(db_path, book.id),
                 )
             )
 
@@ -521,6 +529,13 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             except ValueError:
                 return self.send_error(HTTPStatus.BAD_REQUEST)
             return self._redirect(f"/book/{book.id or 0}")
+
+        def _abandon_book(self, db_path: Path) -> None:
+            try:
+                abandon_draft_book_from_form(db_path, self._read_form())
+            except AbandonBookError:
+                return self.send_error(HTTPStatus.BAD_REQUEST)
+            return self._redirect("/books/new")
 
         def _run_chapter(self, db_path: Path) -> None:
             chapter_id = int(self._read_form().get("chapter_id", "0"))

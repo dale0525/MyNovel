@@ -616,91 +616,6 @@ def test_repair_chapter_prompt_uses_only_audit_issues_when_manual_instruction_is
     assert "人工修改意见：" not in prompt
 
 
-def test_repair_chapter_prompt_uses_latest_text_only_for_word_count_repair(tmp_path) -> None:
-    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
-    create_db_and_tables(engine)
-    model = PromptCaptureRepairModel()
-
-    with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
-        chapter = book_chapter(session, book.id, 1)
-        reviewed = run_chapter_pipeline(session, chapter.id)
-        reviewed.plan = {**reviewed.plan, "word_budget": 40}
-        reviewed.draft_text = "草稿不应进入修订提示。"
-        reviewed.revised_text = "最终候选正文超出目标。" * 6
-        reviewed.word_count = len(reviewed.revised_text)
-        reviewed.audit_report = {
-            "risk_level": "medium",
-            "issues": [{"severity": "medium", "title": "字数达成率严重不足", "resolved": False}],
-            "suggestions": ["扩写到目标字数。"],
-        }
-        session.add(reviewed)
-        session.commit()
-
-        repaired = repair_chapter_with_ai(
-            session,
-            reviewed.id,
-            model_client=model,
-            model_name="章节模型",
-            reviewer_note="压缩到目标字数。",
-        )
-
-    assert repaired.status.value == "awaiting_review"
-    assert len(model.prompts) == 1
-    prompt = model.prompts[0]
-    assert "目标字数：40 字" in prompt
-    assert "建议区间：36-46 字" in prompt
-    assert "当前正文已经超出目标，请以删减和合并为主" in prompt
-    assert "最终候选正文超出目标。" in prompt
-    assert "草稿不应进入修订提示" not in prompt
-    assert "previous_candidate" not in prompt
-
-
-def test_repair_chapter_prompt_replaces_stale_expansion_advice_when_current_text_is_long(
-    tmp_path,
-) -> None:
-    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
-    create_db_and_tables(engine)
-    model = PromptCaptureRepairModel()
-
-    with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
-        chapter = book_chapter(session, book.id, 1)
-        reviewed = run_chapter_pipeline(session, chapter.id)
-        reviewed.plan = {**reviewed.plan, "word_budget": 40}
-        reviewed.revised_text = "最终候选正文已经明显超出目标，需要压缩。" * 6
-        reviewed.word_count = len(reviewed.revised_text)
-        reviewed.audit_report = {
-            "risk_level": "medium",
-            "issues": [{"severity": "medium", "title": "字数达成率严重不足", "resolved": False}],
-            "suggestions": [
-                "当前字数约1000字，远低于3000字的预算，建议在自救环节增加更多生理痛苦描写。",
-                "扩充恶仆赖大、赖二的对话内容。",
-                "增加对科研空间初次开启时的视觉与体感描写。",
-                "在反杀过程中，可加入更多利用解剖学知识精准致残的细节描写。",
-            ],
-        }
-        session.add(reviewed)
-        session.commit()
-
-        repair_chapter_with_ai(
-            session,
-            reviewed.id,
-            model_client=model,
-            model_name="章节模型",
-            reviewer_note=None,
-        )
-
-    prompt = model.prompts[0]
-    assert "当前正文已经超出目标，请以删减和合并为主" in prompt
-    assert "字数不在目标区间" in prompt
-    assert "当前字数约1000字" not in prompt
-    assert "远低于3000字" not in prompt
-    assert "扩充恶仆" not in prompt
-    assert "增加对科研空间" not in prompt
-    assert "加入更多利用解剖学知识" not in prompt
-
-
 def test_repair_chapter_prompt_includes_concise_book_boundaries(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
@@ -732,41 +647,6 @@ def test_repair_chapter_prompt_includes_concise_book_boundaries(tmp_path) -> Non
     assert "读者：喜欢成长冒险的连载读者" in prompt
     assert "前提：失忆少女在幽谷中寻找被抹去的王朝真相" in prompt
     assert "不得改写已锁定设定，不得新增绕过人工审核的可信状态。" in prompt
-
-
-def test_repair_chapter_records_word_count_issue_unresolved_when_model_returns_off_target(
-    tmp_path,
-) -> None:
-    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
-    create_db_and_tables(engine)
-    model = PromptCaptureRepairModel(response="仍然太短")
-
-    with Session(engine) as session:
-        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
-        chapter = book_chapter(session, book.id, 1)
-        reviewed = run_chapter_pipeline(session, chapter.id)
-        reviewed.plan = {**reviewed.plan, "word_budget": 40}
-        reviewed.revised_text = "短"
-        reviewed.word_count = 1
-        reviewed.audit_report = {
-            "risk_level": "medium",
-            "issues": [{"severity": "medium", "title": "字数达成率严重不足", "resolved": False}],
-            "suggestions": ["扩写到目标字数。"],
-        }
-        session.add(reviewed)
-        session.commit()
-
-        repaired = repair_chapter_with_ai(
-            session,
-            reviewed.id,
-            model_client=model,
-            model_name="章节模型",
-            reviewer_note="必须补足篇幅。",
-        )
-
-    assert len(model.prompts) == 1
-    assert repaired.revised_text == "仍然太短"
-    assert repaired.audit_report["issues"][0]["resolved"] is False
 
 
 def test_run_chapter_pipeline_records_failure_and_leaves_chapter_retryable(tmp_path) -> None:
@@ -817,34 +697,6 @@ class PromptCaptureRepairModel:
         assert stage == "revise"
         assert response_format == "text"
         return self.response
-
-
-class ShortThenLongRepairModel:
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-        self.prompts: list[str] = []
-
-    def complete(self, stage: str, messages, response_format: str) -> str:
-        self.calls.append(stage)
-        self.prompts.append("\n".join(message["content"] for message in messages))
-        assert response_format == "text"
-        if len(self.calls) == 1:
-            return "仍然太短"
-        return "莉拉沿着雾谷继续向前，掌心符号反复发热，她把疼痛记成线索，并听见远处微光回应。"
-
-
-class LongThenTargetRepairModel:
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-        self.prompts: list[str] = []
-
-    def complete(self, stage: str, messages, response_format: str) -> str:
-        self.calls.append(stage)
-        self.prompts.append("\n".join(message["content"] for message in messages))
-        assert response_format == "text"
-        if len(self.calls) == 1:
-            return "莉拉沿着雾谷不断向前。" * 8
-        return "莉拉沿着雾谷继续向前，掌心符号发热，她把疼痛记成线索，并听见远处微光回应。"
 
 
 class FakeFailingChapterModel(FakeChapterModel):

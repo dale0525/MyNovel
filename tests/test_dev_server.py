@@ -26,6 +26,7 @@ from mynovel.canon_proposal_server import (
 from mynovel.chapter_server import queue_chapter_run
 from mynovel.chapter_server import queue_chapter_batch_run
 from mynovel.chapter_server import queue_chapter_repair
+from mynovel.chapter_server import _mark_chapter_job_failed
 from sqlmodel import Session, select
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
@@ -40,6 +41,7 @@ from mynovel.domain.models import (
     ChapterStatus,
     OpenBookBlueprint,
     ProviderConfig,
+    RunTrace,
 )
 from mynovel.domain.repositories import (
     add_book,
@@ -50,6 +52,7 @@ from mynovel.domain.repositories import (
     save_provider_config,
 )
 from mynovel.i18n import t
+from mynovel.workflows.chapter_pipeline import ChapterStageError
 from mynovel.workflows.canon_proposal import content_hash, locks_hash, section_locks_for_book
 
 
@@ -276,6 +279,92 @@ def test_queue_chapter_repair_marks_chapter_running_without_blocking(tmp_path: P
         assert chapter.status == ChapterStatus.RUNNING
         assert chapter.reviewer_note == "AI 修复中：补足字数"
         assert chapter.revised_text == "待修复正文"
+
+
+def test_chapter_job_failure_records_error_type_when_message_is_empty(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = add_book(
+            session,
+            Book(
+                title="长夜图书馆",
+                genre="奇幻",
+                audience="连载读者",
+                status=BookStatus.PRODUCING,
+            ),
+        )
+        chapter = Chapter(
+            book_id=book.id or 0,
+            number=1,
+            title="离开的召唤",
+            status=ChapterStatus.RUNNING,
+            revised_text="待修复正文",
+        )
+        session.add(chapter)
+        session.commit()
+        session.refresh(chapter)
+        chapter_id = chapter.id or 0
+        book_id = book.id or 0
+
+    _mark_chapter_job_failed(db_path, chapter_id, RuntimeError())
+
+    with Session(engine) as session:
+        chapter = session.get(Chapter, chapter_id)
+        traces = list(session.exec(select(RunTrace).where(RunTrace.book_id == book_id)))
+
+    assert chapter is not None
+    assert chapter.status == ChapterStatus.NEEDS_REVISION
+    assert chapter.reviewer_note == "生成失败：RuntimeError"
+    assert traces[-1].stage == "修复失败"
+    assert traces[-1].metadata_["error_type"] == "RuntimeError"
+
+
+def test_chapter_job_failure_records_raw_model_response_for_json_parse_errors(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = add_book(
+            session,
+            Book(
+                title="长夜图书馆",
+                genre="奇幻",
+                audience="连载读者",
+                status=BookStatus.PRODUCING,
+            ),
+        )
+        chapter = Chapter(
+            book_id=book.id or 0,
+            number=2,
+            title="恶奴欺主",
+            status=ChapterStatus.RUNNING,
+            revised_text="待修复正文",
+        )
+        session.add(chapter)
+        session.commit()
+        session.refresh(chapter)
+        chapter_id = chapter.id or 0
+        book_id = book.id or 0
+
+    error = ChapterStageError(
+        "word_count_patch",
+        ValueError("Expecting value"),
+        messages=[{"role": "system", "content": "你是章节修订补丁规划器。"}],
+        response_format="json",
+        raw_response_text="模型错误地返回了完整正文",
+    )
+    _mark_chapter_job_failed(db_path, chapter_id, error)
+
+    with Session(engine) as session:
+        traces = list(session.exec(select(RunTrace).where(RunTrace.book_id == book_id)))
+
+    metadata = traces[-1].metadata_
+    assert metadata["failed_stage"] == "word_count_patch"
+    assert metadata["response_format"] == "json"
+    assert metadata["raw_response_text"] == "模型错误地返回了完整正文"
+    assert metadata["prompt_messages"][0]["content"] == "你是章节修订补丁规划器。"
 
 
 def test_queue_chapter_batch_run_redirects_to_first_running_chapter(tmp_path: Path) -> None:

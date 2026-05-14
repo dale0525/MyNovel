@@ -33,6 +33,7 @@ def render_canon_proposal_surface(
     locks = section_locks_for_book(book)
     editable = book.status == BookStatus.DRAFT and not locked
     readiness = canon_proposal_readiness(content)
+    allow_section_edits = editable and readiness.complete
     warning = _render_status_warning(canon, locked)
     completion_gate = (
         ""
@@ -51,7 +52,7 @@ def render_canon_proposal_surface(
             section_key=section.key,
             value=content.get(section.key, []),
             section_locked=locks.get(section.key, not section.editable),
-            editable=editable and section.editable,
+            editable=allow_section_edits and section.editable,
         )
         for section in SECTION_REGISTRY.values()
     )
@@ -536,12 +537,12 @@ def _render_full_value(value: Any) -> str:
             return f"<p>{html.escape(concise)}</p>"
         if not value:
             return "<p class=\"muted\">暂无内容</p>"
-        visible_items = (
+        dict_items = (
             (key, item) for key, item in value.items() if not _is_internal_state_key(key)
         )
         parts = [
             f"{_label_key(key)}：{_render_inline_value(item)}"
-            for key, item in visible_items
+            for key, item in dict_items
         ]
         return "<p>" + "；".join(parts) + "</p>"
     if value in (None, ""):
@@ -571,6 +572,7 @@ def _label_key(key: object) -> str:
         "role": "定位",
         "rules": "规则",
         "setting": "背景",
+        "skills": "技能",
         "summary": "摘要",
         "target": "对象",
         "title": "标题",
@@ -640,7 +642,7 @@ def _section_label(value: Any) -> str:
 
 def _section_labels(value: Any) -> str:
     if isinstance(value, dict):
-        keys = value.keys()
+        keys = list(value.keys())
     elif isinstance(value, list):
         keys = value
     else:

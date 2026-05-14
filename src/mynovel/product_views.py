@@ -305,7 +305,6 @@ def render_trusted_state_page(
     if isinstance(message, CanonProposalRevision) and proposal_revision is None:
         proposal_revision = message
         message = None
-    book_id = book.id or 0
     locked = book.status in {BookStatus.CANON_LOCKED, BookStatus.PRODUCING, BookStatus.PAUSED}
     status_label = t("trusted_state.locked", locale) if locked else "可信设定提案 · 待确认"
     status_class = "trusted" if locked else "pending"
@@ -322,7 +321,7 @@ def render_trusted_state_page(
         </div>
         {render_canon_proposal_surface(book, canon, locked, proposal_revision)}
       </section>
-      {render_canon_gate_aside(book_id, canon, chapters, locked, proposal_revision)}
+      {render_canon_gate_aside(book, canon, chapters, locked, proposal_revision)}
 """
     return _page(
         title=t("trusted_state.title", locale),
@@ -344,6 +343,7 @@ def render_chapter_review(
     canon: Canon | None,
     message: str | None = None,
     locale: str = DEFAULT_LOCALE,
+    traces: list[RunTrace] | None = None,
 ) -> str:
     if chapter.status == ChapterStatus.RUNNING:
         main = f"""
@@ -375,7 +375,7 @@ def render_chapter_review(
         {_render_chapter_body(chapter, locale)}
       </section>
       <aside class="right-panel review">
-        {render_chapter_review_inspector(chapter, canon, locale)}
+        {render_chapter_review_inspector(chapter, canon, locale, traces or [])}
       </aside>
 """
     return _page(
@@ -772,7 +772,7 @@ def _section_label(value: Any) -> str:
 
 def _section_labels(value: Any) -> str:
     if isinstance(value, dict):
-        keys = value.keys()
+        keys = list(value.keys())
     elif isinstance(value, list):
         keys = value
     else:

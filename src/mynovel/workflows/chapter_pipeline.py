@@ -30,9 +30,19 @@ from mynovel.workflows.chapter_response_parsing import (
     parse_json_stage_response,
 )
 from mynovel.workflows.chapter_repair import (
+    RepairRequest,
+    apply_word_count_patch_bounded,
+    build_repair_request,
+    build_word_count_patch_request,
+    patch_addressed_issue_titles,
     recheck_repair_audit,
+    repair_response_should_be_rejected,
     repair_text_locally,
-    repair_text_with_model,
+    repair_trace_cost,
+    repair_trace_metadata,
+    repair_trace_prompt_id,
+    repair_validation_warning,
+    word_count_patch_mode,
 )
 from mynovel.workflows.open_book_blueprint import extract_chat_content
 from mynovel.workflows.retrieval import index_text
@@ -75,10 +85,21 @@ class ReviewGateError(ValueError):
 
 
 class ChapterStageError(RuntimeError):
-    def __init__(self, stage: str, error: Exception) -> None:
+    def __init__(
+        self,
+        stage: str,
+        error: Exception,
+        *,
+        messages: list[dict[str, str]] | None = None,
+        response_format: str | None = None,
+        raw_response_text: str | None = None,
+    ) -> None:
         super().__init__(str(error))
         self.stage = stage
         self.error = error
+        self.messages = messages or []
+        self.response_format = response_format
+        self.raw_response_text = raw_response_text
 
 
 TRACE_STAGES = [
@@ -255,19 +276,71 @@ def repair_chapter_with_ai(
     }:
         raise ValueError("Only review-stage chapters can be repaired.")
 
-    if model_client is None:
-        chapter.revised_text = repair_text_locally(chapter, _revise_text)
-    else:
-        chapter.revised_text = repair_text_with_model(
-            chapter,
-            model_client,
-            reviewer_note,
-            _complete_text_stage,
-        )
-    chapter.word_count = len(chapter.revised_text)
+    source_text = chapter.revised_text or chapter.final_text or chapter.draft_text
     recheck_repair_audit(chapter)
-    chapter.status = ChapterStatus.AWAITING_REVIEW
-    chapter.reviewer_note = reviewer_note
+    before_word_count = len(source_text)
+    repair_request: RepairRequest | None = None
+    raw_response_text: str
+    applied_response_text: str
+    word_count_repair_mode: str | None = None
+    patch_operations: list[dict[str, Any]] | None = None
+    applied_patch_operations: list[dict[str, Any]] | None = None
+    patch_application_strategy: str | None = None
+    addressed_issue_titles: list[str] = []
+    if model_client is None:
+        applied_response_text = repair_text_locally(chapter, _revise_text)
+        raw_response_text = applied_response_text
+    else:
+        repair_request = build_repair_request(chapter, reviewer_note)
+        word_count_repair_mode = word_count_patch_mode(
+            repair_request.before_word_count,
+            repair_request.word_count_window,
+        )
+        if word_count_repair_mode is None:
+            raw_response_text = _complete_text_stage(
+                model_client,
+                "revise",
+                repair_request.messages,
+            )
+            applied_response_text = raw_response_text
+        else:
+            repair_request = build_word_count_patch_request(chapter, reviewer_note)
+            patch_payload, raw_response_text = _complete_json_stage_with_raw(
+                model_client,
+                "word_count_patch",
+                repair_request.messages,
+                {"operations"},
+            )
+            patch_operations = [
+                operation for operation in patch_payload.get("operations", []) if isinstance(operation, dict)
+            ]
+            patch_application = apply_word_count_patch_bounded(
+                source_text,
+                patch_payload,
+                repair_request.word_count_window,
+                repair_request.target_word_count,
+            )
+            applied_response_text = patch_application.text
+            applied_patch_operations = patch_application.operations
+            patch_application_strategy = patch_application.strategy
+            addressed_issue_titles = patch_addressed_issue_titles(
+                applied_patch_operations,
+                repair_request.unresolved_audit_issues,
+            )
+    validation_warning = repair_validation_warning(repair_request, source_text, applied_response_text)
+    rejected_response = repair_response_should_be_rejected(
+        repair_request,
+        source_text,
+        applied_response_text,
+    )
+    chapter.revised_text = source_text if rejected_response else applied_response_text
+    chapter.word_count = len(chapter.revised_text)
+    recheck_repair_audit(
+        chapter,
+        addressed_issue_titles=[] if rejected_response else addressed_issue_titles,
+    )
+    chapter.status = ChapterStatus.NEEDS_REVISION if validation_warning else ChapterStatus.AWAITING_REVIEW
+    chapter.reviewer_note = validation_warning or reviewer_note
     chapter.updated_at = utc_now()
 
     session.add(chapter)
@@ -275,9 +348,25 @@ def repair_chapter_with_ai(
         RunTrace(
             book_id=chapter.book_id,
             stage="修复问题",
+            prompt_id=repair_trace_prompt_id(repair_request, word_count_repair_mode),
+            prompt_version=PROMPT_VERSION if repair_request is not None else None,
             model=model_name or "本地演示模型",
-            cost={"estimated": 0},
-            metadata_={"chapter": chapter.number, "status": chapter.status.value},
+            cost=repair_trace_cost(repair_request, raw_response_text),
+            metadata_=repair_trace_metadata(
+                chapter,
+                repair_request,
+                reviewer_note,
+                before_word_count,
+                validation_warning,
+                raw_response_text,
+                applied_response_text,
+                rejected_response,
+                word_count_repair_mode,
+                patch_operations,
+                applied_patch_operations,
+                patch_application_strategy,
+                addressed_issue_titles,
+            ),
         )
     )
     session.commit()
@@ -363,10 +452,20 @@ def _complete_json_stage(
     messages: list[dict[str, str]],
     required_fields: set[str],
 ) -> dict[str, Any]:
+    data, _ = _complete_json_stage_with_raw(model_client, stage, messages, required_fields)
+    return data
+
+
+def _complete_json_stage_with_raw(
+    model_client: ChapterModelClient,
+    stage: str,
+    messages: list[dict[str, str]],
+    required_fields: set[str],
+) -> tuple[dict[str, Any], str]:
     try:
         raw = model_client.complete(stage, messages, "json")
     except Exception as error:  # noqa: BLE001
-        raise ChapterStageError(stage, error) from error
+        raise ChapterStageError(stage, error, messages=messages, response_format="json") from error
     try:
         data = parse_json_stage_response(raw, stage)
         missing = sorted(required_fields - set(data))
@@ -374,9 +473,15 @@ def _complete_json_stage(
             raise ChapterJsonStageFormatError(
                 f"Chapter stage {stage} missing fields: {', '.join(missing)}"
             )
-        return data
+        return data, raw
     except ChapterJsonStageFormatError as error:
-        raise ChapterStageError(stage, error) from error
+        raise ChapterStageError(
+            stage,
+            error,
+            messages=messages,
+            response_format="json",
+            raw_response_text=raw,
+        ) from error
 
 
 def _is_recoverable_json_stage_error(error: ChapterStageError) -> bool:
@@ -394,7 +499,7 @@ def _complete_text_stage(
             raise ValueError(f"Chapter stage {stage} returned empty text.")
         return text
     except Exception as error:  # noqa: BLE001
-        raise ChapterStageError(stage, error) from error
+        raise ChapterStageError(stage, error, messages=messages, response_format="text") from error
 
 
 def _build_context_package(canon: Canon, chapter: Chapter, volume_plan: dict[str, Any]) -> dict:

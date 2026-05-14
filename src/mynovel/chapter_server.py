@@ -6,7 +6,7 @@ from threading import Thread
 from sqlmodel import Session
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import BookStatus, ChapterStatus, ProviderConfig, utc_now
+from mynovel.domain.models import BookStatus, ChapterStatus, ProviderConfig, RunTrace, utc_now
 from mynovel.domain.repositories import get_book, get_chapter, get_latest_canon, list_chapters_for_book
 from mynovel.llm.openai_compatible import OpenAICompatibleClient
 from mynovel.workflows.chapter_batch import run_chapter_batch
@@ -228,11 +228,44 @@ def _mark_chapter_job_failed(db_path: Path, chapter_id: int, error: Exception) -
         chapter = get_chapter(session, chapter_id)
         if chapter is None:
             return
+        error_message = _job_error_message(error)
         chapter.status = ChapterStatus.NEEDS_REVISION
-        chapter.reviewer_note = f"生成失败：{error}"
+        chapter.reviewer_note = f"生成失败：{error_message}"
         chapter.updated_at = utc_now()
         session.add(chapter)
+        metadata: dict[str, object] = {
+            "chapter": chapter.number,
+            "status": chapter.status.value,
+            "error_type": type(error).__name__,
+            "error_message": error_message,
+            "error_repr": repr(error),
+        }
+        failed_stage = getattr(error, "stage", None)
+        if failed_stage:
+            metadata["failed_stage"] = failed_stage
+        response_format = getattr(error, "response_format", None)
+        if response_format:
+            metadata["response_format"] = response_format
+        raw_response_text = getattr(error, "raw_response_text", None)
+        if raw_response_text:
+            metadata["raw_response_text"] = raw_response_text
+        prompt_messages = getattr(error, "messages", None)
+        if prompt_messages:
+            metadata["prompt_messages"] = prompt_messages
+        session.add(
+            RunTrace(
+                book_id=chapter.book_id,
+                stage="修复失败",
+                cost={"estimated": 0},
+                metadata_=metadata,
+            )
+        )
         session.commit()
+
+
+def _job_error_message(error: Exception) -> str:
+    message = str(error).strip()
+    return message or type(error).__name__
 
 
 def chapter_model_client_from_provider_config(

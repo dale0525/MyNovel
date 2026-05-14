@@ -12,7 +12,11 @@ from mynovel.domain.models import (
     Chapter,
     ProviderConfig,
 )
-from mynovel.workflows.canon_proposal import canon_proposal_readiness
+from mynovel.workflows.canon_proposal import (
+    canon_proposal_completion_target,
+    canon_proposal_readiness,
+    section_locks_for_book,
+)
 from mynovel.word_targets import chapter_word_budget, format_word_count
 from mynovel.i18n import DEFAULT_LOCALE
 
@@ -167,13 +171,16 @@ def render_canon_gate_main(canon: Canon | None, locked: bool = False) -> str:
 
 
 def render_canon_gate_aside(
-    book_id: int,
+    book: Book,
     canon: Canon | None,
     chapters: list[Chapter],
     locked: bool = False,
     proposal_revision: CanonProposalRevision | None = None,
 ) -> str:
-    readiness = canon_proposal_readiness(canon.content if canon is not None else {})
+    book_id = book.id or 0
+    content = canon.content if canon is not None else {}
+    readiness = canon_proposal_readiness(content)
+    completion_target = canon_proposal_completion_target(content, section_locks_for_book(book))
     ready_to_lock = locked or readiness.complete
     active_revision = (
         proposal_revision
@@ -199,60 +206,64 @@ def render_canon_gate_aside(
         else "<p>暂无未处理审计风险。</p>"
     )
     if locked:
-        status = "已锁定"
-        gate_copy = "可信设定已经锁定，后续只能通过章节审核写入新的状态变化。"
+        gate_title = "章节生产已解锁"
+        status = "已完成定盘"
+        gate_copy = "这本书已经完成开书定盘，可以继续进入章节生产和审核。"
         actions = f"""
           <a class="button secondary" href="/book/{book_id}">返回项目</a>
           <a class="button" href="/review">进入审核</a>
 """
         confirmation = """
         <section class="lock-confirmation">
-          <h2>锁定前确认</h2>
-          <label class="inline-check"><input type="checkbox" checked>我已理解：锁定后这些内容会成为可信设定的事实源。</label>
+          <h2>后续如何修改</h2>
+          <p>后续章节通过审核后，新的变化会继续写入可信设定。</p>
         </section>
 """
     elif active_revision is not None:
-        status, gate_copy, confirmation, actions = _render_revision_gate_state(
+        gate_title, status, gate_copy, confirmation, actions = _render_revision_gate_state(
             book_id,
             active_revision,
         )
     elif not ready_to_lock:
+        gate_title = "还不能进入下一步"
         status = "待补全"
-        gate_copy = "必须先补全人物、势力、地点、关系等定盘信息，生产线才能解锁。"
-        actions = f"""
-          <a class="button" href="/book/{book_id}/state#canon-completion">让 AI 补全定盘</a>
-          <a class="button secondary" href="/book/{book_id}/state">查看全部分区</a>
-          <button type="button" disabled>定盘信息不足，先补全</button>
-"""
+        status = "需要补全定盘"
+        gate_copy = "还缺少必要设定。请先让 AI 补全定盘，确认预览后再继续。"
+        repair_action = (
+            f'<a class="button" href="/book/{book_id}/state#canon-completion">让 AI 补全定盘</a>'
+            if completion_target is not None
+            else ""
+        )
+        actions = f"{repair_action}{_render_abandon_settings_action(book_id)}"
         confirmation = """
         <section class="lock-confirmation">
-          <h2>补全后才能锁定</h2>
-          <p>AI 会先补齐缺失的定盘分区，并生成可审核预览；确认后再进入锁定。</p>
+          <h2>需要先补齐什么</h2>
+          <p>人物、势力、地点、关系、伏笔和章节节奏足够明确后，才能进入章节生产。</p>
         </section>
 """
     else:
-        status = "尚未锁定"
-        gate_copy = "必须由作者确认并锁定可信设定，生产线才能解锁。"
+        gate_title = "下一步：开始章节生产"
+        status = "可以进入章节生产"
+        gate_copy = "开书定盘已达到最低要求。点击下一步会固定当前设定，并进入章节生产步骤。"
         actions = f"""
-          <a class="button secondary" href="/book/{book_id}">返回修改</a>
-          <a class="button secondary" href="/book/{book_id}/state">让 AI 修复</a>
           <form method="post" action="/lock-canon" class="compact-form">
             <input type="hidden" name="book_id" value="{book_id}">
-            <button type="submit">锁定可信设定并开始生产</button>
+            <button type="submit">下一步</button>
           </form>
+          {_render_abandon_settings_action(book_id)}
 """
         confirmation = """
         <section class="lock-confirmation">
-          <h2>锁定前确认</h2>
-          <label class="inline-check"><input type="checkbox" checked>我已理解：锁定后这些内容会成为可信设定的事实源。</label>
+          <h2>点击下一步后</h2>
+          <p>当前设定会成为后续章节的写作依据；之后仍可通过章节审核继续补充新的变化。</p>
         </section>
 """
     return f"""
       <aside class="right-panel audit-risk-panel">
         <section class="force-gate">
-          <h2>强制关卡</h2>
+          <h2>{gate_title}</h2>
           <p>{gate_copy}</p>
-          <p>当前状态：<strong>{status}</strong></p>
+          <p>当前进度：<strong>{status}</strong></p>
         </section>
         {confirmation}
         <div class="gate-actions">{actions}</div>
@@ -270,11 +281,21 @@ def render_canon_gate_aside(
 """
 
 
+def _render_abandon_settings_action(book_id: int) -> str:
+    return f"""
+          <form method="post" action="/abandon-book" class="compact-form">
+            <input type="hidden" name="book_id" value="{book_id}">
+            <button class="secondary danger" type="submit">放弃设定，重开一本</button>
+          </form>
+"""
+
+
 def _render_revision_gate_state(
     book_id: int,
     revision: CanonProposalRevision,
-) -> tuple[str, str, str, str]:
+) -> tuple[str, str, str, str, str]:
     if revision.status == CanonProposalRevisionStatus.RUNNING:
+        gate_title = "等待 AI 生成预览"
         status = "AI 生成中"
         gate_copy = "AI 正在生成可审核预览，完成后在左侧确认是否应用。"
         confirmation = """
@@ -288,6 +309,7 @@ def _render_revision_gate_state(
           <button type="button" disabled>生成完成后再确认</button>
 """
     elif revision.status == CanonProposalRevisionStatus.FAILED:
+        gate_title = "AI 预览生成失败"
         status = "生成失败"
         gate_copy = "这次 AI 修订没有生成可用预览，可以在左侧重新生成或调整意见。"
         confirmation = """
@@ -301,6 +323,7 @@ def _render_revision_gate_state(
           <a class="button secondary" href="/book/{book_id}/state">查看全部分区</a>
 """
     else:
+        gate_title = "先确认 AI 修订预览"
         status = "预览待确认"
         gate_copy = "先审核左侧 AI 修订预览；应用后再判断是否可锁定。"
         confirmation = """
@@ -313,7 +336,7 @@ def _render_revision_gate_state(
           <a class="button" href="#canon-revision-job">查看修订预览</a>
           <button type="button" disabled>确认后再锁定</button>
 """
-    return status, gate_copy, confirmation, actions
+    return gate_title, status, gate_copy, confirmation, actions
 
 
 def render_chapter_production_main(chapter: Chapter) -> str:

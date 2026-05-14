@@ -32,7 +32,6 @@ def render_blueprint_review(
         <div class="proposal-grid">{proposals}</div>
         <section class="blueprint-selected-detail" data-blueprint-detail-panel>{selected_detail}</section>
         {detail_templates}
-        {_selection_script()}
       </section>
       <aside class="right-panel blueprint-actions">
         <h2>选择后怎么处理</h2>
@@ -54,6 +53,7 @@ def render_blueprint_review(
           </form>
         </div>
       </aside>
+      {_selection_script()}
 """
 
 

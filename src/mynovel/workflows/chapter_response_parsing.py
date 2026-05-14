@@ -105,8 +105,6 @@ def _parse_json_object(raw_text: str) -> dict[str, Any]:
 
 
 def _json_object_text(text: str) -> str:
-    if text.startswith("{"):
-        return text
     decoder = json.JSONDecoder()
     for index, character in enumerate(text):
         if character != "{":

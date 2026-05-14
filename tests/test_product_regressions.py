@@ -155,6 +155,14 @@ def test_blueprint_proposal_cards_are_clickable_and_drive_selected_detail() -> N
     assert "selectBlueprintCandidate" in page
 
 
+def test_blueprint_selection_script_initializes_after_selected_title_input() -> None:
+    blueprint = _blueprint_with_distinct_candidates()
+
+    page = render_blueprint_page(Path(".mynovel/dev.sqlite"), None, blueprint)
+
+    assert page.index('id="selected_title"') < page.index("selectBlueprintCandidate")
+
+
 def test_blueprint_action_area_groups_forms_under_the_section_heading() -> None:
     page = render_blueprint_page(
         Path(".mynovel/dev.sqlite"), None, _blueprint_with_distinct_candidates()

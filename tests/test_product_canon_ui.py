@@ -149,10 +149,10 @@ def test_trusted_state_page_exposes_canon_lock_gate() -> None:
 
     assert "canon-gate-layout" in page
     assert "审计风险" in page
-    assert "强制关卡" in page
+    assert "章节生产已解锁" in page
     assert "前 10 章节奏" in page
     assert "可信设定已锁定" in page
-    assert "当前状态：<strong>已锁定</strong>" in page
+    assert "当前进度：<strong>已完成定盘</strong>" in page
     assert "当前为可信设定提案（未锁定）" not in page
     assert "可信设定提案 · 待确认" not in page
     assert "锁定可信设定并开始生产" not in page
@@ -180,8 +180,19 @@ def test_trusted_state_page_renders_clickable_canon_sections_with_locks() -> Non
         version=1,
         content={
             "world_rules": [{"name": "雾墙规则", "detail": "幽谷边界危险"}],
-            "characters": [{"name": "林烬", "trait": "外冷内热"}],
-            "factions": [],
+            "characters": [{"name": "林烬"}, {"name": "闻舟"}, {"name": "许澜"}],
+            "factions": [{"name": "旧石会"}],
+            "locations": [{"name": "幽谷"}, {"name": "雾门"}],
+            "relationships": [
+                {"from": "林烬", "to": "闻舟", "detail": "同盟"},
+                {"from": "林烬", "to": "旧石会", "detail": "对抗"},
+            ],
+            "foreshadowing": ["残页", "雾门", "旧王朝"],
+            "chapter_summaries": [
+                {"chapter": 1, "title": "召唤"},
+                {"chapter": 2, "title": "雾门"},
+                {"chapter": 3, "title": "旧石会"},
+            ],
         },
     )
 
@@ -272,7 +283,7 @@ def test_trusted_state_page_presents_ai_revision_as_reviewable_decision() -> Non
         allowed_sections=["characters", "chapter_summaries"],
         locked_sections=["world_rules"],
         changed_sections={
-            "characters": [{"name": "林烬", "description": "档案修复师"}],
+            "characters": [{"name": "林烬", "description": "档案修复师", "skills": ["纸页封印"]}],
             "chapter_summaries": [
                 {"title": "魂穿将门，死而复生", "content": "现代医生醒来后自救。"}
             ],
@@ -294,6 +305,8 @@ def test_trusted_state_page_presents_ai_revision_as_reviewable_decision() -> Non
     assert "先审核左侧 AI 修订预览" in page
     assert 'href="#canon-revision-job"' in page
     assert "魂穿将门，死而复生" in page
+    assert "技能：纸页封印" in page
+    assert "skills" not in page
     assert "内容：现代医生醒来后自救" not in page
     assert "description：" not in page
 
@@ -478,9 +491,20 @@ def test_trusted_state_page_keeps_unlocked_foundation_as_review_gate() -> None:
     assert "让 AI 补全定盘" in page
     assert 'action="/canon-proposal-revise"' in page
     assert 'name="target_section" value="characters"' in page
-    assert "补全后才能锁定" in page
-    assert "定盘信息不足，先补全" in page
-    assert page.index("强制关卡") < page.index("审计风险")
+    assert "需要先补齐什么" in page
+    assert "还不能进入下一步" in page
+    assert "当前进度：<strong>需要补全定盘</strong>" in page
+    assert "强制关卡" not in page
+    assert "锁定可信设定并开始生产" not in page
+    assert 'action="/lock-canon"' not in page
+    assert 'action="/canon-proposal-lock"' not in page
+    assert "锁定此部分" not in page
+    assert "解除锁定" not in page
+    assert "让 AI 修改这部分" not in page
+    assert "查看全部分区" not in page
+    assert "定盘信息不足，先补全" not in page
+    assert "放弃设定，重开一本" in page
+    assert page.index("还不能进入下一步") < page.index("审计风险")
     assert "锁定可信设定并开始生产" not in page
     assert "<strong>定盘</strong><em>当前阶段</em>" in page
     assert "规划本章" not in page
@@ -518,10 +542,24 @@ def test_trusted_state_page_keeps_lock_action_for_complete_unlocked_foundation()
 
     page = render_trusted_state_page(book, canon, [])
 
-    assert "当前状态：<strong>尚未锁定</strong>" in page
+    assert "下一步：开始章节生产" in page
+    assert "当前进度：<strong>可以进入章节生产</strong>" in page
+    assert "点击下一步后" in page
+    assert "当前设定会成为后续章节的写作依据" in page
+    assert "强制关卡" not in page
+    assert "尚未锁定" not in page
+    right_panel = page.split('class="right-panel audit-risk-panel"', 1)[1]
+    assert "事实源" not in right_panel
+    assert "锁定前确认" not in page
     assert 'action="/lock-canon"' in page
     assert 'name="book_id" value="1"' in page
-    assert "锁定可信设定并开始生产" in page
+    assert "下一步" in page
+    assert "锁定可信设定并开始生产" not in page
+    assert "让 AI 修复" not in page
+    assert "返回修改" not in page
+    assert "放弃设定，重开一本" in page
+    assert 'action="/abandon-book"' in page
+    assert 'name="book_id" value="1"' in page
     assert "定盘信息不足" not in page
 
 
