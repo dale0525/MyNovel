@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { ApiError, postJson } from "@/lib/api";
+import { navigateTo } from "@/lib/navigation";
 
 type OpenBookResponse = {
   blueprintId: number;
@@ -34,7 +35,7 @@ export function OpenBookPage() {
         selling_points: sellingPoints,
         constraints,
       });
-      window.history.pushState(null, "", response.redirectTo);
+      navigateTo(response.redirectTo);
     } catch (submitError) {
       setError(submitError instanceof ApiError ? submitError.message : "开书请求失败。");
     } finally {

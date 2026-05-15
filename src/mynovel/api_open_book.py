@@ -21,7 +21,6 @@ from mynovel.domain.repositories import (
     get_open_book_blueprint,
     get_provider_config,
     get_provider_config_validation,
-    list_open_book_blueprints,
 )
 from mynovel.word_targets import book_idea_from_form
 from mynovel.workflows.open_book_blueprint import create_blueprint_job
@@ -115,11 +114,13 @@ def revise_blueprint_json(db_path: Path, blueprint_id: int, body: dict[str, Any]
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
+        if get_open_book_blueprint(session, blueprint_id) is None:
+            return _blueprint_not_found()
         try:
             blueprint = create_revision_blueprint_job(
                 session,
                 form,
-                list_open_book_blueprints(session),
+                [],
                 revision_notes,
             )
         except ValueError:

@@ -16,6 +16,7 @@ from mynovel.domain.models import (
 from mynovel.domain.repositories import (
     add_open_book_blueprint,
     get_open_book_blueprint,
+    list_open_book_blueprints,
     save_provider_config,
     save_provider_config_validation,
 )
@@ -168,6 +169,30 @@ def test_revise_blueprint_creates_revision_job(tmp_path: Path, monkeypatch) -> N
     assert revision.parent_id == blueprint_id
     assert revision.version == 2
     assert revision.instruction == "主角更疯一点"
+
+
+def test_revise_missing_blueprint_does_not_fallback_to_existing_blueprint(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    _save_validated_provider(db_path)
+    existing_id = _save_blueprint(db_path, status=BlueprintStatus.SUCCEEDED)
+    started: list[int] = []
+    monkeypatch.setattr("mynovel.api_open_book.start_blueprint_job", lambda _db, blueprint_id, _config: started.append(blueprint_id))
+
+    response = dispatch_api_post(
+        "/api/blueprints/999/revise",
+        {"revisionNotes": "主角更疯一点"},
+        db_path,
+    )
+
+    assert response.status == HTTPStatus.NOT_FOUND
+    assert response.body["error"]["code"] == "blueprint_not_found"
+    assert started == []
+    with Session(create_engine_for_path(db_path)) as session:
+        blueprints = list_open_book_blueprints(session)
+    assert [blueprint.id for blueprint in blueprints] == [existing_id]
 
 
 def test_accept_blueprint_returns_book_redirect(tmp_path: Path) -> None:

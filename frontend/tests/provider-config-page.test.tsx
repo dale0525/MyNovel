@@ -383,6 +383,106 @@ test("BootstrapGate routes configured blueprint path to the blueprint page", asy
   expect(screen.queryByText("项目页面将在后续任务接入。")).not.toBeInTheDocument();
 });
 
+test("BootstrapGate rerenders route after open-book submit navigation", async () => {
+  window.history.pushState(null, "", "/books/new");
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === "/api/open-book") {
+      return Response.json({ blueprintId: 9, redirectTo: "/blueprints/9" }, { status: 202 });
+    }
+    if (path === "/api/blueprints/9") {
+      return Response.json({
+        blueprint: {
+          id: 9,
+          parentId: null,
+          idea: "一座图书馆",
+          version: 1,
+          status: "pending",
+          instruction: null,
+          content: {},
+          parseError: null,
+          errorMessage: null,
+        },
+      });
+    }
+    return Response.json({}, { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(
+    <BootstrapGate
+      bootstrap={{ providerConfigured: true, initialRoute: "/books/new", message: null }}
+    />,
+  );
+
+  fireEvent.change(screen.getByLabelText("故事灵感"), {
+    target: { value: "失意档案员重建禁书图书馆" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "生成蓝图" }));
+
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("蓝图排队中"));
+  expect(window.location.pathname).toBe("/blueprints/9");
+  expect(fetchMock).toHaveBeenCalledWith("/api/blueprints/9", expect.anything());
+});
+
+test("BootstrapGate rerenders route after blueprint revision navigation", async () => {
+  window.history.pushState(null, "", "/blueprints/3");
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === "/api/blueprints/3") {
+      return Response.json({
+        blueprint: {
+          id: 3,
+          parentId: null,
+          idea: "一座图书馆",
+          version: 1,
+          status: "succeeded",
+          instruction: null,
+          content: { title_options: ["长夜档案"], premise: "档案员追查禁书真相。" },
+          parseError: null,
+          errorMessage: null,
+        },
+      });
+    }
+    if (path === "/api/blueprints/3/revise") {
+      return Response.json({ blueprintId: 4, redirectTo: "/blueprints/4" }, { status: 202 });
+    }
+    if (path === "/api/blueprints/4") {
+      return Response.json({
+        blueprint: {
+          id: 4,
+          parentId: 3,
+          idea: "一座图书馆",
+          version: 2,
+          status: "pending",
+          instruction: "主角更疯一点",
+          content: {},
+          parseError: null,
+          errorMessage: null,
+        },
+      });
+    }
+    return Response.json({}, { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(
+    <BootstrapGate
+      bootstrap={{ providerConfigured: true, initialRoute: "/blueprints/3", message: null }}
+    />,
+  );
+
+  await waitFor(() => expect(screen.getByLabelText("长夜档案")).toBeChecked());
+  fireEvent.change(screen.getByLabelText("修订意见"), {
+    target: { value: "主角更疯一点" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "提交修订" }));
+
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("蓝图排队中"));
+  expect(window.location.pathname).toBe("/blueprints/4");
+  expect(fetchMock).toHaveBeenCalledWith("/api/blueprints/4", expect.anything());
+});
+
 test("BootstrapGate routes configured settings path inside the app shell", () => {
   window.history.pushState(null, "", "/settings/provider");
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { ApiError, getJson, postJson } from "@/lib/api";
+import { navigateTo } from "@/lib/navigation";
 import type { BlueprintPayload, BlueprintResponse } from "@/lib/types";
 
 type BlueprintPageState =
@@ -70,7 +71,7 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
     try {
       const response = await postJson<ActionResponse>(path, body);
       if (response.redirectTo) {
-        window.history.pushState(null, "", response.redirectTo);
+        navigateTo(response.redirectTo);
       }
     } catch (error) {
       setActionError(error instanceof ApiError ? error.message : "操作失败。");
