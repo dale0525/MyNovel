@@ -281,6 +281,40 @@ def test_keyless_llm_edit_reuses_existing_llm_api_key(tmp_path: Path) -> None:
     assert saved.llm_api_key == original_key
 
 
+def test_keyless_llm_edit_does_not_reuse_key_when_base_url_changes(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "mynovel.sqlite"
+    original_key = "llm-existing-secret"
+    checker = FakeChecker()
+
+    save_provider_config_json(
+        db_path,
+        _payload(llm_base_url="https://safe.test/v1", llm_api_key=original_key),
+        FakeChecker(),
+    )
+    response = save_provider_config_json(
+        db_path,
+        _payload(
+            llm_base_url="https://attacker.test/v1",
+            llm_api_key=None,
+        ),
+        checker,
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["saved"] is False
+    assert checker.calls == []
+    assert _validation_message(response.body, "llm") == "请填写对话模型访问密钥。"
+
+    with Session(create_engine_for_path(db_path)) as session:
+        saved = get_provider_config(session)
+
+    assert saved is not None
+    assert saved.llm_base_url == "https://safe.test/v1"
+    assert saved.llm_api_key == original_key
+
+
 def test_keyless_edit_reuses_existing_dedicated_embedding_and_rerank_keys(
     tmp_path: Path,
 ) -> None:
@@ -348,6 +382,88 @@ def test_keyless_edit_reuses_existing_dedicated_embedding_and_rerank_keys(
     assert saved.rerank_model == "rerank-b"
 
 
+def test_keyless_embedding_edit_does_not_reuse_key_when_base_url_changes(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "mynovel.sqlite"
+    embedding_key = "embedding-secret"
+    checker = FakeChecker()
+
+    save_provider_config_json(
+        db_path,
+        _payload(
+            embedding_use_llm_credentials=False,
+            embedding_base_url="https://embedding-safe.test/v1",
+            embedding_api_key=embedding_key,
+            rerank_use_llm_credentials=True,
+        ),
+        FakeChecker(),
+    )
+    response = save_provider_config_json(
+        db_path,
+        _payload(
+            llm_api_key=None,
+            embedding_use_llm_credentials=False,
+            embedding_base_url="https://embedding-attacker.test/v1",
+            rerank_use_llm_credentials=True,
+        ),
+        checker,
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["saved"] is False
+    assert checker.calls == []
+    assert _validation_message(response.body, "embedding") == "请填写检索模型访问密钥。"
+
+    with Session(create_engine_for_path(db_path)) as session:
+        saved = get_provider_config(session)
+
+    assert saved is not None
+    assert saved.embedding_base_url == "https://embedding-safe.test/v1"
+    assert saved.embedding_api_key == embedding_key
+
+
+def test_keyless_rerank_edit_does_not_reuse_key_when_base_url_changes(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "mynovel.sqlite"
+    rerank_key = "rerank-secret"
+    checker = FakeChecker()
+
+    save_provider_config_json(
+        db_path,
+        _payload(
+            embedding_use_llm_credentials=True,
+            rerank_use_llm_credentials=False,
+            rerank_base_url="https://rerank-safe.test/v1",
+            rerank_api_key=rerank_key,
+        ),
+        FakeChecker(),
+    )
+    response = save_provider_config_json(
+        db_path,
+        _payload(
+            llm_api_key=None,
+            embedding_use_llm_credentials=True,
+            rerank_use_llm_credentials=False,
+            rerank_base_url="https://rerank-attacker.test/v1",
+        ),
+        checker,
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["saved"] is False
+    assert checker.calls == []
+    assert _validation_message(response.body, "rerank") == "请填写重排模型访问密钥。"
+
+    with Session(create_engine_for_path(db_path)) as session:
+        saved = get_provider_config(session)
+
+    assert saved is not None
+    assert saved.rerank_base_url == "https://rerank-safe.test/v1"
+    assert saved.rerank_api_key == rerank_key
+
+
 def test_inherited_credentials_clear_submitted_dedicated_api_keys(
     tmp_path: Path,
 ) -> None:
@@ -413,6 +529,30 @@ def test_inherited_credentials_clear_submitted_dedicated_api_keys(
     assert saved.rerank_api_key is None
 
 
+def test_provider_config_route_saves_config_on_success(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "mynovel.sqlite"
+    checker = FakeChecker()
+    monkeypatch.setattr(
+        "mynovel.api_provider_config.OpenAICompatibleProviderConfigChecker",
+        lambda: checker,
+    )
+
+    response = dispatch_api_post("/api/provider-config", _payload(), db_path)
+
+    assert response.status == HTTPStatus.OK
+    assert response.body["saved"] is True
+    assert checker.calls == ["llm", "embedding", "rerank"]
+
+    with Session(create_engine_for_path(db_path)) as session:
+        saved = get_provider_config(session)
+
+    assert saved is not None
+    assert saved.llm_model == "gpt"
+
+
 def test_provider_config_from_json_strips_string_booleans() -> None:
     config = provider_config_from_json(
         _payload(
@@ -427,6 +567,7 @@ def test_provider_config_from_json_strips_string_booleans() -> None:
 
 def _payload(
     *,
+    llm_base_url: str = "https://api.test/v1",
     llm_api_key: str | None = "sk",
     llm_model: str = "gpt",
     embedding_use_llm_credentials: bool | str = True,
@@ -439,7 +580,7 @@ def _payload(
     rerank_model: str = "rerank",
 ) -> dict[str, object]:
     payload: dict[str, object] = {
-        "llmBaseUrl": "https://api.test/v1",
+        "llmBaseUrl": llm_base_url,
         "llmModel": llm_model,
         "embeddingUseLlmCredentials": embedding_use_llm_credentials,
         "embeddingBaseUrl": embedding_base_url,

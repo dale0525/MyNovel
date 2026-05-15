@@ -174,19 +174,33 @@ def _merge_provider_config_secrets(
     config: ProviderConfig,
     saved_config: ProviderConfig | None,
 ) -> ProviderConfig:
-    if saved_config is not None and not _has_api_key(config.llm_api_key):
+    if (
+        saved_config is not None
+        and not _has_api_key(config.llm_api_key)
+        and _same_endpoint(config.llm_base_url, saved_config.llm_base_url)
+    ):
         config.llm_api_key = saved_config.llm_api_key
 
     if config.embedding_use_llm_credentials:
         config.embedding_base_url = ""
         config.embedding_api_key = None
-    elif saved_config is not None and not _has_api_key(config.embedding_api_key):
+    elif (
+        saved_config is not None
+        and not saved_config.embedding_use_llm_credentials
+        and not _has_api_key(config.embedding_api_key)
+        and _same_endpoint(config.embedding_base_url, saved_config.embedding_base_url)
+    ):
         config.embedding_api_key = saved_config.embedding_api_key
 
     if config.rerank_use_llm_credentials:
         config.rerank_base_url = None
         config.rerank_api_key = None
-    elif saved_config is not None and not _has_api_key(config.rerank_api_key):
+    elif (
+        saved_config is not None
+        and not saved_config.rerank_use_llm_credentials
+        and not _has_api_key(config.rerank_api_key)
+        and _same_endpoint(config.rerank_base_url, saved_config.rerank_base_url)
+    ):
         config.rerank_api_key = saved_config.rerank_api_key
 
     return config
@@ -194,6 +208,10 @@ def _merge_provider_config_secrets(
 
 def _has_api_key(value: str | None) -> bool:
     return bool((value or "").strip())
+
+
+def _same_endpoint(value: str | None, other: str | None) -> bool:
+    return (value or "").strip() == (other or "").strip()
 
 
 def _api_key_values(config: ProviderConfig | None) -> tuple[str, ...]:
@@ -231,9 +249,7 @@ def _redaction_secret_values(
     extra_secrets: tuple[str, ...],
 ) -> tuple[str, ...]:
     candidates = {
-        secret.strip()
-        for secret in (*_api_key_values(config), *extra_secrets)
-        if secret.strip()
+        secret.strip() for secret in (*_api_key_values(config), *extra_secrets) if secret.strip()
     }
     return tuple(sorted(candidates, key=len, reverse=True))
 
