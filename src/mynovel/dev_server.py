@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Thread
 from typing import Any, cast
 from urllib.parse import parse_qs, quote, urlparse
 
@@ -24,6 +22,7 @@ from mynovel.blueprint_acceptance import (
     lock_canon_from_form,
 )
 from mynovel.blueprint_revision import create_revision_blueprint_job, revision_notes_from_form
+from mynovel.blueprint_jobs import reset_blueprint_for_retry, start_blueprint_job
 from mynovel import canon_proposal_server as canon_server
 from mynovel.chapter_server import (
     chapter_model_client_from_provider_config,
@@ -32,7 +31,7 @@ from mynovel.chapter_server import (
     queue_chapter_run,
 )
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import Book, BlueprintStatus, OpenBookBlueprint, ProviderConfig, utc_now
+from mynovel.domain.models import Book, OpenBookBlueprint, ProviderConfig
 from mynovel.domain.repositories import (
     get_book,
     get_chapter,
@@ -49,7 +48,6 @@ from mynovel.i18n import t
 from mynovel.path_display import display_path
 from mynovel.import_views import render_import_project_page
 from mynovel.legacy_cleanup import remove_legacy_placeholder_data
-from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
 from mynovel.product_views import (
     is_provider_config_complete,
     render_book_workspace,
@@ -82,12 +80,7 @@ from mynovel.workflows.chapter_pipeline import (
 )
 from mynovel.workflows.book_export import export_book_json, export_book_markdown
 from mynovel.workflows.book_import import import_book_json
-from mynovel.workflows.open_book_blueprint import (
-    build_blueprint_messages,
-    create_blueprint_job,
-    extract_chat_content,
-    parse_blueprint_json,
-)
+from mynovel.workflows.open_book_blueprint import create_blueprint_job
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -409,7 +402,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if blueprint_id is None:
                 self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
-            _start_blueprint_job(db_path, blueprint_id, provider_config)
+            start_blueprint_job(db_path, blueprint_id, provider_config)
             self._redirect(f"/blueprint/{blueprint_id}")
 
         def _revise_blueprint(self, db_path: Path) -> None:
@@ -452,7 +445,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if blueprint_id is None:
                 self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
-            _start_blueprint_job(db_path, blueprint_id, provider_config)
+            start_blueprint_job(db_path, blueprint_id, provider_config)
             self._redirect(f"/blueprint/{blueprint_id}")
 
         def _retry_blueprint(self, db_path: Path) -> None:
@@ -469,8 +462,8 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 if blueprint is None:
                     self.send_error(HTTPStatus.NOT_FOUND)
                     return
-                _reset_blueprint_for_retry(session, blueprint)
-            _start_blueprint_job(db_path, blueprint_id, provider_config)
+                reset_blueprint_for_retry(session, blueprint)
+            start_blueprint_job(db_path, blueprint_id, provider_config)
             self._redirect(f"/blueprint/{blueprint_id}")
 
         def _accept_blueprint(self, db_path: Path) -> None:
@@ -862,123 +855,6 @@ def _parse_batch_limit(form: dict[str, str]) -> int:
 
 def _chapter_model_client_from_provider_config(provider_config: ProviderConfig | None):
     return chapter_model_client_from_provider_config(provider_config)
-
-
-def _start_blueprint_job(
-    db_path: Path,
-    blueprint_id: int,
-    provider_config: ProviderConfig,
-) -> None:
-    thread = Thread(
-        target=_run_blueprint_job,
-        args=(db_path, blueprint_id, provider_config),
-        daemon=True,
-    )
-    thread.start()
-
-
-def _run_blueprint_job(
-    db_path: Path,
-    blueprint_id: int,
-    provider_config: ProviderConfig,
-) -> None:
-    engine = create_engine_for_path(db_path)
-    create_db_and_tables(engine)
-    previous_blueprint: dict[str, Any] | None = None
-    idea = ""
-    revision_notes = None
-
-    with Session(engine) as session:
-        blueprint = get_open_book_blueprint(session, blueprint_id)
-        if blueprint is None:
-            return
-        blueprint.status = BlueprintStatus.RUNNING
-        blueprint.started_at = utc_now()
-        blueprint.error_message = None
-        blueprint.parse_error = None
-        blueprint.raw_response = ""
-        blueprint.content = {}
-        idea = blueprint.idea
-        revision_notes = blueprint.instruction
-        if blueprint.parent_id is not None:
-            parent = get_open_book_blueprint(session, blueprint.parent_id)
-            previous_blueprint = parent.content if parent else None
-        session.add(blueprint)
-        session.commit()
-
-    raw_response = ""
-    status = BlueprintStatus.SUCCEEDED
-    content: dict[str, Any] = {}
-    parse_error = None
-    error_message = None
-
-    try:
-        raw_response = asyncio.run(
-            _request_blueprint(provider_config, idea, previous_blueprint, revision_notes)
-        )
-        content = parse_blueprint_json(raw_response)
-    except (json.JSONDecodeError, ValueError) as error:
-        status = BlueprintStatus.FAILED
-        parse_error = str(error)
-        error_message = str(error)
-    except Exception as error:  # noqa: BLE001
-        status = BlueprintStatus.FAILED
-        error_message = str(error)
-
-    with Session(engine) as session:
-        blueprint = get_open_book_blueprint(session, blueprint_id)
-        if blueprint is None:
-            return
-        blueprint.status = status
-        blueprint.content = content
-        blueprint.raw_response = raw_response
-        blueprint.parse_error = parse_error
-        blueprint.error_message = error_message
-        blueprint.finished_at = utc_now()
-        session.add(blueprint)
-        session.commit()
-
-
-def _reset_blueprint_for_retry(
-    session: Session,
-    blueprint: OpenBookBlueprint,
-) -> OpenBookBlueprint:
-    blueprint.status = BlueprintStatus.PENDING
-    blueprint.content = {}
-    blueprint.raw_response = ""
-    blueprint.parse_error = None
-    blueprint.error_message = None
-    blueprint.started_at = None
-    blueprint.finished_at = None
-    session.add(blueprint)
-    session.commit()
-    session.refresh(blueprint)
-    return blueprint
-
-
-async def _request_blueprint(
-    provider_config: ProviderConfig,
-    idea: str,
-    previous_blueprint: dict[str, Any] | None,
-    revision_notes: str | None,
-) -> str:
-    client = OpenAICompatibleClient(
-        base_url=provider_config.llm_base_url,
-        api_key=provider_config.llm_api_key or "",
-    )
-    response = await client.chat(
-        ChatRequest(
-            model=provider_config.llm_model,
-            messages=build_blueprint_messages(
-                idea=idea,
-                previous_blueprint=previous_blueprint,
-                revision_notes=revision_notes,
-            ),
-            temperature=0.7,
-            extra={"response_format": {"type": "json_object"}},
-        )
-    )
-    return extract_chat_content(response)
 
 
 if __name__ == "__main__":

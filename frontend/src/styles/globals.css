@@ -145,7 +145,8 @@ h1 {
   font-weight: 700;
 }
 
-.provider-field input {
+.provider-field input,
+.provider-field textarea {
   width: 100%;
   border: 1px solid rgb(23 32 24 / 0.16);
   border-radius: 1rem;
@@ -153,13 +154,19 @@ h1 {
   color: #172018;
   outline: none;
   padding: 0.85rem 1rem;
+  resize: vertical;
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease,
     background 150ms ease;
 }
 
-.provider-field input:focus {
+.provider-field textarea {
+  min-height: 8rem;
+}
+
+.provider-field input:focus,
+.provider-field textarea:focus {
   border-color: #9a611f;
   background: #fffefa;
   box-shadow: 0 0 0 4px rgb(154 97 31 / 0.14);
@@ -461,6 +468,55 @@ h1 {
 .workbench-action-button:hover {
   transform: translateY(-1px);
   box-shadow: 0 1.25rem 2.5rem rgb(123 77 27 / 0.28);
+}
+
+.open-book-form,
+.blueprint-actions,
+.blueprint-content {
+  display: grid;
+  gap: 1rem;
+}
+
+.open-book-idea textarea {
+  min-height: 12rem;
+  font-size: 1.15rem;
+  line-height: 1.7;
+}
+
+.open-book-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.open-book-presets button {
+  border: 1px solid rgb(123 77 27 / 0.18);
+  border-radius: 999px;
+  background: rgb(255 250 240 / 0.74);
+  color: #6a4218;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 0.6rem 0.85rem;
+}
+
+.blueprint-summary {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.blueprint-summary ul {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.blueprint-page pre {
+  overflow: auto;
+  border-radius: 1rem;
+  background: rgb(23 32 24 / 0.08);
+  padding: 1rem;
+  white-space: pre-wrap;
 }
 
 @media (max-width: 720px) {

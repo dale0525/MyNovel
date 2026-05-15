@@ -1,5 +1,7 @@
 import { ProviderConfigPage } from "@/features/provider-config/ProviderConfigPage";
 import { WorkbenchPage } from "@/features/workbench/WorkbenchPage";
+import { BlueprintPage } from "@/features/open-book/BlueprintPage";
+import { OpenBookPage } from "@/features/open-book/OpenBookPage";
 
 type RouteMatch = {
   activePath: string;
@@ -16,13 +18,15 @@ export function routeForPath(pathname: string): RouteMatch {
   if (path === "/books/new") {
     return {
       activePath: "/books/new",
-      element: (
-        <RoutePlaceholder
-          eyebrow="Book setup"
-          title="开书"
-          message="开书页面将在后续任务接入。"
-        />
-      ),
+      element: <OpenBookPage />,
+    };
+  }
+
+  const blueprintId = parseBlueprintPath(path);
+  if (blueprintId !== null) {
+    return {
+      activePath: "/books/new",
+      element: <BlueprintPage blueprintId={blueprintId} />,
     };
   }
 
@@ -83,4 +87,9 @@ function normalizePath(pathname: string): string {
 function isBookProjectPath(path: string): boolean {
   const match = path.match(/^\/books\/([^/]+)$/);
   return Boolean(match && match[1] !== "new");
+}
+
+function parseBlueprintPath(path: string): number | null {
+  const match = path.match(/^\/blueprints\/(\d+)$/);
+  return match ? Number(match[1]) : null;
 }

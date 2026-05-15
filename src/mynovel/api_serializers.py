@@ -6,7 +6,7 @@ from typing import Any, cast
 from sqlmodel import Session, select
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import Book, ProviderConfig, ProviderConfigValidation
+from mynovel.domain.models import Book, OpenBookBlueprint, ProviderConfig, ProviderConfigValidation
 from mynovel.domain.repositories import get_provider_config, get_provider_config_validation
 from mynovel.provider_config_validation import provider_model_fingerprint
 
@@ -30,6 +30,20 @@ def book_payload(book: Book) -> dict[str, Any]:
         "audience": book.audience,
         "status": book.status.value,
         "premise": book.premise,
+    }
+
+
+def blueprint_payload(blueprint: OpenBookBlueprint) -> dict[str, Any]:
+    return {
+        "id": blueprint.id,
+        "parentId": blueprint.parent_id,
+        "idea": blueprint.idea,
+        "version": blueprint.version,
+        "status": blueprint.status.value,
+        "instruction": blueprint.instruction,
+        "content": blueprint.content,
+        "parseError": blueprint.parse_error,
+        "errorMessage": blueprint.error_message,
     }
 
 

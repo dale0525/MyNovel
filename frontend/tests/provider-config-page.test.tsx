@@ -331,7 +331,7 @@ test("BootstrapGate renders the workbench shell when provider is configured", as
   );
 });
 
-test("BootstrapGate routes configured new-book path to a React placeholder", () => {
+test("BootstrapGate routes configured new-book path to the open-book page", () => {
   window.history.pushState(null, "", "/books/new");
   const fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
@@ -343,11 +343,44 @@ test("BootstrapGate routes configured new-book path to a React placeholder", () 
   );
 
   expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "开书" })).toBeInTheDocument();
-  expect(screen.getByText("开书页面将在后续任务接入。")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "开一本新书" })).toBeInTheDocument();
+  expect(screen.getByLabelText("故事灵感")).toBeInTheDocument();
+  expect(screen.queryByText("开书页面将在后续任务接入。")).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "把故事推进到下一步" })).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "开书" })).toHaveClass("is-active");
   expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test("BootstrapGate routes configured blueprint path to the blueprint page", async () => {
+  window.history.pushState(null, "", "/blueprints/8");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        blueprint: {
+          id: 8,
+          parentId: null,
+          idea: "一座图书馆",
+          version: 1,
+          status: "pending",
+          instruction: null,
+          content: {},
+          parseError: null,
+          errorMessage: null,
+        },
+      }),
+    ),
+  );
+
+  render(
+    <BootstrapGate
+      bootstrap={{ providerConfigured: true, initialRoute: "/blueprints/8", message: null }}
+    />,
+  );
+
+  expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("蓝图排队中"));
+  expect(screen.queryByText("项目页面将在后续任务接入。")).not.toBeInTheDocument();
 });
 
 test("BootstrapGate routes configured settings path inside the app shell", () => {
