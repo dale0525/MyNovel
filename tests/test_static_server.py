@@ -1,7 +1,34 @@
 from http import HTTPStatus
 from pathlib import Path
 
+from mynovel.dev_server import _classify_get_path
+from mynovel.frontend_assets import frontend_dist_path_from_module
 from mynovel.static_server import resolve_spa_response
+
+
+def test_frontend_dist_path_prefers_package_sibling_dist(tmp_path: Path) -> None:
+    module_file = tmp_path / "src" / "mynovel" / "frontend_assets.py"
+    package_dist = module_file.parent / "frontend" / "dist"
+    repo_dist = tmp_path / "frontend" / "dist"
+    package_dist.mkdir(parents=True)
+    repo_dist.mkdir(parents=True)
+
+    assert frontend_dist_path_from_module(module_file) == package_dist
+
+
+def test_frontend_dist_path_falls_back_to_source_tree_dist(tmp_path: Path) -> None:
+    module_file = tmp_path / "src" / "mynovel" / "frontend_assets.py"
+
+    assert frontend_dist_path_from_module(module_file) == tmp_path / "frontend" / "dist"
+
+
+def test_get_route_classification_preserves_downloads_and_static_fallback() -> None:
+    assert _classify_get_path("/api/books") == "api"
+    assert _classify_get_path("/book/42/export.md") == "book_export"
+    assert _classify_get_path("/book/42/export.json") == "book_export"
+    assert _classify_get_path("/chapter/9/export") == "chapter_export"
+    assert _classify_get_path("/assets/app.js") == "static"
+    assert _classify_get_path("/books/1") == "static"
 
 
 def test_app_route_serves_index(tmp_path: Path) -> None:
@@ -26,3 +53,17 @@ def test_path_traversal_is_not_served(tmp_path: Path) -> None:
     dist = tmp_path / "dist"
     dist.mkdir()
     assert resolve_spa_response("/assets/../secret.txt", dist).status == HTTPStatus.NOT_FOUND
+
+
+def test_encoded_path_traversal_is_not_served(tmp_path: Path) -> None:
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    assert resolve_spa_response("/assets/%2e%2e/secret.txt", dist).status == HTTPStatus.NOT_FOUND
+
+
+def test_missing_index_reports_frontend_not_built(tmp_path: Path) -> None:
+    response = resolve_spa_response("/books/1", tmp_path / "dist")
+
+    assert response.status == HTTPStatus.SERVICE_UNAVAILABLE
+    assert response.content_type == "text/plain; charset=utf-8"
+    assert b"pixi run frontend-build" in response.body

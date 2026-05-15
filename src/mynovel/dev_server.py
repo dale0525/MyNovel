@@ -135,11 +135,19 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
     class DevRequestHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
-            if parsed.path == "/health":
+            route = _classify_get_path(parsed.path)
+            if route == "health":
                 self._send_json(build_health_payload(state.db_path))
                 return
-            if parsed.path.startswith("/api/"):
+            if route == "api":
                 self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            if route == "book_export":
+                book_id, export_format = _parse_book_export(parsed.path)
+                self._send_book_export(state.db_path, book_id, export_format)
+                return
+            if route == "chapter_export":
+                self._send_chapter_export(state.db_path, _parse_chapter_export_id(parsed.path))
                 return
             self._send_static_response(resolve_spa_response(parsed.path, frontend_dist_path()))
 
@@ -672,6 +680,18 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             self._redirect(f"/?message={quote(message)}")
 
     return DevRequestHandler
+
+
+def _classify_get_path(path: str) -> str:
+    if path == "/health":
+        return "health"
+    if path.startswith("/api/"):
+        return "api"
+    if _parse_book_export(path)[1]:
+        return "book_export"
+    if _parse_chapter_export_id(path):
+        return "chapter_export"
+    return "static"
 
 
 def _load_books(db_path: Path) -> list[Book]:
