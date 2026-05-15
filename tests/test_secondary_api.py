@@ -60,6 +60,46 @@ def test_update_check_returns_json_instead_of_html(tmp_path: Path, monkeypatch) 
     assert "<html" not in str(response.body).lower()
 
 
+def test_update_check_rejects_private_or_non_https_urls(tmp_path: Path) -> None:
+    file_response = dispatch_api_post(
+        "/api/updates/check",
+        {"manifestUrl": "file:///etc/passwd"},
+        tmp_path / "dev.sqlite",
+    )
+    loopback_response = dispatch_api_post(
+        "/api/updates/check",
+        {"manifestUrl": "http://127.0.0.1:9000/update.json"},
+        tmp_path / "dev.sqlite",
+    )
+
+    assert file_response.status == HTTPStatus.BAD_REQUEST
+    assert file_response.body["error"]["code"] == "update_action_failed"
+    assert "https" in file_response.body["error"]["message"]
+    assert loopback_response.status == HTTPStatus.BAD_REQUEST
+    assert loopback_response.body["error"]["code"] == "update_action_failed"
+
+
+def test_update_check_rejects_unsafe_artifact_url(tmp_path: Path, monkeypatch) -> None:
+    def fetch_manifest(_manifest_url: str) -> UpdateManifest:
+        return UpdateManifest(
+            channel="stable",
+            version="0.2.0",
+            url="http://127.0.0.1:9000/MyNovel.dmg",
+            sha256="abc123",
+        )
+
+    monkeypatch.setattr(api_routes, "fetch_update_manifest", fetch_manifest, raising=False)
+
+    response = dispatch_api_post(
+        "/api/updates/check",
+        {"manifestUrl": "https://example.test/update.json"},
+        tmp_path / "dev.sqlite",
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["error"]["code"] == "update_action_failed"
+
+
 def test_book_exports_are_available_under_api_download_routes(tmp_path: Path) -> None:
     db_path = tmp_path / "dev.sqlite"
     engine = create_engine_for_path(db_path)

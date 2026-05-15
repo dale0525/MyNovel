@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from http import HTTPStatus
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse
 
 from mynovel.api_errors import ApiResponse, api_error, invalid_json_response
 from mynovel.api_open_book import (
@@ -542,7 +543,7 @@ def _quality_action_error(error: ValueError) -> ApiResponse:
 def _check_update_json(body: dict[str, Any]) -> ApiResponse:
     manifest_url = _optional_text(body, "manifestUrl", "manifest_url") or ""
     try:
-        manifest = fetch_update_manifest(manifest_url)
+        manifest = _fetch_safe_update_manifest(manifest_url)
         result = check_for_update(
             __version__,
             manifest,
@@ -556,7 +557,7 @@ def _check_update_json(body: dict[str, Any]) -> ApiResponse:
 def _stage_update_json(db_path: Path, body: dict[str, Any]) -> ApiResponse:
     manifest_url = _optional_text(body, "manifestUrl", "manifest_url") or ""
     try:
-        manifest = fetch_update_manifest(manifest_url)
+        manifest = _fetch_safe_update_manifest(manifest_url)
         result = check_for_update(__version__, manifest)
         if not result.available:
             return ApiResponse(HTTPStatus.OK, {"result": _update_result_payload(result)})
@@ -578,6 +579,35 @@ def _stage_update_json(db_path: Path, body: dict[str, Any]) -> ApiResponse:
             },
         },
     )
+
+
+def _fetch_safe_update_manifest(manifest_url: str):
+    _ensure_safe_update_url(manifest_url, "update manifest URL")
+    manifest = fetch_update_manifest(manifest_url)
+    _ensure_safe_update_url(manifest.url, "update artifact URL")
+    return manifest
+
+
+def _ensure_safe_update_url(raw_url: str, label: str) -> None:
+    parsed = urlparse(raw_url)
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        raise ValueError(f"{label} must be an https URL.")
+    host = parsed.hostname.strip().lower().rstrip(".")
+    if host in {"localhost"} or host.endswith(".localhost"):
+        raise ValueError(f"{label} cannot target localhost.")
+    try:
+        address = ip_address(host)
+    except ValueError:
+        return
+    if (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_unspecified
+        or address.is_reserved
+    ):
+        raise ValueError(f"{label} cannot target private or local network addresses.")
 
 
 def _update_result_payload(result) -> dict[str, Any]:

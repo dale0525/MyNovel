@@ -10,6 +10,7 @@ import { UpdatesPage } from "@/features/updates/UpdatesPage";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.history.pushState(null, "", "/");
 });
 
 test("routes secondary product pages", () => {
@@ -50,6 +51,23 @@ test("import page posts project json and navigates to imported book", async () =
   expect(window.location.pathname).toBe("/books/42");
 });
 
+test("import page rejects malformed success payloads", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ book: { id: 42 }, redirectTo: "https://evil.test" })),
+  );
+
+  render(<ImportBookPage />);
+
+  fireEvent.change(screen.getByLabelText("项目 JSON"), {
+    target: { value: "{\"book\":{\"title\":\"星港遗梦\"}}" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "导入项目" }));
+
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("导入结果格式无效。"));
+  expect(window.location.pathname).not.toBe("/books/42");
+});
+
 test("quality page renders assets and creates a quality snapshot", async () => {
   const fetchMock = vi
     .fn()
@@ -73,6 +91,22 @@ test("quality page renders assets and creates a quality snapshot", async () => {
   expect(screen.getByText("91")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "导出 Markdown" })).toHaveAttribute("href", "/api/books/42/export.md");
   expect(screen.getByRole("link", { name: "导出 JSON" })).toHaveAttribute("href", "/api/books/42/export.json");
+});
+
+test("quality page rejects malformed payloads", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        ...qualityPayload(),
+        latestSnapshot: { id: 4, metrics: null, recommendations: "bad" },
+      }),
+    ),
+  );
+
+  render(<QualityPage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("质量数据格式无效。"));
 });
 
 test("updates page checks manifest and renders json result", async () => {
@@ -106,6 +140,19 @@ test("updates page checks manifest and renders json result", async () => {
   );
   expect(screen.getByText("发现新版本 0.2.0")).toBeInTheDocument();
   expect(screen.getByText("修复章节恢复。")).toBeInTheDocument();
+});
+
+test("updates page rejects malformed result payloads", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ result: { available: true } })));
+
+  render(<UpdatesPage />);
+
+  fireEvent.change(screen.getByLabelText("更新元数据地址"), {
+    target: { value: "https://example.test/update.json" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
+
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("更新结果格式无效。"));
 });
 
 function qualityPayload({ score = 73 }: { score?: number } = {}) {

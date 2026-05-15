@@ -39,7 +39,11 @@ export function UpdatesPage() {
     event.preventDefault();
     setState({ status: "submitting", result: state.result, error: null });
     try {
-      const response = await postJson<UpdateResponse>("/api/updates/check", { manifestUrl });
+      const payload = await postJson<unknown>("/api/updates/check", { manifestUrl });
+      const response = parseUpdateResponse(payload);
+      if (!response) {
+        throw new Error("更新结果格式无效。");
+      }
       setState({ status: "ready", result: response.result, error: null });
     } catch (error) {
       setState({
@@ -53,7 +57,11 @@ export function UpdatesPage() {
   async function stageUpdate() {
     setState({ status: "submitting", result: state.result, error: null });
     try {
-      const response = await postJson<UpdateResponse>("/api/updates/stage", { manifestUrl });
+      const payload = await postJson<unknown>("/api/updates/stage", { manifestUrl });
+      const response = parseUpdateResponse(payload);
+      if (!response) {
+        throw new Error("更新结果格式无效。");
+      }
       if (response.stagedInstall) {
         setState({
           status: "staged",
@@ -167,4 +175,41 @@ function errorMessage(error: unknown, fallback: string): string {
     return error.message;
   }
   return error instanceof Error ? error.message : fallback;
+}
+
+function parseUpdateResponse(payload: unknown): UpdateResponse | null {
+  if (!isRecord(payload) || !isUpdateResult(payload.result)) {
+    return null;
+  }
+  if (payload.stagedInstall === undefined) {
+    return { result: payload.result };
+  }
+  if (!isStagedInstall(payload.stagedInstall)) {
+    return null;
+  }
+  return {
+    result: payload.result,
+    stagedInstall: payload.stagedInstall,
+  };
+}
+
+function isUpdateResult(value: unknown): value is UpdateResult {
+  return (
+    isRecord(value) &&
+    typeof value.available === "boolean" &&
+    (typeof value.version === "string" || value.version === null) &&
+    (typeof value.url === "string" || value.url === null) &&
+    (typeof value.sha256 === "string" || value.sha256 === null) &&
+    typeof value.notes === "string" &&
+    (typeof value.publishedAt === "string" || value.publishedAt === null) &&
+    typeof value.sizeLabel === "string"
+  );
+}
+
+function isStagedInstall(value: unknown): value is NonNullable<UpdateResponse["stagedInstall"]> {
+  return isRecord(value) && typeof value.planPath === "string" && isRecord(value.payload);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

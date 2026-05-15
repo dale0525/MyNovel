@@ -19,10 +19,14 @@ export function ImportBookPage() {
     setError(null);
     setIsSubmitting(true);
     try {
-      const response = await postJson<ImportResponse>("/api/books/import", { projectJson });
+      const payload = await postJson<unknown>("/api/books/import", { projectJson });
+      const response = parseImportResponse(payload);
+      if (!response) {
+        throw new Error("导入结果格式无效。");
+      }
       navigateTo(response.redirectTo);
     } catch (submitError) {
-      setError(submitError instanceof ApiError ? submitError.message : "导入项目失败。");
+      setError(errorMessage(submitError, "导入项目失败。"));
     } finally {
       setIsSubmitting(false);
     }
@@ -57,4 +61,38 @@ export function ImportBookPage() {
       </form>
     </section>
   );
+}
+
+function parseImportResponse(payload: unknown): ImportResponse | null {
+  if (!isRecord(payload) || !isBookPayload(payload.book) || !isSafeAppPath(payload.redirectTo)) {
+    return null;
+  }
+  return payload as ImportResponse;
+}
+
+function isBookPayload(value: unknown): value is BookPayload {
+  return (
+    isRecord(value) &&
+    (typeof value.id === "number" || value.id === null) &&
+    typeof value.title === "string" &&
+    typeof value.genre === "string" &&
+    typeof value.audience === "string" &&
+    typeof value.status === "string" &&
+    (typeof value.premise === "string" || value.premise === null)
+  );
+}
+
+function isSafeAppPath(value: unknown): value is string {
+  return typeof value === "string" && value.startsWith("/") && !value.startsWith("//");
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    return error.message;
+  }
+  return error instanceof Error ? error.message : fallback;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

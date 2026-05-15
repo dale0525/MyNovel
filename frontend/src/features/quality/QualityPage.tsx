@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 
 import { ApiError, getJson, isAbortError, postJson } from "@/lib/api";
 import type {
+  BookPayload,
   DeconstructionStudyPayload,
+  QualitySnapshotPayload,
   QualityResponse,
   StyleAssetPayload,
 } from "@/lib/types";
@@ -373,19 +375,85 @@ async function fetchQuality(bookId: number, signal?: AbortSignal): Promise<Quali
 }
 
 function parseQualityResponse(payload: unknown): QualityResponse | null {
-  if (!isRecord(payload) || !isRecord(payload.book)) {
+  if (!isRecord(payload) || !isBookPayload(payload.book)) {
     return null;
   }
-  if (!Array.isArray(payload.styleAssets) || !Array.isArray(payload.deconstructionStudies)) {
+  if (!Array.isArray(payload.styleAssets) || !payload.styleAssets.every(isStyleAssetPayload)) {
     return null;
   }
-  if (payload.latestSnapshot !== null && !isRecord(payload.latestSnapshot)) {
+  if (
+    !Array.isArray(payload.deconstructionStudies) ||
+    !payload.deconstructionStudies.every(isDeconstructionStudyPayload)
+  ) {
     return null;
   }
-  if (payload.costStrategy !== null && !isRecord(payload.costStrategy)) {
+  if (payload.latestSnapshot !== null && !isQualitySnapshotPayload(payload.latestSnapshot)) {
+    return null;
+  }
+  if (payload.costStrategy !== null && !isCostStrategyPayload(payload.costStrategy)) {
     return null;
   }
   return payload as QualityResponse;
+}
+
+function isBookPayload(value: unknown): value is BookPayload {
+  return (
+    isRecord(value) &&
+    (typeof value.id === "number" || value.id === null) &&
+    typeof value.title === "string" &&
+    typeof value.genre === "string" &&
+    typeof value.audience === "string" &&
+    typeof value.status === "string" &&
+    (typeof value.premise === "string" || value.premise === null)
+  );
+}
+
+function isStyleAssetPayload(value: unknown): value is StyleAssetPayload {
+  return (
+    isRecord(value) &&
+    (typeof value.id === "number" || value.id === null) &&
+    typeof value.bookId === "number" &&
+    typeof value.name === "string" &&
+    (typeof value.sourceTitle === "string" || value.sourceTitle === null) &&
+    typeof value.sourceExcerpt === "string" &&
+    isRecord(value.fingerprint) &&
+    isRecord(value.guidance) &&
+    (typeof value.createdAt === "string" || value.createdAt === null)
+  );
+}
+
+function isDeconstructionStudyPayload(value: unknown): value is DeconstructionStudyPayload {
+  return (
+    isRecord(value) &&
+    (typeof value.id === "number" || value.id === null) &&
+    typeof value.bookId === "number" &&
+    typeof value.sourceTitle === "string" &&
+    typeof value.sourceExcerpt === "string" &&
+    Array.isArray(value.beatMap) &&
+    isRecord(value.craftNotes) &&
+    (typeof value.createdAt === "string" || value.createdAt === null)
+  );
+}
+
+function isQualitySnapshotPayload(value: unknown): value is QualitySnapshotPayload {
+  return (
+    isRecord(value) &&
+    (typeof value.id === "number" || value.id === null) &&
+    typeof value.bookId === "number" &&
+    typeof value.score === "number" &&
+    isRecord(value.metrics) &&
+    Array.isArray(value.recommendations) &&
+    (typeof value.createdAt === "string" || value.createdAt === null)
+  );
+}
+
+function isCostStrategyPayload(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.mode === "string" &&
+    typeof value.batch_limit === "number" &&
+    typeof value.context_policy === "string"
+  );
 }
 
 function metric(metrics: Record<string, unknown>, key: string): string {
