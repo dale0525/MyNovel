@@ -231,5 +231,5 @@ class OpenBookBlueprint(SQLModel, table=True):
 
 class BlueprintAcceptance(SQLModel, table=True):
     blueprint_id: int = Field(primary_key=True, foreign_key="openbookblueprint.id")
-    book_id: int = Field(index=True, foreign_key="book.id")
+    book_id: int | None = Field(default=None, index=True, foreign_key="book.id")
     created_at: datetime = Field(default_factory=utc_now)

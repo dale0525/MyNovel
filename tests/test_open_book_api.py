@@ -5,6 +5,7 @@ from pathlib import Path
 from threading import Barrier, BrokenBarrierError, Thread
 from typing import Any
 
+import pytest
 from sqlmodel import Session, select
 
 import mynovel.api_open_book as api_open_book
@@ -440,6 +441,55 @@ def test_accept_blueprint_reuses_and_migrates_legacy_content_marker(tmp_path: Pa
     assert len(books) == 1
     assert acceptance is not None
     assert acceptance.book_id == existing_book_id
+
+
+def test_accept_blueprint_incomplete_claim_blocks_second_book_creation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    blueprint_id = _save_blueprint(
+        db_path,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜档案"],
+            "genre": "奇幻",
+            "audience": "成人",
+            "premise": "档案员追查禁书真相。",
+        },
+    )
+    original_record = api_open_book._record_accepted_book_id
+    fail_once = True
+
+    def fail_first_record(db_path: Path, blueprint_id: int, book_id: int) -> None:
+        nonlocal fail_once
+        if fail_once:
+            fail_once = False
+            raise RuntimeError("simulated acceptance finalize failure")
+        original_record(db_path, blueprint_id, book_id)
+
+    monkeypatch.setattr(api_open_book, "_record_accepted_book_id", fail_first_record)
+
+    with pytest.raises(RuntimeError, match="simulated acceptance finalize failure"):
+        dispatch_api_post(
+            f"/api/blueprints/{blueprint_id}/accept",
+            {"selectedTitle": "长夜档案"},
+            db_path,
+        )
+    second = dispatch_api_post(
+        f"/api/blueprints/{blueprint_id}/accept",
+        {"selectedTitle": "长夜档案"},
+        db_path,
+    )
+
+    assert second.status == HTTPStatus.CONFLICT
+    assert second.body["error"]["code"] == "blueprint_acceptance_in_progress"
+    with Session(create_engine_for_path(db_path)) as session:
+        books = list(session.exec(select(Book)))
+        acceptance = session.get(BlueprintAcceptance, blueprint_id)
+    assert len(books) == 1
+    assert acceptance is not None
+    assert acceptance.book_id is None
 
 
 def test_concurrent_accept_blueprint_creates_one_book(tmp_path: Path, monkeypatch) -> None:

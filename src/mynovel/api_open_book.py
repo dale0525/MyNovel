@@ -154,6 +154,10 @@ def accept_blueprint_json(db_path: Path, blueprint_id: int, body: dict[str, Any]
         existing_book_id = _accepted_book_id(db_path, blueprint_id)
         if existing_book_id is not None:
             return _accepted_book_response(existing_book_id)
+        if _acceptance_claim_in_progress(db_path, blueprint_id):
+            return _acceptance_in_progress_response()
+        if not _claim_blueprint_acceptance(db_path, blueprint_id):
+            return _blueprint_not_found()
 
         form = _string_form(
             {
@@ -165,10 +169,13 @@ def accept_blueprint_json(db_path: Path, blueprint_id: int, body: dict[str, Any]
         try:
             book = accept_blueprint_for_foundation_review(db_path, form)
         except BlueprintNotFoundError:
+            _clear_blueprint_acceptance_claim(db_path, blueprint_id)
             return _blueprint_not_found()
         except BlueprintNotReadyError:
+            _clear_blueprint_acceptance_claim(db_path, blueprint_id)
             return api_error(HTTPStatus.BAD_REQUEST, "blueprint_not_ready", "蓝图尚未生成完成。")
         except BlueprintTitleSelectionError:
+            _clear_blueprint_acceptance_claim(db_path, blueprint_id)
             return api_error(
                 HTTPStatus.BAD_REQUEST,
                 "blueprint_title_required",
@@ -186,7 +193,7 @@ def _accepted_book_id(db_path: Path, blueprint_id: int) -> int | None:
     with Session(engine) as session:
         acceptance = session.get(BlueprintAcceptance, blueprint_id)
         if acceptance is not None:
-            if acceptance.book_id <= 0:
+            if acceptance.book_id is None or acceptance.book_id <= 0:
                 return None
             if get_book(session, acceptance.book_id) is None:
                 return None
@@ -204,6 +211,37 @@ def _accepted_book_id(db_path: Path, blueprint_id: int) -> int | None:
         session.add(BlueprintAcceptance(blueprint_id=blueprint_id, book_id=raw_book_id))
         session.commit()
         return raw_book_id
+
+
+def _acceptance_claim_in_progress(db_path: Path, blueprint_id: int) -> bool:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        acceptance = session.get(BlueprintAcceptance, blueprint_id)
+        return acceptance is not None and acceptance.book_id is None
+
+
+def _claim_blueprint_acceptance(db_path: Path, blueprint_id: int) -> bool:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        if get_open_book_blueprint(session, blueprint_id) is None:
+            return False
+        acceptance = session.get(BlueprintAcceptance, blueprint_id)
+        if acceptance is None:
+            session.add(BlueprintAcceptance(blueprint_id=blueprint_id, book_id=None))
+            session.commit()
+        return True
+
+
+def _clear_blueprint_acceptance_claim(db_path: Path, blueprint_id: int) -> None:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        acceptance = session.get(BlueprintAcceptance, blueprint_id)
+        if acceptance is not None and acceptance.book_id is None:
+            session.delete(acceptance)
+            session.commit()
 
 
 def _record_accepted_book_id(db_path: Path, blueprint_id: int, book_id: int) -> None:
@@ -258,6 +296,14 @@ def _accepted_book_response(book_id: int) -> ApiResponse:
 
 def _invalid_blueprint_action(message: str) -> ApiResponse:
     return api_error(HTTPStatus.BAD_REQUEST, "blueprint_action_invalid", message)
+
+
+def _acceptance_in_progress_response() -> ApiResponse:
+    return api_error(
+        HTTPStatus.CONFLICT,
+        "blueprint_acceptance_in_progress",
+        "蓝图接受正在处理中，请稍后再试。",
+    )
 
 
 def _blueprint_not_found() -> ApiResponse:
