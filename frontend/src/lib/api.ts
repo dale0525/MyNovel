@@ -40,7 +40,8 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
-  const payload = await readJsonPayload(response);
+  const parsed = await readJsonPayload(response);
+  const payload = parsed.kind === "json" ? parsed.payload : null;
   if (!response.ok) {
     const error = apiErrorBody(payload).error;
     throw new ApiError(
@@ -50,18 +51,29 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
       payload,
     );
   }
+  if (parsed.kind === "empty") {
+    throw new ApiError("API 返回了空响应。", "empty_response", {}, payload);
+  }
+  if (parsed.kind === "invalid") {
+    throw new ApiError("API 返回了无效 JSON。", "invalid_json_response", {}, payload);
+  }
   return payload as T;
 }
 
-async function readJsonPayload(response: Response): Promise<unknown> {
+type JsonPayloadResult =
+  | { kind: "json"; payload: unknown }
+  | { kind: "empty" }
+  | { kind: "invalid" };
+
+async function readJsonPayload(response: Response): Promise<JsonPayloadResult> {
   const text = await response.text();
   if (!text) {
-    return null;
+    return { kind: "empty" };
   }
   try {
-    return JSON.parse(text) as unknown;
+    return { kind: "json", payload: JSON.parse(text) as unknown };
   } catch {
-    return null;
+    return { kind: "invalid" };
   }
 }
 

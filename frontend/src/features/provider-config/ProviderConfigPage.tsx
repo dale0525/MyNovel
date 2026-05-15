@@ -38,9 +38,10 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
     event.preventDefault();
     setIsSubmitting(true);
     setMessage(null);
+    setValidation(null);
 
     try {
-      const response = await saveProviderConfig(draft);
+      const response = await saveProviderConfig(sanitizeProviderConfigDraft(draft));
       setValidation(response.validation ?? null);
       window.location.href = "/";
     } catch (error) {
@@ -67,7 +68,11 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
         </p>
       </div>
 
-      {message ? <p className="setup-message">{message}</p> : null}
+      {message ? (
+        <p aria-live="assertive" className="setup-message" role="alert">
+          {message}
+        </p>
+      ) : null}
 
       <div className="provider-form-grid">
         <TextField
@@ -81,6 +86,7 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
           label="API key"
           value={draft.llmApiKey}
           onChange={(value) => updateDraft("llmApiKey", value)}
+          autoComplete="off"
           type="password"
           required
         />
@@ -127,6 +133,7 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
               label="Embedding API key"
               value={draft.embeddingApiKey}
               onChange={(value) => updateDraft("embeddingApiKey", value)}
+              autoComplete="off"
               type="password"
               required
             />
@@ -166,6 +173,7 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
               label="Rerank API key"
               value={draft.rerankApiKey}
               onChange={(value) => updateDraft("rerankApiKey", value)}
+              autoComplete="off"
               type="password"
               required
             />
@@ -193,6 +201,7 @@ type TextFieldProps = {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  autoComplete?: string;
   placeholder?: string;
   required?: boolean;
   type?: "text" | "password";
@@ -202,6 +211,7 @@ function TextField({
   label,
   value,
   onChange,
+  autoComplete,
   placeholder,
   required,
   type = "text",
@@ -210,6 +220,7 @@ function TextField({
     <label className="provider-field">
       <span>{label}</span>
       <input
+        autoComplete={autoComplete}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         required={required}
@@ -227,7 +238,11 @@ type ValidationResultsProps = {
 
 function ValidationResults({ draft, validation }: ValidationResultsProps) {
   return (
-    <section className="validation-results" aria-labelledby="validation-results-title">
+    <section
+      aria-labelledby="validation-results-title"
+      aria-live="polite"
+      className="validation-results"
+    >
       <h2 id="validation-results-title">模型连接结果</h2>
       <ul>
         {validation.results.map((result) => (
@@ -260,10 +275,25 @@ function ValidationResultItem({ draft, result }: ValidationResultItemProps) {
 }
 
 function redactSecrets(message: string, draft: ProviderConfigDraft): string {
-  return [draft.llmApiKey, draft.embeddingApiKey, draft.rerankApiKey]
+  return Array.from(new Set([draft.llmApiKey, draft.embeddingApiKey, draft.rerankApiKey]))
     .filter((secret) => secret.trim().length > 0)
+    .sort((secret, other) => other.length - secret.length)
     .reduce(
       (current, secret) => current.replaceAll(secret, "[redacted]"),
       message,
     );
+}
+
+function sanitizeProviderConfigDraft(draft: ProviderConfigDraft): ProviderConfigDraft {
+  if (!draft.embeddingUseLlmCredentials && !draft.rerankUseLlmCredentials) {
+    return draft;
+  }
+
+  return {
+    ...draft,
+    embeddingBaseUrl: draft.embeddingUseLlmCredentials ? "" : draft.embeddingBaseUrl,
+    embeddingApiKey: draft.embeddingUseLlmCredentials ? "" : draft.embeddingApiKey,
+    rerankBaseUrl: draft.rerankUseLlmCredentials ? "" : draft.rerankBaseUrl,
+    rerankApiKey: draft.rerankUseLlmCredentials ? "" : draft.rerankApiKey,
+  };
 }
