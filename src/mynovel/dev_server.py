@@ -42,6 +42,7 @@ from mynovel.domain.repositories import (
     list_run_traces_for_book,
     list_volume_plans_for_book,
 )
+from mynovel.frontend_assets import frontend_dist_path
 from mynovel.i18n import t
 from mynovel.path_display import display_path
 from mynovel.import_views import render_import_project_page
@@ -53,15 +54,16 @@ from mynovel.product_views import (
     render_blueprint_page,
     render_chapter_review,
     render_home,
-    render_model_setup_page,
+    render_model_setup_page,  # noqa: F401 - kept for import compatibility during SPA migration.
     render_new_book_page,
     render_trusted_state_page,
 )
 from mynovel.provider_config_server import handle_provider_config_post
 from mynovel.quality_views import render_quality_center
-from mynovel.review_navigation import review_destination as _review_destination
+from mynovel.review_navigation import review_destination as _review_destination  # noqa: F401
+from mynovel.static_server import StaticResponse, resolve_spa_response
 from mynovel.update_server import handle_check_update, handle_stage_update
-from mynovel.update_views import render_update_page
+from mynovel.update_views import render_update_page  # noqa: F401
 from mynovel.word_target_server import save_book_word_targets_from_form
 from mynovel.word_targets import book_idea_from_form as _book_idea_from_form
 from mynovel.workflows.quality_enhancement import (
@@ -136,64 +138,10 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if parsed.path == "/health":
                 self._send_json(build_health_payload(state.db_path))
                 return
-            if parsed.path == "/books/new":
-                self._send_html(render_new_book_page(_load_provider_config(state.db_path)))
-                return
-            if parsed.path == "/books/import":
-                self._send_html(render_import_project_page())
-                return
-            if parsed.path == "/provider-config":
-                self._send_html(
-                    render_model_setup_page(state.db_path, _load_provider_config(state.db_path))
-                )
-                return
-            if parsed.path == "/review":
-                return self._redirect(_review_destination(state.db_path))
-            if parsed.path.startswith("/book/") and parsed.path.endswith("/state"):
-                raw_revision_id = parse_qs(parsed.query).get("revision_id", [""])[0]
-                revision_id = int(raw_revision_id) if raw_revision_id.isdigit() else None
-                self._send_trusted_state_page(
-                    state.db_path, _parse_book_state_id(parsed.path), revision_id
-                )
-                return
-            if parsed.path.startswith("/book/") and parsed.path.endswith("/quality"):
-                self._send_quality_page(state.db_path, _parse_book_quality_id(parsed.path))
-                return
-            if parsed.path.startswith("/book/") and (
-                parsed.path.endswith("/export.md") or parsed.path.endswith("/export.json")
-            ):
-                book_id, export_format = _parse_book_export(parsed.path)
-                self._send_book_export(state.db_path, book_id, export_format)
-                return
-            if parsed.path.startswith("/book/"):
-                self._send_book_page(state.db_path, _parse_numeric_id(parsed.path))
-                return
-            if parsed.path.startswith("/chapter/") and parsed.path.endswith("/export"):
-                self._send_chapter_export(state.db_path, _parse_chapter_export_id(parsed.path))
-                return
-            if parsed.path.startswith("/chapter/"):
-                self._send_chapter_page(state.db_path, _parse_numeric_id(parsed.path))
-                return
-            if parsed.path.startswith("/blueprint/"):
-                self._send_blueprint_page(state.db_path, _parse_numeric_id(parsed.path))
-                return
-            if parsed.path == "/updates":
-                self._send_html(render_update_page())
-                return
-            if parsed.path != "/":
+            if parsed.path.startswith("/api/"):
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
-
-            message = parse_qs(parsed.query).get("message", [None])[0]
-            self._send_html(
-                render_home(
-                    state.db_path,
-                    _load_books(state.db_path),
-                    _load_provider_config(state.db_path),
-                    _load_open_book_blueprints(state.db_path),
-                    message,
-                )
-            )
+            self._send_static_response(resolve_spa_response(parsed.path, frontend_dist_path()))
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
@@ -707,6 +655,13 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
+
+        def _send_static_response(self, response: StaticResponse) -> None:
+            self.send_response(response.status)
+            self.send_header("Content-Type", response.content_type)
+            self.send_header("Content-Length", str(len(response.body)))
+            self.end_headers()
+            self.wfile.write(response.body)
 
         def _redirect(self, location: str) -> None:
             self.send_response(HTTPStatus.SEE_OTHER)
