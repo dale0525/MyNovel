@@ -51,6 +51,67 @@ def test_nested_quality_action_paths_match_react_api_contract(tmp_path: Path) ->
     assert deconstruction_response.body["error"]["code"] == "quality_action_failed"
 
 
+def test_book_word_targets_update_through_json_api(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = Book(
+            title="星港遗梦",
+            genre="科幻",
+            audience="成人",
+            status=BookStatus.PRODUCING,
+        )
+        session.add(book)
+        session.commit()
+        session.refresh(book)
+        chapter = Chapter(
+            book_id=book.id or 0,
+            number=1,
+            title="失落灯塔",
+            status=ChapterStatus.PLANNED,
+        )
+        session.add(chapter)
+        session.commit()
+        book_id = book.id or 0
+        chapter_id = chapter.id or 0
+
+    response = dispatch_api_post(
+        f"/api/books/{book_id}/word-targets",
+        {
+            "targetWordCount": 300000,
+            "chapterWordCount": 3200,
+            "updateExistingChapters": True,
+        },
+        db_path,
+    )
+
+    assert response.status == HTTPStatus.OK
+    assert response.body["wordTargets"] == {
+        "targetWordCount": 300000,
+        "chapterWordCount": 3200,
+    }
+    with Session(engine) as session:
+        saved_book = session.get(Book, book_id)
+        saved_chapter = session.get(Chapter, chapter_id)
+    assert saved_book is not None
+    assert saved_book.constraints["target_word_count"] == 300000
+    assert saved_book.constraints["chapter_word_count"] == 3200
+    assert saved_chapter is not None
+    assert saved_chapter.plan["word_budget"] == 3200
+
+
+def test_invalid_book_word_targets_return_json_error(tmp_path: Path) -> None:
+    response = dispatch_api_post(
+        "/api/books/999/word-targets",
+        {"targetWordCount": 0, "chapterWordCount": 3200},
+        tmp_path / "dev.sqlite",
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["error"]["code"] == "word_target_failed"
+
+
 def test_updates_metadata_route_returns_json(tmp_path: Path) -> None:
     response = dispatch_api_get("/api/updates", "", tmp_path / "dev.sqlite")
 

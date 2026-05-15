@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 
-import { getJson, isAbortError } from "@/lib/api";
-import type { BookPayload, BookResponse, ChapterPayload, RunTracePayload } from "@/lib/types";
+import { ApiError, getJson, isAbortError, postJson } from "@/lib/api";
+import { navigateTo } from "@/lib/navigation";
+import type { BookPayload, BookResponse, ChapterPayload, RunTracePayload, WordTargetsPayload } from "@/lib/types";
 
 type BookWorkspaceState =
   | { status: "loading"; data: null; error: null }
@@ -12,12 +13,25 @@ type BookWorkspacePageProps = {
   bookId: number;
 };
 
+type WorkspaceAction = "run-current" | "run-batch" | "word-targets";
+
+type ActionRedirectResponse = {
+  redirectTo: string;
+};
+
 export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
   const [state, setState] = useState<BookWorkspaceState>({
     status: "loading",
     data: null,
     error: null,
   });
+  const [actionBusy, setActionBusy] = useState<WorkspaceAction | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [batchLimit, setBatchLimit] = useState(1);
+  const [targetWordCount, setTargetWordCount] = useState(120000);
+  const [chapterWordCount, setChapterWordCount] = useState(2800);
+  const [updateExistingChapters, setUpdateExistingChapters] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,6 +44,8 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
         if (!cancelled) {
           if (parsed) {
             setState({ status: "ready", data: parsed, error: null });
+            setTargetWordCount(parsed.wordTargets.targetWordCount);
+            setChapterWordCount(parsed.wordTargets.chapterWordCount);
           } else {
             setState({ status: "error", data: null, error: "项目数据格式无效。" });
           }
@@ -53,6 +69,64 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
       controller.abort();
     };
   }, [bookId]);
+
+  async function runCurrentChapter(chapter: ChapterPayload) {
+    const chapterId = chapter.id ?? 0;
+    await runAction("run-current", async () => {
+      const payload = await postJson<unknown>(`/api/chapters/${chapterId}/run`, {});
+      const response = parseActionRedirectResponse(payload);
+      if (!response) {
+        throw new Error("运行结果格式无效。");
+      }
+      navigateTo(response.redirectTo);
+    });
+  }
+
+  async function runBatchProduction(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await runAction("run-batch", async () => {
+      const payload = await postJson<unknown>(`/api/books/${bookId}/chapters/run-batch`, {
+        limit: batchLimit,
+      });
+      const response = parseActionRedirectResponse(payload);
+      if (!response) {
+        throw new Error("批量生产结果格式无效。");
+      }
+      navigateTo(response.redirectTo);
+    });
+  }
+
+  async function saveWordTargets(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await runAction("word-targets", async () => {
+      const payload = await postJson<unknown>(`/api/books/${bookId}/word-targets`, {
+        targetWordCount,
+        chapterWordCount,
+        updateExistingChapters,
+      });
+      const response = parseBookResponse(payload);
+      if (!response) {
+        throw new Error("目标字数保存结果格式无效。");
+      }
+      setState({ status: "ready", data: response, error: null });
+      setTargetWordCount(response.wordTargets.targetWordCount);
+      setChapterWordCount(response.wordTargets.chapterWordCount);
+      setActionStatus("目标字数已保存。");
+    });
+  }
+
+  async function runAction(action: WorkspaceAction, callback: () => Promise<void>) {
+    setActionBusy(action);
+    setActionError(null);
+    setActionStatus(null);
+    try {
+      await callback();
+    } catch (error) {
+      setActionError(errorMessage(error, "操作失败。"));
+    } finally {
+      setActionBusy(null);
+    }
+  }
 
   if (state.status === "loading") {
     return (
@@ -80,6 +154,7 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
 
   const { book, chapters, latestCanon, runTraces, volumePlans } = state.data;
   const currentTask = currentChapterTask(chapters);
+  const currentTaskId = currentTask?.id ?? null;
   const recentTraces = [...runTraces].reverse().slice(0, 4);
 
   return (
@@ -130,6 +205,24 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
               )}
             </div>
             <div className="workspace-primary-action">
+              {currentTaskId !== null ? (
+                <a
+                  className="workbench-action-button workbench-action-button--secondary"
+                  href={`/chapters/${currentTaskId}`}
+                >
+                  打开当前章节
+                </a>
+              ) : null}
+              {currentTaskId !== null && currentTask && canRunChapter(currentTask) ? (
+                <button
+                  className="workbench-action-button"
+                  disabled={actionBusy !== null}
+                  type="button"
+                  onClick={() => void runCurrentChapter(currentTask)}
+                >
+                  {actionBusy === "run-current" ? "提交中..." : "运行当前章节"}
+                </button>
+              ) : null}
               <a className="workbench-action-button" href={`/books/${bookId}/state`}>
                 查看可信设定
               </a>
@@ -165,9 +258,9 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
             <ol className="workspace-mini-list">
               {chapters.slice(0, 8).map((chapter) => (
                 <li key={chapter.id ?? chapter.number}>
-                  <strong>
+                  <a className="workspace-mini-list-link" href={`/chapters/${chapter.id ?? 0}`}>
                     第 {chapter.number} 章 · {chapter.title}
-                  </strong>
+                  </a>
                   <span>{chapterStatusLabel(chapter.status)} · {chapter.wordCount} 字</span>
                 </li>
               ))}
@@ -176,6 +269,89 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
         </main>
 
         <aside className="workspace-result-sidebar">
+          {actionError ? (
+            <section className="workspace-result-section workspace-result-section--alert" role="alert">
+              {actionError}
+            </section>
+          ) : null}
+          {actionStatus ? (
+            <section className="workspace-result-section workspace-result-section--success" role="status">
+              {actionStatus}
+            </section>
+          ) : null}
+
+          <section className="workspace-result-section" aria-labelledby="workspace-actions-title">
+            <p className="eyebrow">Controls</p>
+            <h2 id="workspace-actions-title">工作台操作</h2>
+            <div className="book-workspace-actions">
+              <a className="workbench-action-button" href={`/books/${bookId}/quality`}>
+                质量中心
+              </a>
+              <a className="workbench-secondary-link" href={`/api/books/${bookId}/export.md`}>
+                导出 Markdown
+              </a>
+              <a className="workbench-secondary-link" href={`/api/books/${bookId}/export.json`}>
+                导出 JSON
+              </a>
+            </div>
+          </section>
+
+          <section className="workspace-result-section" aria-labelledby="batch-production-title">
+            <p className="eyebrow">Production</p>
+            <h2 id="batch-production-title">批量生产</h2>
+            <form className="chapter-action-form" onSubmit={(event) => void runBatchProduction(event)}>
+              <label>
+                批量章节数
+                <input
+                  max={10}
+                  min={1}
+                  type="number"
+                  value={batchLimit}
+                  onChange={(event) => setBatchLimit(clampedPositiveInt(event.target.value, 1, 10))}
+                />
+              </label>
+              <button className="workbench-action-button" disabled={actionBusy !== null} type="submit">
+                {actionBusy === "run-batch" ? "提交中..." : "批量生产"}
+              </button>
+            </form>
+          </section>
+
+          <section className="workspace-result-section" aria-labelledby="word-target-title">
+            <p className="eyebrow">Word Targets</p>
+            <h2 id="word-target-title">目标字数</h2>
+            <form className="chapter-action-form" onSubmit={(event) => void saveWordTargets(event)}>
+              <label>
+                全书目标字数
+                <input
+                  min={1}
+                  type="number"
+                  value={targetWordCount}
+                  onChange={(event) => setTargetWordCount(clampedPositiveInt(event.target.value, 1))}
+                />
+              </label>
+              <label>
+                单章目标字数
+                <input
+                  min={1}
+                  type="number"
+                  value={chapterWordCount}
+                  onChange={(event) => setChapterWordCount(clampedPositiveInt(event.target.value, 1))}
+                />
+              </label>
+              <label className="chapter-major-change-toggle">
+                <input
+                  checked={updateExistingChapters}
+                  type="checkbox"
+                  onChange={(event) => setUpdateExistingChapters(event.target.checked)}
+                />
+                同步更新已有章节计划
+              </label>
+              <button className="workbench-action-button" disabled={actionBusy !== null} type="submit">
+                {actionBusy === "word-targets" ? "保存中..." : "保存目标字数"}
+              </button>
+            </form>
+          </section>
+
           <section className="workspace-result-section" aria-labelledby="ai-progress-title">
             <p className="eyebrow">AI Progress</p>
             <h2 id="ai-progress-title">最近 AI 进度</h2>
@@ -220,6 +396,7 @@ function parseBookResponse(payload: unknown): BookResponse | null {
   }
   const bookOnlyResponse = {
     book: payload.book,
+    wordTargets: defaultWordTargets(),
     chapters: [],
     latestCanon: null,
     runTraces: [],
@@ -229,7 +406,8 @@ function parseBookResponse(payload: unknown): BookResponse | null {
     payload.chapters === undefined &&
     payload.latestCanon === undefined &&
     payload.runTraces === undefined &&
-    payload.volumePlans === undefined
+    payload.volumePlans === undefined &&
+    payload.wordTargets === undefined
   ) {
     return bookOnlyResponse;
   }
@@ -237,12 +415,14 @@ function parseBookResponse(payload: unknown): BookResponse | null {
     !Array.isArray(payload.chapters) ||
     !Array.isArray(payload.runTraces) ||
     !Array.isArray(payload.volumePlans) ||
-    (payload.latestCanon !== null && !isRecord(payload.latestCanon))
+    (payload.latestCanon !== null && !isRecord(payload.latestCanon)) ||
+    !isWordTargetsPayload(payload.wordTargets)
   ) {
     return null;
   }
   return {
     book: payload.book,
+    wordTargets: payload.wordTargets,
     chapters: payload.chapters as BookResponse["chapters"],
     latestCanon: payload.latestCanon as BookResponse["latestCanon"],
     runTraces: payload.runTraces as BookResponse["runTraces"],
@@ -264,6 +444,32 @@ function isBookPayload(value: unknown): value is BookPayload {
   );
 }
 
+function isWordTargetsPayload(value: unknown): value is WordTargetsPayload {
+  return (
+    isRecord(value) &&
+    typeof value.targetWordCount === "number" &&
+    typeof value.chapterWordCount === "number"
+  );
+}
+
+function defaultWordTargets(): WordTargetsPayload {
+  return {
+    targetWordCount: 120000,
+    chapterWordCount: 2800,
+  };
+}
+
+function parseActionRedirectResponse(payload: unknown): ActionRedirectResponse | null {
+  if (!isRecord(payload) || !isSafeAppPath(payload.redirectTo)) {
+    return null;
+  }
+  return { redirectTo: payload.redirectTo };
+}
+
+function isSafeAppPath(value: unknown): value is string {
+  return typeof value === "string" && value.startsWith("/") && !value.startsWith("//");
+}
+
 function currentChapterTask(chapters: ChapterPayload[]): ChapterPayload | null {
   const activeTask = chapters.find((chapter) =>
     ["running", "awaiting_review", "needs_revision"].includes(chapter.status),
@@ -275,6 +481,10 @@ function currentChapterTask(chapters: ChapterPayload[]): ChapterPayload | null {
     chapters.find((chapter) => chapter.status === "planned") ??
     null
   );
+}
+
+function canRunChapter(chapter: ChapterPayload): boolean {
+  return ["planned", "needs_revision"].includes(chapter.status);
 }
 
 function canonSummaryCards(content: Record<string, unknown>) {
@@ -317,6 +527,22 @@ function formatTraceCost(trace: RunTracePayload): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
+}
+
+function clampedPositiveInt(value: string, min: number, max?: number): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    return min;
+  }
+  const withMin = Math.max(min, parsed);
+  return max === undefined ? withMin : Math.min(withMin, max);
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    return error.message;
+  }
+  return error instanceof Error ? error.message : fallback;
 }
 
 function statusLabel(status: string): string {

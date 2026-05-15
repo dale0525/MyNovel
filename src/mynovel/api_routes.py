@@ -60,6 +60,7 @@ from mynovel.workflows.quality_enhancement import (
     deconstruct_reference_text,
     generate_quality_snapshot,
 )
+from mynovel.word_targets import update_book_word_targets
 from sqlmodel import Session
 
 
@@ -116,6 +117,9 @@ def dispatch_api_post(path: str, body: dict[str, Any], db_path: Path) -> ApiResp
         return create_open_book_blueprint_json(db_path, body)
     if path == "/api/books/import":
         return _import_book_json(db_path, body)
+    book_word_targets_id = _parse_book_word_targets_api_path(path)
+    if book_word_targets_id is not None:
+        return _update_book_word_targets_json(db_path, book_word_targets_id, body)
     if path == "/api/updates/check":
         return _check_update_json(body)
     if path == "/api/updates/stage":
@@ -217,6 +221,16 @@ def _parse_book_export_api_path(path: str) -> tuple[int, str] | None:
     except ValueError:
         book_id = 0
     return book_id, export_format
+
+
+def _parse_book_word_targets_api_path(path: str) -> int | None:
+    parts = path.strip("/").split("/")
+    if len(parts) != 4 or parts[:2] != ["api", "books"] or parts[3] != "word-targets":
+        return None
+    try:
+        return int(parts[2])
+    except ValueError:
+        return 0
 
 
 def _parse_chapter_api_path(path: str) -> int | None:
@@ -479,6 +493,35 @@ def _import_book_json(db_path: Path, body: dict[str, Any]) -> ApiResponse:
         return api_error(HTTPStatus.BAD_REQUEST, "import_failed", str(error))
     book_id = book.id or 0
     payload = {"book": payload_book, "redirectTo": f"/books/{book_id}"}
+    return ApiResponse(HTTPStatus.OK, payload)
+
+
+def _update_book_word_targets_json(
+    db_path: Path,
+    book_id: int,
+    body: dict[str, Any],
+) -> ApiResponse:
+    try:
+        engine = create_engine_for_path(db_path)
+        create_db_and_tables(engine)
+        with Session(engine) as session:
+            update_book_word_targets(
+                session,
+                book_id,
+                target_word_count=body.get("targetWordCount", body.get("target_word_count")),
+                chapter_word_count=body.get("chapterWordCount", body.get("chapter_word_count")),
+                update_existing_chapters=_body_bool(
+                    body,
+                    "updateExistingChapters",
+                    "update_existing_chapters",
+                )
+                is True,
+            )
+    except ValueError as error:
+        return api_error(HTTPStatus.BAD_REQUEST, "word_target_failed", str(error))
+    payload = book_detail_payload(db_path, book_id)
+    if payload is None:
+        return api_error(HTTPStatus.NOT_FOUND, "book_not_found", "Book not found.")
     return ApiResponse(HTTPStatus.OK, payload)
 
 

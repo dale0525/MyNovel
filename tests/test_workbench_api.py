@@ -110,6 +110,10 @@ def test_book_detail_returns_single_book(tmp_path: Path) -> None:
             "status": "draft",
             "premise": "领航员追查失落星港的真相。",
         },
+        "wordTargets": {
+            "targetWordCount": 120000,
+            "chapterWordCount": 2800,
+        },
         "chapters": [],
         "latestCanon": None,
         "runTraces": [],

@@ -30,6 +30,7 @@ def test_old_renderer_modules_are_removed() -> None:
         "ui_status_views.py",
         "update_server.py",
         "update_views.py",
+        "word_target_server.py",
         "word_target_views.py",
         "workspace_views.py",
     ]

@@ -115,8 +115,14 @@ export type CostStrategyPayload = {
   context_policy: string;
 };
 
+export type WordTargetsPayload = {
+  targetWordCount: number;
+  chapterWordCount: number;
+};
+
 export type BookResponse = {
   book: BookPayload;
+  wordTargets: WordTargetsPayload;
   chapters: ChapterPayload[];
   latestCanon: CanonPayload | null;
   runTraces: RunTracePayload[];

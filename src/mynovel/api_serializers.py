@@ -45,6 +45,12 @@ from mynovel.workflows.canon_proposal import (
     section_locks_for_book,
 )
 from mynovel.workflows.quality_enhancement import recommend_cost_strategy
+from mynovel.word_targets import (
+    CHAPTER_WORD_COUNT_KEY,
+    DEFAULT_CHAPTER_WORD_COUNT,
+    book_target_word_count,
+    parse_word_count,
+)
 
 
 def app_bootstrap_payload(db_path: Path) -> dict[str, Any]:
@@ -262,11 +268,22 @@ def book_detail_payload(db_path: Path, book_id: int) -> dict[str, Any] | None:
         volume_plans = list_volume_plans_for_book(session, book_id)
         return {
             "book": book_payload(book),
+            "wordTargets": book_word_targets_payload(book),
             "chapters": [chapter_payload(chapter) for chapter in chapters],
             "latestCanon": canon_payload(canon) if canon is not None else None,
             "runTraces": [run_trace_payload(trace) for trace in run_traces],
             "volumePlans": [volume_plan_payload(volume_plan) for volume_plan in volume_plans],
         }
+
+
+def book_word_targets_payload(book: Book) -> dict[str, int]:
+    return {
+        "targetWordCount": book_target_word_count(book),
+        "chapterWordCount": (
+            parse_word_count((book.constraints or {}).get(CHAPTER_WORD_COUNT_KEY))
+            or DEFAULT_CHAPTER_WORD_COUNT
+        ),
+    }
 
 
 def quality_payload(db_path: Path, book_id: int) -> dict[str, Any] | None:

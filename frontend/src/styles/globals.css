@@ -1,3 +1,5 @@
+@import "./workspace.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -446,186 +448,6 @@ h1 {
   align-self: start;
 }
 
-.book-workspace-hero h1 {
-  max-width: 16ch;
-}
-
-.book-workspace-meta {
-  margin: 1rem 0 0;
-  color: #7b4d1b;
-  font-weight: 900;
-}
-
-.book-workspace-facts {
-  display: grid;
-  gap: 0.75rem;
-  margin: 1.25rem 0 0;
-}
-
-.book-workspace-facts div {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-  justify-content: space-between;
-  border: 1px solid rgb(23 32 24 / 0.1);
-  border-radius: 1rem;
-  background: rgb(246 241 232 / 0.58);
-  padding: 0.85rem 1rem;
-}
-
-.book-workspace-facts dt,
-.book-workspace-facts dd {
-  margin: 0;
-}
-
-.book-workspace-facts dt {
-  color: #596954;
-  font-size: 0.82rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.book-workspace-facts dd {
-  color: #172018;
-  font-weight: 900;
-}
-
-.book-workspace-actions {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.workbench-secondary-link {
-  color: #6a4218;
-  font-weight: 900;
-  text-align: center;
-  text-decoration: none;
-}
-
-.content-grid.workspace-focus-layout {
-  grid-template-columns: 17rem minmax(0, 1fr) 22rem;
-  align-items: start;
-}
-
-.workspace-focus-card,
-.workspace-result-sidebar,
-.workspace-foundation-panel,
-.timeline-stack {
-  display: grid;
-  gap: 1rem;
-}
-
-.workspace-current-task {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 1rem;
-  align-items: center;
-  border: 1px solid rgb(53 99 66 / 0.2);
-  border-radius: 1.25rem;
-  background:
-    radial-gradient(circle at top left, rgb(215 231 205 / 0.72), transparent 42%),
-    linear-gradient(135deg, #fffdf8 0%, #f6f1e8 100%);
-  padding: 1.15rem;
-}
-
-.workspace-current-task h2,
-.workspace-section-head h2,
-.workspace-result-section h2,
-.canon-section-head h2,
-.canon-preview-head h2,
-.completion-aside h2 {
-  margin-top: 0;
-}
-
-.workspace-current-task strong {
-  display: block;
-  color: #172018;
-  font-size: 1.1rem;
-  margin-bottom: 0.35rem;
-}
-
-.workspace-primary-action {
-  display: grid;
-  align-content: center;
-}
-
-.workspace-section-head,
-.canon-section-head,
-.canon-preview-head {
-  display: flex;
-  gap: 1rem;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-
-.workspace-section-head span,
-.workspace-trace-row span,
-.workspace-mini-list span {
-  color: #596954;
-  font-size: 0.9rem;
-}
-
-.workspace-foundation-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.85rem;
-}
-
-.workspace-snapshot-card,
-.workspace-volume-plan,
-.workspace-result-section,
-.canon-section-panel,
-.canon-preview-section,
-.completion-aside section {
-  border: 1px solid rgb(23 32 24 / 0.1);
-  border-radius: 1.15rem;
-  background: rgb(255 250 240 / 0.78);
-  padding: 1rem;
-}
-
-.workspace-snapshot-card strong,
-.workspace-volume-plan strong,
-.workspace-mini-list strong,
-.workspace-trace-row strong {
-  display: block;
-  color: #172018;
-}
-
-.workspace-mini-list {
-  display: grid;
-  gap: 0.7rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.workspace-mini-list li {
-  border-bottom: 1px solid rgb(23 32 24 / 0.1);
-  padding-bottom: 0.7rem;
-}
-
-.workspace-mini-list li:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-
-.workspace-result-section {
-  display: grid;
-  gap: 0.8rem;
-}
-
-.workspace-trace-row {
-  display: grid;
-  grid-template-columns: 5rem minmax(0, 1fr);
-  gap: 0.8rem;
-  align-items: center;
-  border: 1px solid rgb(53 99 66 / 0.16);
-  border-radius: 1rem;
-  background: #fbfcf8;
-  padding: 0.8rem;
-}
-
 .completion-grid {
   grid-template-columns: minmax(0, 1fr) 22rem;
   align-items: start;
@@ -764,6 +586,15 @@ h1 {
 .workbench-action-button:hover {
   transform: translateY(-1px);
   box-shadow: 0 1.25rem 2.5rem rgb(123 77 27 / 0.28);
+}
+
+.workbench-action-button--secondary {
+  background: #356342;
+  box-shadow: 0 1rem 2rem rgb(53 99 66 / 0.18);
+}
+
+.workbench-action-button--secondary:hover {
+  box-shadow: 0 1.25rem 2.5rem rgb(53 99 66 / 0.24);
 }
 
 .open-book-form,
