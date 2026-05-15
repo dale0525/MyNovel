@@ -210,6 +210,165 @@ def test_validation_error_redacts_submitted_keys_from_messages(tmp_path: Path) -
     assert "[redacted]" in _validation_message(response.body, "rerank")
 
 
+def test_keyless_llm_edit_reuses_existing_llm_api_key(tmp_path: Path) -> None:
+    db_path = tmp_path / "mynovel.sqlite"
+    original_key = "llm-existing-secret"
+
+    save_provider_config_json(
+        db_path,
+        _payload(llm_api_key=original_key, llm_model="gpt-a"),
+        FakeChecker(),
+    )
+    response = save_provider_config_json(
+        db_path,
+        _payload(llm_api_key=None, llm_model="gpt-b"),
+        FieldAssertingChecker({"llm_api_key": original_key}),
+    )
+
+    assert response.status == HTTPStatus.OK
+    assert response.body["saved"] is True
+    _assert_no_secret_payload(response.body, original_key)
+
+    with Session(create_engine_for_path(db_path)) as session:
+        saved = get_provider_config(session)
+
+    assert saved is not None
+    assert saved.llm_model == "gpt-b"
+    assert saved.llm_api_key == original_key
+
+
+def test_keyless_edit_reuses_existing_dedicated_embedding_and_rerank_keys(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "mynovel.sqlite"
+    llm_key = "llm-secret"
+    embedding_key = "embedding-secret"
+    rerank_key = "rerank-secret"
+
+    save_provider_config_json(
+        db_path,
+        _payload(
+            llm_api_key=llm_key,
+            embedding_use_llm_credentials=False,
+            embedding_base_url="https://embedding.test/v1",
+            embedding_api_key=embedding_key,
+            embedding_model="embed-a",
+            rerank_use_llm_credentials=False,
+            rerank_base_url="https://rerank.test/v1",
+            rerank_api_key=rerank_key,
+            rerank_model="rerank-a",
+        ),
+        FakeChecker(),
+    )
+    response = save_provider_config_json(
+        db_path,
+        _payload(
+            llm_api_key=None,
+            embedding_use_llm_credentials=False,
+            embedding_base_url="https://embedding.test/v1",
+            embedding_model="embed-b",
+            rerank_use_llm_credentials=False,
+            rerank_base_url="https://rerank.test/v1",
+            rerank_model="rerank-b",
+        ),
+        FieldAssertingChecker(
+            {
+                "embedding_api_key": embedding_key,
+                "resolved_embedding_api_key": embedding_key,
+                "rerank_api_key": rerank_key,
+                "resolved_rerank_api_key": rerank_key,
+            }
+        ),
+    )
+
+    assert response.status == HTTPStatus.OK
+    assert response.body["saved"] is True
+    _assert_provider_config_key_state(
+        response.body["providerConfig"],
+        has_llm=True,
+        has_embedding=True,
+        has_rerank=True,
+    )
+    _assert_no_secret_payload(response.body, llm_key)
+    _assert_no_secret_payload(response.body, embedding_key)
+    _assert_no_secret_payload(response.body, rerank_key)
+
+    with Session(create_engine_for_path(db_path)) as session:
+        saved = get_provider_config(session)
+
+    assert saved is not None
+    assert saved.llm_api_key == llm_key
+    assert saved.embedding_api_key == embedding_key
+    assert saved.embedding_model == "embed-b"
+    assert saved.rerank_api_key == rerank_key
+    assert saved.rerank_model == "rerank-b"
+
+
+def test_inherited_credentials_clear_submitted_dedicated_api_keys(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "mynovel.sqlite"
+    llm_key = "llm-secret"
+    dedicated_embedding_key = "submitted-embedding-secret"
+    dedicated_rerank_key = "submitted-rerank-secret"
+
+    save_provider_config_json(
+        db_path,
+        _payload(
+            llm_api_key=llm_key,
+            embedding_use_llm_credentials=False,
+            embedding_base_url="https://embedding.test/v1",
+            embedding_api_key="old-embedding-secret",
+            rerank_use_llm_credentials=False,
+            rerank_base_url="https://rerank.test/v1",
+            rerank_api_key="old-rerank-secret",
+        ),
+        FakeChecker(),
+    )
+    response = save_provider_config_json(
+        db_path,
+        _payload(
+            llm_api_key=None,
+            embedding_use_llm_credentials=True,
+            embedding_base_url="https://ignored-embedding.test/v1",
+            embedding_api_key=dedicated_embedding_key,
+            rerank_use_llm_credentials=True,
+            rerank_base_url="https://ignored-rerank.test/v1",
+            rerank_api_key=dedicated_rerank_key,
+        ),
+        FieldAssertingChecker(
+            {
+                "embedding_api_key": None,
+                "resolved_embedding_api_key": llm_key,
+                "rerank_api_key": None,
+                "resolved_rerank_api_key": llm_key,
+            }
+        ),
+    )
+
+    assert response.status == HTTPStatus.OK
+    assert response.body["saved"] is True
+    _assert_provider_config_key_state(
+        response.body["providerConfig"],
+        has_llm=True,
+        has_embedding=True,
+        has_rerank=True,
+    )
+    _assert_no_secret_payload(response.body, llm_key)
+    _assert_no_secret_payload(response.body, dedicated_embedding_key)
+    _assert_no_secret_payload(response.body, dedicated_rerank_key)
+
+    with Session(create_engine_for_path(db_path)) as session:
+        saved = get_provider_config(session)
+
+    assert saved is not None
+    assert saved.llm_api_key == llm_key
+    assert saved.embedding_use_llm_credentials is True
+    assert saved.embedding_api_key is None
+    assert saved.rerank_use_llm_credentials is True
+    assert saved.rerank_api_key is None
+
+
 def test_provider_config_from_json_strips_string_booleans() -> None:
     config = provider_config_from_json(
         _payload(
@@ -224,7 +383,7 @@ def test_provider_config_from_json_strips_string_booleans() -> None:
 
 def _payload(
     *,
-    llm_api_key: str = "sk",
+    llm_api_key: str | None = "sk",
     llm_model: str = "gpt",
     embedding_use_llm_credentials: bool | str = True,
     embedding_base_url: str = "",
@@ -237,7 +396,6 @@ def _payload(
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "llmBaseUrl": "https://api.test/v1",
-        "llmApiKey": llm_api_key,
         "llmModel": llm_model,
         "embeddingUseLlmCredentials": embedding_use_llm_credentials,
         "embeddingBaseUrl": embedding_base_url,
@@ -245,6 +403,8 @@ def _payload(
         "rerankUseLlmCredentials": rerank_use_llm_credentials,
         "rerankModel": rerank_model,
     }
+    if llm_api_key is not None:
+        payload["llmApiKey"] = llm_api_key
     if embedding_api_key is not None:
         payload["embeddingApiKey"] = embedding_api_key
     if rerank_base_url is not None:
@@ -252,6 +412,30 @@ def _payload(
     if rerank_api_key is not None:
         payload["rerankApiKey"] = rerank_api_key
     return payload
+
+
+class FieldAssertingChecker(FakeChecker):
+    def __init__(self, expected: dict[str, str | None]) -> None:
+        super().__init__()
+        self.expected = expected
+
+    async def check_chat(self, config: ProviderConfig) -> None:
+        self._assert_expected("llm_api_key", config.llm_api_key)
+        await super().check_chat(config)
+
+    async def check_embedding(self, config: ProviderConfig) -> None:
+        self._assert_expected("embedding_api_key", config.embedding_api_key)
+        self._assert_expected("resolved_embedding_api_key", config.resolved_embedding_api_key())
+        await super().check_embedding(config)
+
+    async def check_rerank(self, config: ProviderConfig) -> None:
+        self._assert_expected("rerank_api_key", config.rerank_api_key)
+        self._assert_expected("resolved_rerank_api_key", config.resolved_rerank_api_key())
+        await super().check_rerank(config)
+
+    def _assert_expected(self, name: str, actual: str | None) -> None:
+        if name in self.expected:
+            assert actual == self.expected[name]
 
 
 class SecretLeakingChecker(FakeChecker):

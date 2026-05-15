@@ -115,6 +115,7 @@ def save_provider_config_json(
         saved_config = get_provider_config(session)
         saved_validation = get_provider_config_validation(session)
         saved_config_valid = is_provider_config_validated(saved_config, saved_validation)
+        config = _merge_provider_config_secrets(config, saved_config)
         report = asyncio.run(validate_provider_config(config, saved_validation, model_checker))
 
         if not report.passed:
@@ -165,6 +166,28 @@ def _bool_value(payload: dict[str, Any], key: str, *, default: bool) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _merge_provider_config_secrets(
+    config: ProviderConfig,
+    saved_config: ProviderConfig | None,
+) -> ProviderConfig:
+    if saved_config is not None and not _has_api_key(config.llm_api_key):
+        config.llm_api_key = saved_config.llm_api_key
+
+    if config.embedding_use_llm_credentials:
+        config.embedding_base_url = ""
+        config.embedding_api_key = None
+    elif saved_config is not None and not _has_api_key(config.embedding_api_key):
+        config.embedding_api_key = saved_config.embedding_api_key
+
+    if config.rerank_use_llm_credentials:
+        config.rerank_base_url = None
+        config.rerank_api_key = None
+    elif saved_config is not None and not _has_api_key(config.rerank_api_key):
+        config.rerank_api_key = saved_config.rerank_api_key
+
+    return config
 
 
 def _has_api_key(value: str | None) -> bool:
