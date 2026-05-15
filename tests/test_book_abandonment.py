@@ -8,6 +8,7 @@ from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import (
     Book,
     BookStatus,
+    BlueprintAcceptance,
     Canon,
     CanonProposalRevision,
     Chapter,
@@ -22,6 +23,7 @@ def test_abandon_draft_book_deletes_book_and_foundation_children(tmp_path: Path)
     with Session(engine) as session:
         book = add_book(session, Book(title="长夜图书馆", genre="奇幻", audience="连载读者"))
         book_id = book.id or 0
+        session.add(BlueprintAcceptance(blueprint_id=7, book_id=book_id))
         session.add(Canon(book_id=book_id, version=1, content={"characters": []}))
         session.add(Chapter(book_id=book_id, number=1, title="召唤"))
         session.add(
@@ -40,6 +42,7 @@ def test_abandon_draft_book_deletes_book_and_foundation_children(tmp_path: Path)
 
     with Session(engine) as session:
         assert session.get(Book, book_id) is None
+        assert session.get(BlueprintAcceptance, 7) is None
         assert session.exec(select(Canon).where(Canon.book_id == book_id)).all() == []
         assert session.exec(select(Chapter).where(Chapter.book_id == book_id)).all() == []
         assert (

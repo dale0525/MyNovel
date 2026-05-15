@@ -240,6 +240,8 @@ def _accepted_book_id_in_session(session: Session, blueprint_id: int) -> int | N
         if acceptance.book_id is None or acceptance.book_id <= 0:
             return None
         if get_book(session, acceptance.book_id) is None:
+            session.delete(acceptance)
+            session.flush()
             return None
         return acceptance.book_id
 

@@ -447,6 +447,48 @@ def test_accept_blueprint_reuses_and_migrates_legacy_content_marker(tmp_path: Pa
     assert acceptance.book_id == existing_book_id
 
 
+def test_accept_blueprint_recovers_stale_acceptance_marker(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    blueprint_id = _save_blueprint(
+        db_path,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜档案"],
+            "genre": "奇幻",
+            "audience": "成人",
+            "premise": "档案员追查禁书真相。",
+        },
+    )
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        stale_book = Book(title="旧书", genre="奇幻", audience="成人")
+        session.add(stale_book)
+        session.commit()
+        session.refresh(stale_book)
+        assert stale_book.id is not None
+        stale_book_id = stale_book.id
+        session.add(BlueprintAcceptance(blueprint_id=blueprint_id, book_id=stale_book_id))
+        session.commit()
+        session.delete(stale_book)
+        session.commit()
+
+    response = dispatch_api_post(
+        f"/api/blueprints/{blueprint_id}/accept",
+        {"selectedTitle": "长夜档案"},
+        db_path,
+    )
+
+    assert response.status == HTTPStatus.OK
+    with Session(engine) as session:
+        books = list(session.exec(select(Book)))
+        acceptance = session.get(BlueprintAcceptance, blueprint_id)
+    assert len(books) == 1
+    assert books[0].title == "长夜档案"
+    assert acceptance is not None
+    assert acceptance.book_id == response.body["bookId"]
+
+
 def test_accept_blueprint_rolls_back_when_transactional_creation_fails(
     tmp_path: Path,
     monkeypatch,

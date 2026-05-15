@@ -8,6 +8,7 @@ from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import (
     Book,
     BookStatus,
+    BlueprintAcceptance,
     Canon,
     CanonProposalRevision,
     Chapter,
@@ -51,6 +52,7 @@ def _parse_book_id(value: str | None) -> int:
 
 def _delete_book_children(session: Session, book_id: int) -> None:
     for model in (
+        BlueprintAcceptance,
         Chapter,
         Canon,
         CanonProposalRevision,
