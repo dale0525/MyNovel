@@ -9,6 +9,7 @@ import type { ProviderConfigDraft } from "@/features/provider-config/providerCon
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.history.pushState(null, "", "/");
 });
 
 test("embedding and rerank inherit credentials by default", () => {
@@ -290,16 +291,19 @@ test("api key fields disable browser autocomplete", () => {
   expect(screen.getByLabelText("Rerank API key")).toHaveAttribute("autocomplete", "off");
 });
 
-test("BootstrapGate renders only setup when provider is not configured", () => {
+test("BootstrapGate renders only setup when provider is not configured on any path", () => {
+  window.history.pushState(null, "", "/books/new");
+
   render(
     <BootstrapGate
-      bootstrap={{ providerConfigured: false, initialRoute: "/setup", message: null }}
+      bootstrap={{ providerConfigured: false, initialRoute: "/books/new", message: null }}
     />,
   );
 
   expect(screen.getByRole("heading", { name: "连接你的 AI 模型" })).toBeInTheDocument();
   expect(screen.queryByText("工作台")).not.toBeInTheDocument();
   expect(screen.queryByText("项目")).not.toBeInTheDocument();
+  expect(screen.queryByText("开书页面将在后续任务接入")).not.toBeInTheDocument();
 });
 
 test("BootstrapGate renders the workbench shell when provider is configured", async () => {
@@ -319,12 +323,66 @@ test("BootstrapGate renders the workbench shell when provider is configured", as
   expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "工作台" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "开书" })).toHaveAttribute("href", "/books/new");
-  expect(screen.getByRole("link", { name: "设置" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "设置" })).toHaveAttribute("href", "/settings/provider");
   await waitFor(() => expect(screen.getByText("还没有作品")).toBeInTheDocument());
   expect(screen.getByRole("link", { name: "开始一本新书" })).toHaveAttribute(
     "href",
     "/books/new",
   );
+});
+
+test("BootstrapGate routes configured new-book path to a React placeholder", () => {
+  window.history.pushState(null, "", "/books/new");
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(
+    <BootstrapGate
+      bootstrap={{ providerConfigured: true, initialRoute: "/books/new", message: null }}
+    />,
+  );
+
+  expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "开书" })).toBeInTheDocument();
+  expect(screen.getByText("开书页面将在后续任务接入。")).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "把故事推进到下一步" })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "开书" })).toHaveClass("is-active");
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test("BootstrapGate routes configured settings path inside the app shell", () => {
+  window.history.pushState(null, "", "/settings/provider");
+
+  render(
+    <BootstrapGate
+      bootstrap={{ providerConfigured: true, initialRoute: "/settings/provider", message: null }}
+    />,
+  );
+
+  expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "连接你的 AI 模型" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "设置" })).toHaveClass("is-active");
+  expect(screen.queryByRole("heading", { name: "把故事推进到下一步" })).not.toBeInTheDocument();
+});
+
+test("BootstrapGate routes configured book and review paths to React placeholders", () => {
+  window.history.pushState(null, "", "/books/42");
+  const { rerender } = render(
+    <BootstrapGate bootstrap={{ providerConfigured: true, initialRoute: "/books/42", message: null }} />,
+  );
+
+  expect(screen.getByRole("heading", { name: "项目" })).toBeInTheDocument();
+  expect(screen.getByText("项目页面将在后续任务接入。")).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "把故事推进到下一步" })).not.toBeInTheDocument();
+
+  window.history.pushState(null, "", "/review");
+  rerender(
+    <BootstrapGate bootstrap={{ providerConfigured: true, initialRoute: "/review", message: null }} />,
+  );
+
+  expect(screen.getByRole("heading", { name: "质量复审" })).toBeInTheDocument();
+  expect(screen.getByText("质量复审页面将在后续任务接入。")).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "把故事推进到下一步" })).not.toBeInTheDocument();
 });
 
 function fillRequiredFields(overrides: Partial<ProviderConfigDraft> = {}) {

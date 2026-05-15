@@ -1,20 +1,21 @@
 import type { ReactNode } from "react";
 
 type AppShellProps = {
+  activePath: string;
   children: ReactNode;
 };
 
 const navItems = [
-  { label: "工作台", href: "/" },
-  { label: "开书", href: "/books/new" },
-  { label: "项目", href: "/" },
-  { label: "章节", href: "/review" },
-  { label: "可信设定", href: "/review" },
-  { label: "质量", href: "/review" },
-  { label: "设置", href: "/provider-config" },
+  { label: "工作台", href: "/", activePaths: ["/"] },
+  { label: "开书", href: "/books/new", activePaths: ["/books/new"] },
+  { label: "项目", href: "/", activePaths: ["/books/:id"] },
+  { label: "章节", href: "/review", activePaths: ["/review"] },
+  { label: "可信设定", href: "/review", activePaths: ["/review"] },
+  { label: "质量", href: "/review", activePaths: ["/review"] },
+  { label: "设置", href: "/settings/provider", activePaths: ["/settings/provider"] },
 ];
 
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ activePath, children }: AppShellProps) {
   return (
     <div className="app-shell">
       <aside className="app-shell__sidebar">
@@ -26,7 +27,9 @@ export function AppShell({ children }: AppShellProps) {
           {navItems.map((item) => (
             <a
               className={
-                item.label === "工作台" ? "app-shell__nav-link is-active" : "app-shell__nav-link"
+                item.activePaths.includes(activePath)
+                  ? "app-shell__nav-link is-active"
+                  : "app-shell__nav-link"
               }
               href={item.href}
               key={item.label}

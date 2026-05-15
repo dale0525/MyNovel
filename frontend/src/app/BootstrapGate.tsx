@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 
 import { getJson } from "@/lib/api";
 import type { BootstrapPayload } from "@/lib/types";
+import { routeForPath } from "@/app/AppRoutes";
 import { AppShell } from "@/components/layout/AppShell";
 import { SetupOnlyShell } from "@/components/layout/SetupOnlyShell";
 import { ProviderConfigPage } from "@/features/provider-config/ProviderConfigPage";
-import { WorkbenchPage } from "@/features/workbench/WorkbenchPage";
 
 type BootstrapGateProps = {
   bootstrap?: BootstrapPayload;
@@ -81,11 +81,9 @@ export function BootstrapGate({
     );
   }
 
-  return (
-    <AppShell>
-      <WorkbenchPage />
-    </AppShell>
-  );
+  const route = routeForPath(window.location.pathname);
+
+  return <AppShell activePath={route.activePath}>{route.element}</AppShell>;
 }
 
 function fetchAppBootstrap(): Promise<BootstrapPayload> {

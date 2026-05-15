@@ -157,7 +157,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function bookHref(book: BookPayload): string {
-  return book.id === null ? "/" : `/book/${book.id}`;
+  return book.id === null ? "/" : `/books/${book.id}`;
 }
 
 function statusLabel(status: string): string {
