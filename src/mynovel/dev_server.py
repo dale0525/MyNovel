@@ -492,7 +492,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                     status=HTTPStatus.BAD_REQUEST,
                 )
                 return
-            self._redirect(f"/book/{book.id or 0}/state")
+            self._redirect(f"/books/{book.id or 0}")
 
         def _lock_canon(self, db_path: Path) -> None:
             try:

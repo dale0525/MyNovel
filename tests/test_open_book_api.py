@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+from http.client import HTTPConnection
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from threading import Barrier, BrokenBarrierError, Thread
 from typing import Any
+from urllib.parse import urlencode
 
 import pytest
 from sqlmodel import Session, select
@@ -12,6 +15,7 @@ import mynovel.api_open_book as api_open_book
 import mynovel.blueprint_jobs as blueprint_jobs
 from mynovel.api_routes import dispatch_api_get, dispatch_api_post
 from mynovel.db import create_db_and_tables, create_engine_for_path
+from mynovel.dev_server import DevServerState, _make_handler
 from mynovel.domain.models import (
     Book,
     BlueprintStatus,
@@ -529,6 +533,51 @@ def test_legacy_accept_helper_records_acceptance_and_reuses_book(tmp_path: Path)
     assert len(books) == 1
     assert acceptance is not None
     assert acceptance.book_id == first.id
+
+
+def test_legacy_accept_blueprint_redirects_to_react_workspace(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    blueprint_id = _save_blueprint(
+        db_path,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜档案"],
+            "genre": "奇幻",
+            "audience": "成人",
+            "premise": "档案员追查禁书真相。",
+        },
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _make_handler(DevServerState(db_path)))
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    body = urlencode({"blueprint_id": str(blueprint_id), "selected_title": "长夜档案"}).encode(
+        "utf-8"
+    )
+
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        connection.request(
+            "POST",
+            "/accept-blueprint",
+            body=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Content-Length": str(len(body)),
+            },
+        )
+        response = connection.getresponse()
+        response.read()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    with Session(create_engine_for_path(db_path)) as session:
+        books = list(session.exec(select(Book)))
+
+    assert response.status == HTTPStatus.SEE_OTHER
+    assert len(books) == 1
+    assert response.getheader("Location") == f"/books/{books[0].id}"
 
 
 def test_concurrent_accept_blueprint_creates_one_book(tmp_path: Path, monkeypatch) -> None:
