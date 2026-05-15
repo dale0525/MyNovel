@@ -4,16 +4,8 @@ import tomllib
 from mynovel.dev_server import (
     _book_idea_from_form,
     _chapter_model_client_from_provider_config,
-    _parse_batch_limit,
-    _parse_book_export,
-    _parse_book_quality_id,
-    _parse_book_state_id,
     _review_destination,
     build_health_payload,
-    render_book_workspace,
-    render_blueprint_page,
-    render_chapter_review,
-    render_home,
     run_server,
 )
 from mynovel.chapter_server import queue_chapter_run
@@ -39,6 +31,12 @@ from mynovel.domain.repositories import (
     add_canon,
 )
 from mynovel.i18n import t
+from mynovel.product_views import (
+    render_book_workspace,
+    render_blueprint_page,
+    render_chapter_review,
+    render_home,
+)
 from mynovel.workflows.chapter_pipeline import ChapterStageError
 
 
@@ -244,22 +242,6 @@ def test_chapter_generation_uses_saved_dialogue_model_config() -> None:
     assert model_name == "chapter-model"
 
 
-def test_book_state_route_parser_extracts_book_id() -> None:
-    assert _parse_book_state_id("/book/42/state") == 42
-    assert _parse_book_state_id("/book/not-a-number/state") == 0
-
-
-def test_book_quality_route_parser_extracts_book_id() -> None:
-    assert _parse_book_quality_id("/book/42/quality") == 42
-    assert _parse_book_quality_id("/book/not-a-number/quality") == 0
-
-
-def test_book_export_route_parser_extracts_book_id_and_format() -> None:
-    assert _parse_book_export("/book/42/export.md") == (42, "markdown")
-    assert _parse_book_export("/book/42/export.json") == (42, "json")
-    assert _parse_book_export("/book/42/export.pdf") == (0, "")
-
-
 def test_review_destination_prefers_current_awaiting_review_chapter(tmp_path) -> None:
     db_path = tmp_path / "dev.sqlite"
     engine = create_engine_for_path(db_path)
@@ -304,13 +286,6 @@ def test_review_destination_routes_draft_book_to_foundation_gate(tmp_path) -> No
         session.refresh(book)
 
     assert _review_destination(db_path) == f"/book/{book.id}/state"
-
-
-def test_parse_batch_limit_clamps_to_safe_range() -> None:
-    assert _parse_batch_limit({"limit": "5"}) == 5
-    assert _parse_batch_limit({"limit": "0"}) == 1
-    assert _parse_batch_limit({"limit": "99"}) == 10
-    assert _parse_batch_limit({"limit": "bad"}) == 1
 
 
 def test_queue_chapter_run_marks_chapter_running_without_blocking(tmp_path: Path) -> None:

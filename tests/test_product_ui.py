@@ -1,7 +1,6 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mynovel.dev_server import render_blueprint_page, render_home
 from mynovel.domain.models import (
     Book,
     BookStatus,
@@ -17,7 +16,9 @@ from mynovel.import_views import render_import_project_page
 from mynovel.i18n import TRANSLATIONS
 from mynovel.product_views import (
     render_book_workspace,
+    render_blueprint_page,
     render_chapter_review,
+    render_home,
     render_model_setup_page,
     render_new_book_page,
     render_trusted_state_page,

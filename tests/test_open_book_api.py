@@ -577,33 +577,7 @@ def test_legacy_accept_helper_records_acceptance_and_reuses_book(tmp_path: Path)
     assert acceptance.book_id == first.id
 
 
-def test_legacy_accept_blueprint_redirects_to_react_workspace(tmp_path: Path) -> None:
-    db_path = tmp_path / "dev.sqlite"
-    blueprint_id = _save_blueprint(
-        db_path,
-        status=BlueprintStatus.SUCCEEDED,
-        content={
-            "title_options": ["长夜档案"],
-            "genre": "奇幻",
-            "audience": "成人",
-            "premise": "档案员追查禁书真相。",
-        },
-    )
-    status, location = _post_legacy_form(
-        db_path,
-        "/accept-blueprint",
-        {"blueprint_id": str(blueprint_id), "selected_title": "长夜档案"},
-    )
-
-    with Session(create_engine_for_path(db_path)) as session:
-        books = list(session.exec(select(Book)))
-
-    assert status == HTTPStatus.SEE_OTHER
-    assert len(books) == 1
-    assert location == f"/books/{books[0].id}"
-
-
-def test_legacy_open_book_redirects_to_react_blueprint_path(
+def test_non_api_form_posts_are_not_user_entrypoints(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -616,98 +590,15 @@ def test_legacy_open_book_redirects_to_react_blueprint_path(
         lambda _db, blueprint_id, _config: started.append(blueprint_id),
     )
 
-    status, location = _post_legacy_form(
+    status, location = _post_form(
         db_path,
         "/open-book",
         {"idea": "失意档案员重建禁书图书馆"},
     )
 
-    assert status == HTTPStatus.SEE_OTHER
-    assert location is not None
-    assert location == f"/blueprints/{started[0]}"
-
-
-def test_legacy_retry_requires_validated_provider(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    db_path = tmp_path / "dev.sqlite"
-    _save_unvalidated_provider(db_path)
-    blueprint_id = _save_blueprint(db_path, status=BlueprintStatus.FAILED)
-    started: list[int] = []
-    monkeypatch.setattr(
-        api_open_book,
-        "start_blueprint_job",
-        lambda _db, blueprint_id, _config: started.append(blueprint_id),
-    )
-
-    status, location = _post_legacy_form(
-        db_path,
-        "/retry-blueprint",
-        {"blueprint_id": str(blueprint_id)},
-    )
-
-    assert status == HTTPStatus.BAD_REQUEST
+    assert status == HTTPStatus.NOT_FOUND
     assert location is None
     assert started == []
-
-
-def test_legacy_retry_redirects_to_react_blueprint_path(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    db_path = tmp_path / "dev.sqlite"
-    _save_validated_provider(db_path)
-    blueprint_id = _save_blueprint(db_path, status=BlueprintStatus.FAILED)
-    started: list[int] = []
-    monkeypatch.setattr(
-        api_open_book,
-        "start_blueprint_job",
-        lambda _db, blueprint_id, _config: started.append(blueprint_id),
-    )
-
-    status, location = _post_legacy_form(
-        db_path,
-        "/retry-blueprint",
-        {"blueprint_id": str(blueprint_id)},
-    )
-
-    assert status == HTTPStatus.SEE_OTHER
-    assert location == f"/blueprints/{blueprint_id}"
-    assert started == [blueprint_id]
-
-
-def test_legacy_revise_redirects_to_react_blueprint_path(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    db_path = tmp_path / "dev.sqlite"
-    _save_validated_provider(db_path)
-    blueprint_id = _save_blueprint(
-        db_path,
-        status=BlueprintStatus.SUCCEEDED,
-        content={
-            "title_options": ["长夜档案"],
-            "genre": "奇幻",
-            "audience": "成人",
-        },
-    )
-    started: list[int] = []
-    monkeypatch.setattr(
-        api_open_book,
-        "start_blueprint_job",
-        lambda _db, blueprint_id, _config: started.append(blueprint_id),
-    )
-
-    status, location = _post_legacy_form(
-        db_path,
-        "/revise-blueprint",
-        {"blueprint_id": str(blueprint_id), "revision_notes": "主角更疯一点"},
-    )
-
-    assert status == HTTPStatus.SEE_OTHER
-    assert location is not None
-    assert location == f"/blueprints/{started[0]}"
 
 
 def test_concurrent_accept_blueprint_creates_one_book(tmp_path: Path, monkeypatch) -> None:
@@ -852,25 +743,7 @@ def _save_validated_provider(db_path: Path) -> None:
         )
 
 
-def _save_unvalidated_provider(db_path: Path) -> None:
-    engine = create_engine_for_path(db_path)
-    create_db_and_tables(engine)
-    with Session(engine) as session:
-        save_provider_config(
-            session,
-            ProviderConfig(
-                llm_base_url="https://api.example.test/v1",
-                llm_api_key="sk-test",
-                llm_model="gpt-test",
-                embedding_base_url="https://api.example.test/v1",
-                embedding_model="text-embedding-test",
-                rerank_base_url="https://rerank.example.test/v1",
-                rerank_model="rerank-test",
-            ),
-        )
-
-
-def _post_legacy_form(
+def _post_form(
     db_path: Path,
     path: str,
     form: dict[str, str],
