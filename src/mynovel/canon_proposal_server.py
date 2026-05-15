@@ -149,7 +149,7 @@ def handle_create_canon_proposal_revision(
     if start_background:
         _start_canon_proposal_revision_job(db_path, revision_id, client)
     return CanonProposalServerResponse(
-        redirect_to=f"/book/{book_id or 0}/state?revision_id={revision_id}#canon-revision-job"
+        redirect_to=f"/books/{book_id or 0}/state?revision_id={revision_id}#canon-revision-job"
     )
 
 
@@ -179,7 +179,7 @@ def _handle_create_canon_proposal_revision_inline(
     anchor = SECTION_REGISTRY.get(target_section)
     fragment = anchor.anchor if anchor else "world"
     return CanonProposalServerResponse(
-        redirect_to=f"/book/{book_id or 0}/state?revision_id={revision_id}#{fragment}"
+        redirect_to=f"/books/{book_id or 0}/state?revision_id={revision_id}#{fragment}"
     )
 
 
@@ -313,7 +313,7 @@ def _form_truthy(raw_value: str | None) -> bool:
 def _state_anchor(book_id: int, section: str) -> str:
     anchor = SECTION_REGISTRY.get(section)
     fragment = anchor.anchor if anchor else "world"
-    return f"/book/{book_id}/state#{fragment}"
+    return f"/books/{book_id}/state#{fragment}"
 
 
 def _bad_request(error: ValueError) -> CanonProposalServerResponse:

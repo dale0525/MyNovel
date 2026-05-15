@@ -94,7 +94,7 @@ def test_review_destination_prefers_current_awaiting_review_chapter(tmp_path) ->
         )
         session.commit()
 
-    assert _review_destination(db_path) == "/chapter/9"
+    assert _review_destination(db_path) == "/chapters/9"
 
 
 def test_review_destination_routes_draft_book_to_foundation_gate(tmp_path) -> None:
@@ -112,7 +112,7 @@ def test_review_destination_routes_draft_book_to_foundation_gate(tmp_path) -> No
         session.commit()
         session.refresh(book)
 
-    assert _review_destination(db_path) == f"/book/{book.id}/state"
+    assert _review_destination(db_path) == f"/books/{book.id}/state"
 
 
 def test_queue_chapter_run_marks_chapter_running_without_blocking(tmp_path: Path) -> None:

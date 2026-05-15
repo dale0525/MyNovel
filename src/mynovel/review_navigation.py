@@ -21,7 +21,7 @@ def review_destination(db_path: Path) -> str:
             if book.id is None:
                 continue
             if book.status == BookStatus.DRAFT:
-                return f"/book/{book.id}/state"
+                return f"/books/{book.id}/state"
             chapters = list_chapters_for_book(session, book.id)
             for status in (
                 ChapterStatus.AWAITING_REVIEW,
@@ -30,6 +30,6 @@ def review_destination(db_path: Path) -> str:
             ):
                 chapter = next((item for item in chapters if item.status == status), None)
                 if chapter is not None and chapter.id is not None:
-                    return f"/chapter/{chapter.id}"
-            return f"/book/{book.id}"
+                    return f"/chapters/{chapter.id}"
+            return f"/books/{book.id}"
     return "/"

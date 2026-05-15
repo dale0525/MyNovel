@@ -6,6 +6,7 @@ import { routeForPath } from "@/app/AppRoutes";
 import { ImportBookPage } from "@/features/books/ImportBookPage";
 import { QualityPage } from "@/features/quality/QualityPage";
 import { UpdatesPage } from "@/features/updates/UpdatesPage";
+import { WorkbenchPage } from "@/features/workbench/WorkbenchPage";
 
 afterEach(() => {
   cleanup();
@@ -17,6 +18,10 @@ test("routes secondary product pages", () => {
   expect(routeForPath("/books/import").element).toEqual(<ImportBookPage />);
   expect(routeForPath("/books/42/quality").element).toEqual(<QualityPage bookId={42} />);
   expect(routeForPath("/updates").element).toEqual(<UpdatesPage />);
+});
+
+test("legacy review path falls back to the workbench instead of a placeholder", () => {
+  expect(routeForPath("/review")).toEqual({ activePath: "/", element: <WorkbenchPage /> });
 });
 
 test("import page posts project json and navigates to imported book", async () => {

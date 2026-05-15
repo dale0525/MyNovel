@@ -108,7 +108,7 @@ def test_toggle_canon_proposal_section_lock_redirects_and_persists(tmp_path: Pat
         db_path,
     )
 
-    assert response.redirect_to == f"/book/{book_id}/state#world"
+    assert response.redirect_to == f"/books/{book_id}/state#world"
     engine = create_engine_for_path(db_path)
     with Session(engine) as session:
         book = get_book(session, book_id)
@@ -203,7 +203,7 @@ def test_create_canon_proposal_revision_with_fake_client_redirects_to_preview(
     )
 
     assert response.redirect_to is not None
-    assert response.redirect_to.startswith(f"/book/{book_id}/state?revision_id=")
+    assert response.redirect_to.startswith(f"/books/{book_id}/state?revision_id=")
     assert response.redirect_to.endswith("#characters")
 
 
@@ -240,7 +240,7 @@ def test_create_canon_proposal_revision_without_fake_client_redirects_to_running
     )
 
     assert response.redirect_to is not None
-    assert response.redirect_to.startswith(f"/book/{book_id}/state?revision_id=")
+    assert response.redirect_to.startswith(f"/books/{book_id}/state?revision_id=")
     assert response.redirect_to.endswith("#canon-revision-job")
 
     revision_id = int(response.redirect_to.split("revision_id=", 1)[1].split("#", 1)[0])
@@ -321,7 +321,7 @@ def test_apply_and_discard_canon_proposal_revision_handlers(tmp_path: Path) -> N
         db_path,
     )
 
-    assert applied.redirect_to == f"/book/{book_id}/state#characters"
+    assert applied.redirect_to == f"/books/{book_id}/state#characters"
     engine = create_engine_for_path(db_path)
     with Session(engine) as session:
         revision = get_canon_proposal_revision(session, apply_revision_id)
@@ -334,7 +334,7 @@ def test_apply_and_discard_canon_proposal_revision_handlers(tmp_path: Path) -> N
         db_path,
     )
 
-    assert discarded.redirect_to == f"/book/{book_id}/state#characters"
+    assert discarded.redirect_to == f"/books/{book_id}/state#characters"
     with Session(engine) as session:
         revision = get_canon_proposal_revision(session, discard_revision_id)
         assert revision is not None

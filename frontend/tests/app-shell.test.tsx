@@ -20,3 +20,15 @@ test("trusted state nav keeps the current book context", () => {
     "/books/42/state",
   );
 });
+
+test("navigation does not expose review placeholder links", () => {
+  render(
+    <AppShell activePath="/" currentPath="/">
+      <div>content</div>
+    </AppShell>,
+  );
+
+  expect(screen.queryByRole("link", { name: "章节" })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "质量" })).toHaveAttribute("href", "/");
+  expect(screen.queryByRole("link", { name: "质量复审" })).not.toBeInTheDocument();
+});

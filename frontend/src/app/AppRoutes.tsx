@@ -82,40 +82,7 @@ export function routeForPath(pathname: string): RouteMatch {
     };
   }
 
-  if (path === "/review") {
-    return {
-      activePath: "/review",
-      element: (
-        <RoutePlaceholder
-          eyebrow="Review"
-          title="质量复审"
-          message="质量复审页面将在后续任务接入。"
-        />
-      ),
-    };
-  }
-
   return { activePath: "/", element: <WorkbenchPage /> };
-}
-
-function RoutePlaceholder({
-  eyebrow,
-  title,
-  message,
-}: {
-  eyebrow: string;
-  title: string;
-  message: string;
-}) {
-  return (
-    <section className="workbench-page" aria-labelledby="route-placeholder-title">
-      <div className="workbench-hero">
-        <p className="eyebrow">{eyebrow}</p>
-        <h1 id="route-placeholder-title">{title}</h1>
-        <p className="lede">{message}</p>
-      </div>
-    </section>
-  );
 }
 
 function normalizePath(pathname: string): string {

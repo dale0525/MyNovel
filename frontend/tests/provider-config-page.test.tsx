@@ -571,16 +571,15 @@ test("BootstrapGate routes configured book path to the project workspace", async
   expect(screen.queryByRole("heading", { name: "把故事推进到下一步" })).not.toBeInTheDocument();
 });
 
-test("BootstrapGate routes configured review path to a React placeholder", () => {
+test("BootstrapGate routes legacy review path to the workbench", () => {
   window.history.pushState(null, "", "/review");
 
   render(
     <BootstrapGate bootstrap={{ providerConfigured: true, initialRoute: "/review", message: null }} />,
   );
 
-  expect(screen.getByRole("heading", { name: "质量复审" })).toBeInTheDocument();
-  expect(screen.getByText("质量复审页面将在后续任务接入。")).toBeInTheDocument();
-  expect(screen.queryByRole("heading", { name: "把故事推进到下一步" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "把故事推进到下一步" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "质量复审" })).not.toBeInTheDocument();
 });
 
 function fillRequiredFields(overrides: Partial<ProviderConfigDraft> = {}) {

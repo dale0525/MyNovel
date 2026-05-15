@@ -11,7 +11,6 @@ const navItems = [
   { label: "开书", href: "/books/new", activePaths: ["/books/new"] },
   { label: "导入", href: "/books/import", activePaths: ["/books/import"] },
   { label: "项目", href: "/", activePaths: ["/books/:id"], bookHref: (bookId: number) => `/books/${bookId}` },
-  { label: "章节", href: "/review", activePaths: ["/review"] },
   {
     label: "可信设定",
     href: "/",
@@ -20,7 +19,7 @@ const navItems = [
   },
   {
     label: "质量",
-    href: "/review",
+    href: "/",
     activePaths: ["/books/:id/quality"],
     bookHref: (bookId: number) => `/books/${bookId}/quality`,
   },
