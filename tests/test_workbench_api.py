@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
 
@@ -55,6 +56,31 @@ def test_books_returns_recent_books(tmp_path: Path) -> None:
             },
         ],
     }
+
+
+def test_books_returns_latest_20_with_stable_id_tiebreaker(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        books = [
+            Book(
+                title=f"Book {index:02d}",
+                genre="奇幻",
+                audience="男频",
+                created_at=created_at,
+            )
+            for index in range(1, 22)
+        ]
+        session.add_all(books)
+        session.commit()
+        ids = [book.id for book in books]
+
+    response = dispatch_api_get("/api/books", "", db_path)
+
+    assert response.status == HTTPStatus.OK
+    assert [book["id"] for book in response.body["books"]] == list(reversed(ids[1:]))
 
 
 def _provider_config() -> ProviderConfig:

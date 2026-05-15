@@ -318,9 +318,13 @@ test("BootstrapGate renders the workbench shell when provider is configured", as
 
   expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "工作台" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "开书" })).toHaveAttribute("href", "/books/new");
   expect(screen.getByRole("link", { name: "设置" })).toBeInTheDocument();
   await waitFor(() => expect(screen.getByText("还没有作品")).toBeInTheDocument());
-  expect(screen.getByRole("button", { name: "开始一本新书" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "开始一本新书" })).toHaveAttribute(
+    "href",
+    "/books/new",
+  );
 });
 
 function fillRequiredFields(overrides: Partial<ProviderConfigDraft> = {}) {

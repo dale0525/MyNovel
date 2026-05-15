@@ -17,10 +17,19 @@ export function WorkbenchPage() {
 
   useEffect(() => {
     let cancelled = false;
-    getJson<BooksPayload>("/api/books")
+    getJson<unknown>("/api/books")
       .then((payload) => {
+        const parsed = parseBooksPayload(payload);
         if (!cancelled) {
-          setState({ status: "ready", books: payload.books, error: null });
+          if (parsed) {
+            setState({ status: "ready", books: parsed.books, error: null });
+          } else {
+            setState({
+              status: "error",
+              books: [],
+              error: "作品列表格式无效。",
+            });
+          }
         }
       })
       .catch((error: unknown) => {
@@ -71,9 +80,9 @@ export function WorkbenchPage() {
                 <p className="eyebrow">Recent</p>
                 <h2>最近作品</h2>
               </div>
-              <button className="workbench-action-button" type="button">
+              <a className="workbench-action-button" href={bookHref(state.books[0])}>
                 继续推进
-              </button>
+              </a>
             </div>
             <ul className="recent-books">
               {state.books.map((book) => (
@@ -94,9 +103,9 @@ export function WorkbenchPage() {
             <p className="eyebrow">Next Action</p>
             <h2>从最近作品继续</h2>
             <p>打开最近项目，检查章节状态、可信设定变更和质量建议。</p>
-            <button className="workbench-action-button" type="button">
+            <a className="workbench-action-button" href={bookHref(state.books[0])}>
               打开最近作品
-            </button>
+            </a>
           </aside>
         </div>
       )}
@@ -112,11 +121,43 @@ function EmptyWorkbench() {
         <h2>还没有作品</h2>
         <p>先从一个清晰的题材、受众和核心承诺开始。创建后，这里会显示最近作品和下一步动作。</p>
       </div>
-      <button className="workbench-action-button" type="button">
+      <a className="workbench-action-button" href="/books/new">
         开始一本新书
-      </button>
+      </a>
     </div>
   );
+}
+
+function parseBooksPayload(payload: unknown): BooksPayload | null {
+  if (!isRecord(payload) || !Array.isArray(payload.books)) {
+    return null;
+  }
+  if (!payload.books.every(isBookPayload)) {
+    return null;
+  }
+  return { books: payload.books };
+}
+
+function isBookPayload(value: unknown): value is BookPayload {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    (typeof value.id === "number" || value.id === null) &&
+    typeof value.title === "string" &&
+    typeof value.genre === "string" &&
+    typeof value.audience === "string" &&
+    typeof value.status === "string" &&
+    (typeof value.premise === "string" || value.premise === null)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+function bookHref(book: BookPayload): string {
+  return book.id === null ? "/" : `/book/${book.id}`;
 }
 
 function statusLabel(status: string): string {

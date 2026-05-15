@@ -440,6 +440,9 @@ h1 {
 }
 
 .workbench-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   border-radius: 999px;
   background: #7b4d1b;
@@ -447,6 +450,7 @@ h1 {
   cursor: pointer;
   font-weight: 900;
   padding: 0.9rem 1.2rem;
+  text-decoration: none;
   white-space: nowrap;
   box-shadow: 0 1rem 2rem rgb(123 77 27 / 0.22);
   transition:

@@ -4,7 +4,15 @@ type AppShellProps = {
   children: ReactNode;
 };
 
-const navItems = ["工作台", "开书", "项目", "章节", "可信设定", "质量", "设置"];
+const navItems = [
+  { label: "工作台", href: "/" },
+  { label: "开书", href: "/books/new" },
+  { label: "项目", href: "/" },
+  { label: "章节", href: "/review" },
+  { label: "可信设定", href: "/review" },
+  { label: "质量", href: "/review" },
+  { label: "设置", href: "/provider-config" },
+];
 
 export function AppShell({ children }: AppShellProps) {
   return (
@@ -17,11 +25,13 @@ export function AppShell({ children }: AppShellProps) {
         <nav className="app-shell__nav" aria-label="主导航">
           {navItems.map((item) => (
             <a
-              className={item === "工作台" ? "app-shell__nav-link is-active" : "app-shell__nav-link"}
-              href={item === "工作台" ? "/" : "#"}
-              key={item}
+              className={
+                item.label === "工作台" ? "app-shell__nav-link is-active" : "app-shell__nav-link"
+              }
+              href={item.href}
+              key={item.label}
             >
-              {item}
+              {item.label}
             </a>
           ))}
         </nav>

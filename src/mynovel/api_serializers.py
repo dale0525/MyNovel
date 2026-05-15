@@ -37,7 +37,13 @@ def books_payload(db_path: Path) -> dict[str, Any]:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
-        books = list(session.exec(select(Book).order_by(cast(Any, Book.created_at).desc()).limit(20)))
+        books = list(
+            session.exec(
+                select(Book)
+                .order_by(cast(Any, Book.created_at).desc(), cast(Any, Book.id).desc())
+                .limit(20)
+            )
+        )
     return {"books": [book_payload(book) for book in books]}
 
 
