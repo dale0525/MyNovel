@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
-    "test": "vitest run --environment jsdom",
+    "test": "vitest run --environment jsdom tests",
     "e2e": "PLAYWRIGHT_BROWSERS_PATH=.tool/ms-playwright playwright test"
   },
   "dependencies": {

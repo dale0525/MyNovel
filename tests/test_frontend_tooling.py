@@ -9,7 +9,7 @@ def test_frontend_package_has_required_scripts() -> None:
     assert package["scripts"]["build"] == "tsc -b && vite build"
     assert package["scripts"]["typecheck"] == "tsc -b --pretty false"
     assert package["scripts"]["lint"] == "eslint ."
-    assert package["scripts"]["test"] == "vitest run --environment jsdom"
+    assert package["scripts"]["test"] == "vitest run --environment jsdom tests"
     assert package["scripts"]["e2e"] == (
         "PLAYWRIGHT_BROWSERS_PATH=.tool/ms-playwright playwright test"
     )
