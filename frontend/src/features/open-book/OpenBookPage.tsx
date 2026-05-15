@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { ApiError, postJson } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
@@ -22,9 +22,14 @@ export function OpenBookPage() {
   const [constraints, setConstraints] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmittingRef.current) {
+      return;
+    }
+    isSubmittingRef.current = true;
     setError(null);
     setIsSubmitting(true);
     try {
@@ -39,6 +44,7 @@ export function OpenBookPage() {
     } catch (submitError) {
       setError(submitError instanceof ApiError ? submitError.message : "开书请求失败。");
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   }

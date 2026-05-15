@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ApiError, getJson, postJson } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
@@ -24,10 +24,18 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
   const [revisionNotes, setRevisionNotes] = useState("");
   const [selectedTitle, setSelectedTitle] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const pendingActionRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
+    setState({ status: "loading", blueprint: null, error: null });
+    setRevisionNotes("");
+    setSelectedTitle("");
+    setActionError(null);
+    setPendingAction(null);
+    pendingActionRef.current = null;
 
     async function loadBlueprint() {
       try {
@@ -37,9 +45,7 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
         }
         setState({ status: "ready", blueprint: response.blueprint, error: null });
         const titles = titleOptions(response.blueprint.content);
-        if (titles.length > 0) {
-          setSelectedTitle((current) => current || titles[0]);
-        }
+        setSelectedTitle(titles[0] ?? "");
         if (isInProgress(response.blueprint.status)) {
           timer = window.setTimeout(() => {
             void loadBlueprint();
@@ -66,7 +72,12 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
     };
   }, [blueprintId]);
 
-  async function runAction(path: string, body: Record<string, unknown>) {
+  async function runAction(action: string, path: string, body: Record<string, unknown>) {
+    if (pendingActionRef.current !== null) {
+      return;
+    }
+    pendingActionRef.current = action;
+    setPendingAction(action);
     setActionError(null);
     try {
       const response = await postJson<ActionResponse>(path, body);
@@ -75,6 +86,9 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
       }
     } catch (error) {
       setActionError(error instanceof ApiError ? error.message : "操作失败。");
+    } finally {
+      pendingActionRef.current = null;
+      setPendingAction(null);
     }
   }
 
@@ -129,7 +143,8 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
           {blueprint.parseError && <pre>{blueprint.parseError}</pre>}
           <button
             className="workbench-action-button"
-            onClick={() => void runAction(`/api/blueprints/${blueprintId}/retry`, {})}
+            disabled={pendingAction !== null}
+            onClick={() => void runAction("retry", `/api/blueprints/${blueprintId}/retry`, {})}
             type="button"
           >
             重试生成
@@ -167,8 +182,9 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
             </label>
             <button
               className="workbench-action-button"
+              disabled={pendingAction !== null}
               onClick={() =>
-                void runAction(`/api/blueprints/${blueprintId}/revise`, {
+                void runAction("revise", `/api/blueprints/${blueprintId}/revise`, {
                   revisionNotes,
                 })
               }
@@ -178,14 +194,15 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
             </button>
             <button
               className="workbench-action-button"
+              disabled={pendingAction !== null}
               onClick={() =>
-                void runAction(`/api/blueprints/${blueprintId}/accept`, {
+                void runAction("accept", `/api/blueprints/${blueprintId}/accept`, {
                   selectedTitle,
                 })
               }
               type="button"
             >
-              接受并进入设定复审
+              接受并进入项目页
             </button>
           </aside>
         </div>
@@ -230,7 +247,7 @@ function statusText(status: BlueprintPayload["status"]): string {
   const labels = {
     pending: "蓝图排队中",
     running: "蓝图生成中",
-    succeeded: "蓝图已生成，选择书名后可进入设定复审。",
+    succeeded: "蓝图已生成，选择书名后可进入项目页。",
     failed: "蓝图生成失败，可重试或调整输入。",
   };
   return labels[status];

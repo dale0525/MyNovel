@@ -79,9 +79,94 @@ test("renders succeeded blueprint title selection and accept action", async () =
 
   await waitFor(() => expect(screen.getByLabelText("长夜档案")).toBeChecked());
   expect(screen.getByText("档案员追查禁书真相。")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "接受并进入设定复审" }));
+  fireEvent.click(screen.getByRole("button", { name: "接受并进入项目页" }));
 
   await waitFor(() => expect(window.location.pathname).toBe("/books/12"));
+});
+
+test("accept action is disabled while request is pending", async () => {
+  let resolveAccept: (response: Response) => void = () => {};
+  const acceptResponse = new Promise<Response>((resolve) => {
+    resolveAccept = resolve;
+  });
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({
+        blueprint: blueprintPayload({
+          status: "succeeded",
+          content: { title_options: ["长夜档案"] },
+        }),
+      }),
+    )
+    .mockReturnValue(acceptResponse);
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<BlueprintPage blueprintId={3} />);
+
+  const acceptButton = await screen.findByRole("button", { name: "接受并进入项目页" });
+  fireEvent.click(acceptButton);
+  fireEvent.click(acceptButton);
+
+  await waitFor(() => expect(acceptButton).toBeDisabled());
+  expect(fetchMock.mock.calls.filter(([path]) => path === "/api/blueprints/3/accept")).toHaveLength(1);
+
+  resolveAccept(Response.json({ bookId: 12, redirectTo: "/books/12" }));
+  await waitFor(() => expect(window.location.pathname).toBe("/books/12"));
+});
+
+test("blueprint id changes reset title selection revision notes and action error", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === "/api/blueprints/3") {
+      return Response.json({
+        blueprint: blueprintPayload({
+          id: 3,
+          status: "succeeded",
+          content: {
+            title_options: ["长夜档案", "禁书回声"],
+            premise: "第一版。",
+          },
+        }),
+      });
+    }
+    if (path === "/api/blueprints/4") {
+      return Response.json({
+        blueprint: blueprintPayload({
+          id: 4,
+          status: "succeeded",
+          content: {
+            title_options: ["新蓝图"],
+            premise: "第二版。",
+          },
+        }),
+      });
+    }
+    if (path === "/api/blueprints/3/revise") {
+      return Response.json(
+        { error: { code: "revision_required", message: "请填写修订方向。", details: {} } },
+        { status: 400 },
+      );
+    }
+    return Response.json({}, { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const { rerender } = render(<BlueprintPage blueprintId={3} />);
+
+  await waitFor(() => expect(screen.getByLabelText("长夜档案")).toBeChecked());
+  fireEvent.click(screen.getByLabelText("禁书回声"));
+  fireEvent.change(screen.getByLabelText("修订意见"), {
+    target: { value: "旧修订意见" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "提交修订" }));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("请填写修订方向。"));
+
+  rerender(<BlueprintPage blueprintId={4} />);
+
+  await waitFor(() => expect(screen.getByLabelText("新蓝图")).toBeChecked());
+  expect(screen.getByLabelText("修订意见")).toHaveValue("");
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
 function blueprintPayload(overrides: Record<string, unknown> = {}) {

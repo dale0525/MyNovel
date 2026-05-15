@@ -17,7 +17,9 @@ from mynovel.blueprint_acceptance import (
 from mynovel.blueprint_jobs import reset_blueprint_for_retry, start_blueprint_job
 from mynovel.blueprint_revision import create_revision_blueprint_job, revision_notes_from_form
 from mynovel.db import create_db_and_tables, create_engine_for_path
+from mynovel.domain.models import BlueprintStatus
 from mynovel.domain.repositories import (
+    get_book,
     get_open_book_blueprint,
     get_provider_config,
     get_provider_config_validation,
@@ -86,6 +88,8 @@ def retry_blueprint_json(db_path: Path, blueprint_id: int) -> ApiResponse:
         blueprint = get_open_book_blueprint(session, blueprint_id)
         if blueprint is None:
             return _blueprint_not_found()
+        if blueprint.status != BlueprintStatus.FAILED:
+            return _invalid_blueprint_action("只有失败的蓝图可以重试。")
         reset_blueprint_for_retry(session, blueprint)
     start_blueprint_job(db_path, blueprint_id, provider_config)
     return _accepted_blueprint_response(blueprint_id)
@@ -114,8 +118,11 @@ def revise_blueprint_json(db_path: Path, blueprint_id: int, body: dict[str, Any]
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
-        if get_open_book_blueprint(session, blueprint_id) is None:
+        parent = get_open_book_blueprint(session, blueprint_id)
+        if parent is None:
             return _blueprint_not_found()
+        if parent.status != BlueprintStatus.SUCCEEDED:
+            return _invalid_blueprint_action("只有已生成的蓝图可以修订。")
         try:
             blueprint = create_revision_blueprint_job(
                 session,
@@ -137,6 +144,10 @@ def revise_blueprint_json(db_path: Path, blueprint_id: int, body: dict[str, Any]
 
 
 def accept_blueprint_json(db_path: Path, blueprint_id: int, body: dict[str, Any]) -> ApiResponse:
+    existing_book_id = _accepted_book_id(db_path, blueprint_id)
+    if existing_book_id is not None:
+        return _accepted_book_response(existing_book_id)
+
     form = _string_form(
         {
             **body,
@@ -157,7 +168,36 @@ def accept_blueprint_json(db_path: Path, blueprint_id: int, body: dict[str, Any]
             "请选择一个蓝图书名。",
         )
     book_id = book.id or 0
-    return ApiResponse(HTTPStatus.OK, {"bookId": book_id, "redirectTo": f"/books/{book_id}"})
+    if book_id > 0:
+        _record_accepted_book_id(db_path, blueprint_id, book_id)
+    return _accepted_book_response(book_id)
+
+
+def _accepted_book_id(db_path: Path, blueprint_id: int) -> int | None:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        blueprint = get_open_book_blueprint(session, blueprint_id)
+        if blueprint is None:
+            return None
+        raw_book_id = blueprint.content.get("accepted_book_id")
+        if not isinstance(raw_book_id, int) or raw_book_id <= 0:
+            return None
+        if get_book(session, raw_book_id) is None:
+            return None
+        return raw_book_id
+
+
+def _record_accepted_book_id(db_path: Path, blueprint_id: int, book_id: int) -> None:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        blueprint = get_open_book_blueprint(session, blueprint_id)
+        if blueprint is None:
+            return
+        blueprint.content = {**blueprint.content, "accepted_book_id": book_id}
+        session.add(blueprint)
+        session.commit()
 
 
 def _validated_provider_config(db_path: Path):
@@ -180,6 +220,14 @@ def _accepted_blueprint_response(blueprint_id: int) -> ApiResponse:
         HTTPStatus.ACCEPTED,
         {"blueprintId": blueprint_id, "redirectTo": f"/blueprints/{blueprint_id}"},
     )
+
+
+def _accepted_book_response(book_id: int) -> ApiResponse:
+    return ApiResponse(HTTPStatus.OK, {"bookId": book_id, "redirectTo": f"/books/{book_id}"})
+
+
+def _invalid_blueprint_action(message: str) -> ApiResponse:
+    return api_error(HTTPStatus.BAD_REQUEST, "blueprint_action_invalid", message)
 
 
 def _blueprint_not_found() -> ApiResponse:

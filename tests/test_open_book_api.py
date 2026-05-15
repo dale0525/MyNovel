@@ -3,11 +3,12 @@ from __future__ import annotations
 from http import HTTPStatus
 from pathlib import Path
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from mynovel.api_routes import dispatch_api_get, dispatch_api_post
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import (
+    Book,
     BlueprintStatus,
     OpenBookBlueprint,
     ProviderConfig,
@@ -131,6 +132,27 @@ def test_retry_blueprint_resets_and_starts_job(tmp_path: Path, monkeypatch) -> N
     assert blueprint.error_message is None
 
 
+def test_retry_rejects_running_blueprint_without_starting_job(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    _save_validated_provider(db_path)
+    blueprint_id = _save_blueprint(db_path, status=BlueprintStatus.RUNNING)
+    started: list[int] = []
+    monkeypatch.setattr("mynovel.api_open_book.start_blueprint_job", lambda _db, blueprint_id, _config: started.append(blueprint_id))
+
+    response = dispatch_api_post(f"/api/blueprints/{blueprint_id}/retry", {}, db_path)
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["error"]["code"] == "blueprint_action_invalid"
+    assert started == []
+    with Session(create_engine_for_path(db_path)) as session:
+        blueprint = get_open_book_blueprint(session, blueprint_id)
+    assert blueprint is not None
+    assert blueprint.status == BlueprintStatus.RUNNING
+
+
 def test_revise_blueprint_requires_revision_notes(tmp_path: Path) -> None:
     db_path = tmp_path / "dev.sqlite"
     _save_validated_provider(db_path)
@@ -169,6 +191,30 @@ def test_revise_blueprint_creates_revision_job(tmp_path: Path, monkeypatch) -> N
     assert revision.parent_id == blueprint_id
     assert revision.version == 2
     assert revision.instruction == "主角更疯一点"
+
+
+def test_revise_rejects_failed_blueprint_without_creating_revision(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    _save_validated_provider(db_path)
+    blueprint_id = _save_blueprint(db_path, status=BlueprintStatus.FAILED)
+    started: list[int] = []
+    monkeypatch.setattr("mynovel.api_open_book.start_blueprint_job", lambda _db, blueprint_id, _config: started.append(blueprint_id))
+
+    response = dispatch_api_post(
+        f"/api/blueprints/{blueprint_id}/revise",
+        {"revisionNotes": "主角更疯一点"},
+        db_path,
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["error"]["code"] == "blueprint_action_invalid"
+    assert started == []
+    with Session(create_engine_for_path(db_path)) as session:
+        blueprints = list_open_book_blueprints(session)
+    assert [blueprint.id for blueprint in blueprints] == [blueprint_id]
 
 
 def test_revise_missing_blueprint_does_not_fallback_to_existing_blueprint(
@@ -217,6 +263,41 @@ def test_accept_blueprint_returns_book_redirect(tmp_path: Path) -> None:
     assert response.status == HTTPStatus.OK
     assert response.body["bookId"] > 0
     assert response.body["redirectTo"] == f"/books/{response.body['bookId']}"
+
+
+def test_accept_blueprint_is_idempotent_for_same_blueprint(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    blueprint_id = _save_blueprint(
+        db_path,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜档案"],
+            "genre": "奇幻",
+            "audience": "成人",
+            "premise": "档案员追查禁书真相。",
+        },
+    )
+
+    first = dispatch_api_post(
+        f"/api/blueprints/{blueprint_id}/accept",
+        {"selectedTitle": "长夜档案"},
+        db_path,
+    )
+    second = dispatch_api_post(
+        f"/api/blueprints/{blueprint_id}/accept",
+        {"selectedTitle": "长夜档案"},
+        db_path,
+    )
+
+    assert first.status == HTTPStatus.OK
+    assert second.status == HTTPStatus.OK
+    assert second.body["bookId"] == first.body["bookId"]
+    with Session(create_engine_for_path(db_path)) as session:
+        books = list(session.exec(select(Book)))
+        blueprint = get_open_book_blueprint(session, blueprint_id)
+    assert len(books) == 1
+    assert blueprint is not None
+    assert blueprint.content["accepted_book_id"] == first.body["bookId"]
 
 
 def _save_validated_provider(db_path: Path) -> None:
