@@ -71,7 +71,7 @@ export function QualityPage({ bookId }: { bookId: number }) {
     event.preventDefault();
     setActionState({ status: "submitting", message: null });
     try {
-      await postJson(`/api/books/${bookId}/style-assets`, {
+      await postJson(`/api/books/${bookId}/quality/style-assets`, {
         name: assetName,
         sourceTitle: assetSourceTitle,
         referenceText: assetText,
@@ -89,7 +89,7 @@ export function QualityPage({ bookId }: { bookId: number }) {
     event.preventDefault();
     setActionState({ status: "submitting", message: null });
     try {
-      await postJson(`/api/books/${bookId}/deconstruction-studies`, {
+      await postJson(`/api/books/${bookId}/quality/deconstruct-reference`, {
         sourceTitle: studyTitle,
         referenceText: studyText,
       });
@@ -104,7 +104,7 @@ export function QualityPage({ bookId }: { bookId: number }) {
   async function createSnapshot() {
     setActionState({ status: "submitting", message: null });
     try {
-      const payload = await postJson<unknown>(`/api/books/${bookId}/quality-snapshots`, {});
+      const payload = await postJson<unknown>(`/api/books/${bookId}/quality/snapshots`, {});
       const parsed = parseQualityResponse(payload);
       if (!parsed) {
         throw new Error("质量数据格式无效。");

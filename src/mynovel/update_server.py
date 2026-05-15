@@ -6,7 +6,8 @@ from http import HTTPStatus
 from pathlib import Path
 
 from mynovel import __version__
-from mynovel.update import check_for_update, fetch_update_manifest, prepare_update_install
+from mynovel.update import check_for_update, prepare_update_install
+from mynovel.update_security import fetch_safe_update_manifest
 from mynovel.update_views import render_update_page
 
 
@@ -19,7 +20,7 @@ class UpdatePageResponse:
 def handle_check_update(form: Mapping[str, str]) -> UpdatePageResponse:
     manifest_url = form.get("manifest_url", "")
     try:
-        manifest = fetch_update_manifest(manifest_url)
+        manifest = fetch_safe_update_manifest(manifest_url)
         result = check_for_update(
             __version__,
             manifest,
@@ -36,7 +37,7 @@ def handle_check_update(form: Mapping[str, str]) -> UpdatePageResponse:
 def handle_stage_update(form: Mapping[str, str], db_path: Path) -> UpdatePageResponse:
     manifest_url = form.get("manifest_url", "")
     try:
-        manifest = fetch_update_manifest(manifest_url)
+        manifest = fetch_safe_update_manifest(manifest_url)
         result = check_for_update(__version__, manifest)
         if not result.available:
             return UpdatePageResponse(

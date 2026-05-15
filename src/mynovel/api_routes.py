@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-import socket
 from collections.abc import Callable
 from http import HTTPStatus
-from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs
 
 from mynovel.api_errors import ApiResponse, api_error, invalid_json_response
 from mynovel.api_open_book import (
@@ -41,7 +39,8 @@ from mynovel.domain.repositories import (
     get_provider_config,
     list_chapters_for_book,
 )
-from mynovel.update import check_for_update, fetch_update_manifest, prepare_update_install
+from mynovel.update import check_for_update, prepare_update_install
+from mynovel.update_security import fetch_safe_update_manifest
 from mynovel.workflows.canon_proposal import (
     apply_canon_proposal_revision,
     discard_canon_proposal_revision,
@@ -64,17 +63,6 @@ from mynovel.workflows.quality_enhancement import (
 from sqlmodel import Session
 
 
-_TRUSTED_UPDATE_HOSTS = frozenset(
-    {
-        "github.com",
-        "github-releases.githubusercontent.com",
-        "objects.githubusercontent.com",
-        "raw.githubusercontent.com",
-        "release-assets.githubusercontent.com",
-    }
-)
-
-
 def dispatch_api_get(path: str, query: str, db_path: Path) -> ApiResponse:
     if path == "/api/app/bootstrap":
         return ApiResponse(HTTPStatus.OK, app_bootstrap_payload(db_path))
@@ -84,6 +72,8 @@ def dispatch_api_get(path: str, query: str, db_path: Path) -> ApiResponse:
     if book_export is not None:
         book_id, export_format = book_export
         return _export_book_json(db_path, book_id, export_format)
+    if path == "/api/updates":
+        return ApiResponse(HTTPStatus.OK, {"currentVersion": __version__})
     book_quality_id = _parse_book_quality_api_path(path)
     if book_quality_id is not None:
         payload = quality_payload(db_path, book_quality_id)
@@ -293,15 +283,25 @@ def _parse_book_chapter_action_api_path(path: str) -> tuple[int, str] | None:
 
 def _parse_book_quality_action_api_path(path: str) -> tuple[int, str] | None:
     parts = path.strip("/").split("/")
-    if len(parts) != 4 or parts[:2] != ["api", "books"]:
+    if parts[:2] != ["api", "books"]:
         return None
-    if parts[3] not in {"style-assets", "deconstruction-studies", "quality-snapshots"}:
+    if len(parts) == 4:
+        action = parts[3]
+    elif len(parts) == 5 and parts[3] == "quality":
+        action = {
+            "style-assets": "style-assets",
+            "deconstruct-reference": "deconstruction-studies",
+            "snapshots": "quality-snapshots",
+        }.get(parts[4], "")
+    else:
+        return None
+    if action not in {"style-assets", "deconstruction-studies", "quality-snapshots"}:
         return None
     try:
         book_id = int(parts[2])
     except ValueError:
         book_id = 0
-    return book_id, parts[3]
+    return book_id, action
 
 
 def _parse_chapter_action_api_path(path: str) -> tuple[int, str] | None:
@@ -555,7 +555,7 @@ def _quality_action_error(error: ValueError) -> ApiResponse:
 def _check_update_json(body: dict[str, Any]) -> ApiResponse:
     manifest_url = _optional_text(body, "manifestUrl", "manifest_url") or ""
     try:
-        manifest = _fetch_safe_update_manifest(manifest_url)
+        manifest = fetch_safe_update_manifest(manifest_url)
         result = check_for_update(
             __version__,
             manifest,
@@ -569,7 +569,7 @@ def _check_update_json(body: dict[str, Any]) -> ApiResponse:
 def _stage_update_json(db_path: Path, body: dict[str, Any]) -> ApiResponse:
     manifest_url = _optional_text(body, "manifestUrl", "manifest_url") or ""
     try:
-        manifest = _fetch_safe_update_manifest(manifest_url)
+        manifest = fetch_safe_update_manifest(manifest_url)
         result = check_for_update(__version__, manifest)
         if not result.available:
             return ApiResponse(HTTPStatus.OK, {"result": _update_result_payload(result)})
@@ -591,57 +591,6 @@ def _stage_update_json(db_path: Path, body: dict[str, Any]) -> ApiResponse:
             },
         },
     )
-
-
-def _fetch_safe_update_manifest(manifest_url: str):
-    _ensure_safe_update_url(manifest_url, "update manifest URL")
-    manifest = fetch_update_manifest(manifest_url)
-    _ensure_safe_update_url(manifest.url, "update artifact URL")
-    return manifest
-
-
-def _ensure_safe_update_url(raw_url: str, label: str) -> None:
-    parsed = urlparse(raw_url)
-    if parsed.scheme.lower() != "https" or not parsed.hostname:
-        raise ValueError(f"{label} must be an https URL.")
-    host = parsed.hostname.strip().lower().rstrip(".")
-    allowed_hosts = {allowed.strip().lower().rstrip(".") for allowed in _allowed_update_hosts()}
-    if host not in allowed_hosts:
-        raise ValueError(f"{label} host is not an allowed update host.")
-    try:
-        addresses = _resolve_update_host_addresses(host)
-    except OSError as error:
-        raise ValueError(f"{label} host could not be resolved.") from error
-    if not addresses:
-        raise ValueError(f"{label} host could not be resolved.")
-    for raw_address in addresses:
-        _ensure_global_update_address(raw_address, label)
-
-
-def _allowed_update_hosts() -> frozenset[str]:
-    return _TRUSTED_UPDATE_HOSTS
-
-
-def _resolve_update_host_addresses(host: str) -> list[str]:
-    addresses: list[str] = []
-    seen: set[str] = set()
-    for info in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM):
-        raw_address = str(info[4][0]).split("%", maxsplit=1)[0]
-        if raw_address in seen:
-            continue
-        seen.add(raw_address)
-        addresses.append(raw_address)
-    return addresses
-
-
-def _ensure_global_update_address(raw_address: str, label: str) -> None:
-    try:
-        address = ip_address(raw_address)
-    except ValueError:
-        raise ValueError(f"{label} resolved to an invalid IP address.")
-    if not address.is_global:
-        raise ValueError(f"{label} cannot target private or local network addresses.")
-
 
 def _update_result_payload(result) -> dict[str, Any]:
     return {

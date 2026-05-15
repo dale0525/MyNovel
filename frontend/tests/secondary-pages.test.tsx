@@ -84,7 +84,7 @@ test("quality page renders assets and creates a quality snapshot", async () => {
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/books/42/quality-snapshots",
+      "/api/books/42/quality/snapshots",
       expect.objectContaining({ method: "POST" }),
     ),
   );
