@@ -53,16 +53,23 @@ def provider_config_payload(config: ProviderConfig) -> dict[str, Any]:
     return {
         "llmBaseUrl": config.llm_base_url,
         "llmModel": config.llm_model,
+        "hasLlmApiKey": _has_api_key(config.llm_api_key),
         "embeddingUseLlmCredentials": config.embedding_use_llm_credentials,
         "embeddingBaseUrl": config.embedding_base_url,
         "embeddingModel": config.embedding_model,
+        "hasEmbeddingApiKey": _has_api_key(config.resolved_embedding_api_key()),
         "rerankUseLlmCredentials": config.rerank_use_llm_credentials,
         "rerankBaseUrl": config.rerank_base_url,
         "rerankModel": config.rerank_model,
+        "hasRerankApiKey": _has_api_key(config.resolved_rerank_api_key()),
     }
 
 
-def validation_report_payload(report: ProviderValidationReport) -> dict[str, Any]:
+def validation_report_payload(
+    report: ProviderValidationReport,
+    config: ProviderConfig | None = None,
+) -> dict[str, Any]:
+    secrets = _api_key_values(config)
     return {
         "passed": report.passed,
         "results": [
@@ -70,7 +77,7 @@ def validation_report_payload(report: ProviderValidationReport) -> dict[str, Any
                 "kind": result.kind,
                 "label": result.label,
                 "status": result.status,
-                "message": result.message,
+                "message": _redact_secrets(result.message, secrets),
             }
             for result in report.results
         ],
@@ -121,7 +128,8 @@ def save_provider_config_json(
                         "message": "模型连接测试未全部通过。",
                         "details": {},
                     },
-                    "validation": validation_report_payload(report),
+                    "saved": False,
+                    "validation": validation_report_payload(report, config),
                 },
             )
 
@@ -131,8 +139,9 @@ def save_provider_config_json(
     return ApiResponse(
         HTTPStatus.OK,
         {
+            "saved": True,
             "providerConfig": provider_config_payload(saved),
-            "validation": validation_report_payload(report),
+            "validation": validation_report_payload(report, config),
         },
     )
 
@@ -154,5 +163,33 @@ def _bool_value(payload: dict[str, Any], key: str, *, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.lower() in {"1", "true", "yes", "on"}
+        return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _has_api_key(value: str | None) -> bool:
+    return bool((value or "").strip())
+
+
+def _api_key_values(config: ProviderConfig | None) -> tuple[str, ...]:
+    if config is None:
+        return ()
+    candidates = {
+        value.strip()
+        for value in (
+            config.llm_api_key,
+            config.embedding_api_key,
+            config.rerank_api_key,
+            config.resolved_embedding_api_key(),
+            config.resolved_rerank_api_key(),
+        )
+        if value is not None and value.strip()
+    }
+    return tuple(sorted(candidates, key=len, reverse=True))
+
+
+def _redact_secrets(message: str, secrets: tuple[str, ...]) -> str:
+    redacted = message
+    for secret in secrets:
+        redacted = redacted.replace(secret, "[redacted]")
+    return redacted
