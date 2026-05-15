@@ -446,6 +446,63 @@ h1 {
   align-self: start;
 }
 
+.book-workspace-hero h1 {
+  max-width: 16ch;
+}
+
+.book-workspace-meta {
+  margin: 1rem 0 0;
+  color: #7b4d1b;
+  font-weight: 900;
+}
+
+.book-workspace-facts {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.25rem 0 0;
+}
+
+.book-workspace-facts div {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgb(23 32 24 / 0.1);
+  border-radius: 1rem;
+  background: rgb(246 241 232 / 0.58);
+  padding: 0.85rem 1rem;
+}
+
+.book-workspace-facts dt,
+.book-workspace-facts dd {
+  margin: 0;
+}
+
+.book-workspace-facts dt {
+  color: #596954;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.book-workspace-facts dd {
+  color: #172018;
+  font-weight: 900;
+}
+
+.book-workspace-actions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.workbench-secondary-link {
+  color: #6a4218;
+  font-weight: 900;
+  text-align: center;
+  text-decoration: none;
+}
+
 .workbench-action-button {
   display: inline-flex;
   align-items: center;

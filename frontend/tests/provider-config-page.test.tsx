@@ -539,18 +539,42 @@ test("BootstrapGate routes configured settings path inside the app shell", () =>
   expect(screen.queryByRole("heading", { name: "把故事推进到下一步" })).not.toBeInTheDocument();
 });
 
-test("BootstrapGate routes configured book and review paths to React placeholders", () => {
+test("BootstrapGate routes configured book path to the project workspace", async () => {
   window.history.pushState(null, "", "/books/42");
-  const { rerender } = render(
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) === "/api/books/42") {
+      return Response.json({
+        book: {
+          id: 42,
+          title: "星港遗梦",
+          genre: "科幻",
+          audience: "成人",
+          status: "draft",
+          premise: "领航员追查失落星港的真相。",
+        },
+      });
+    }
+    return Response.json({}, { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(
     <BootstrapGate bootstrap={{ providerConfigured: true, initialRoute: "/books/42", message: null }} />,
   );
 
-  expect(screen.getByRole("heading", { name: "项目" })).toBeInTheDocument();
-  expect(screen.getByText("项目页面将在后续任务接入。")).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
+  expect(screen.getByText("科幻 · 成人 · 草稿")).toBeInTheDocument();
+  expect(screen.getByText("领航员追查失落星港的真相。")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "项目" })).toHaveClass("is-active");
+  expect(fetchMock).toHaveBeenCalledWith("/api/books/42", expect.anything());
+  expect(screen.queryByText("项目页面将在后续任务接入。")).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "把故事推进到下一步" })).not.toBeInTheDocument();
+});
 
+test("BootstrapGate routes configured review path to a React placeholder", () => {
   window.history.pushState(null, "", "/review");
-  rerender(
+
+  render(
     <BootstrapGate bootstrap={{ providerConfigured: true, initialRoute: "/review", message: null }} />,
   );
 

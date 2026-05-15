@@ -83,6 +83,43 @@ def test_books_returns_latest_20_with_stable_id_tiebreaker(tmp_path: Path) -> No
     assert [book["id"] for book in response.body["books"]] == list(reversed(ids[1:]))
 
 
+def test_book_detail_returns_single_book(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = Book(
+            title="星港遗梦",
+            genre="科幻",
+            audience="成人",
+            premise="领航员追查失落星港的真相。",
+        )
+        session.add(book)
+        session.commit()
+        session.refresh(book)
+
+    response = dispatch_api_get(f"/api/books/{book.id}", "", db_path)
+
+    assert response.status == HTTPStatus.OK
+    assert response.body == {
+        "book": {
+            "id": book.id,
+            "title": "星港遗梦",
+            "genre": "科幻",
+            "audience": "成人",
+            "status": "draft",
+            "premise": "领航员追查失落星港的真相。",
+        },
+    }
+
+
+def test_book_detail_missing_returns_json_404(tmp_path: Path) -> None:
+    response = dispatch_api_get("/api/books/404", "", tmp_path / "dev.sqlite")
+
+    assert response.status == HTTPStatus.NOT_FOUND
+    assert response.body["error"]["code"] == "book_not_found"
+
+
 def _provider_config() -> ProviderConfig:
     return ProviderConfig(
         llm_base_url="https://api.example.test/v1",

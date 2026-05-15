@@ -17,6 +17,10 @@ export type BooksPayload = {
   books: BookPayload[];
 };
 
+export type BookResponse = {
+  book: BookPayload;
+};
+
 export type BlueprintPayload = {
   id: number | null;
   parentId: number | null;

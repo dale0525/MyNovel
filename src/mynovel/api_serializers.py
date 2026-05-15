@@ -62,6 +62,16 @@ def books_payload(db_path: Path) -> dict[str, Any]:
     return {"books": [book_payload(book) for book in books]}
 
 
+def book_detail_payload(db_path: Path, book_id: int) -> dict[str, Any] | None:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = session.get(Book, book_id)
+        if book is None:
+            return None
+        return {"book": book_payload(book)}
+
+
 def is_provider_config_validated(
     config: ProviderConfig | None,
     validation: ProviderConfigValidation | None,

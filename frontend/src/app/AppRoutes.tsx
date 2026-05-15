@@ -1,5 +1,6 @@
 import { ProviderConfigPage } from "@/features/provider-config/ProviderConfigPage";
 import { WorkbenchPage } from "@/features/workbench/WorkbenchPage";
+import { BookWorkspacePage } from "@/features/book-workspace/BookWorkspacePage";
 import { BlueprintPage } from "@/features/open-book/BlueprintPage";
 import { OpenBookPage } from "@/features/open-book/OpenBookPage";
 
@@ -30,16 +31,11 @@ export function routeForPath(pathname: string): RouteMatch {
     };
   }
 
-  if (isBookProjectPath(path)) {
+  const bookId = parseBookProjectPath(path);
+  if (bookId !== null) {
     return {
       activePath: "/books/:id",
-      element: (
-        <RoutePlaceholder
-          eyebrow="Project"
-          title="项目"
-          message="项目页面将在后续任务接入。"
-        />
-      ),
+      element: <BookWorkspacePage bookId={bookId} />,
     };
   }
 
@@ -84,9 +80,9 @@ function normalizePath(pathname: string): string {
   return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
-function isBookProjectPath(path: string): boolean {
-  const match = path.match(/^\/books\/([^/]+)$/);
-  return Boolean(match && match[1] !== "new");
+function parseBookProjectPath(path: string): number | null {
+  const match = path.match(/^\/books\/(\d+)$/);
+  return match ? Number(match[1]) : null;
 }
 
 function parseBlueprintPath(path: string): number | null {

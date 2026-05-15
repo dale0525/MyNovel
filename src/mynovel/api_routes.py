@@ -16,6 +16,7 @@ from mynovel.api_open_book import (
 )
 from mynovel.api_provider_config import get_provider_config_json, save_provider_config_json
 from mynovel.api_serializers import app_bootstrap_payload, books_payload
+from mynovel.api_serializers import book_detail_payload
 
 
 def dispatch_api_get(path: str, query: str, db_path: Path) -> ApiResponse:
@@ -23,6 +24,12 @@ def dispatch_api_get(path: str, query: str, db_path: Path) -> ApiResponse:
         return ApiResponse(HTTPStatus.OK, app_bootstrap_payload(db_path))
     if path == "/api/books":
         return ApiResponse(HTTPStatus.OK, books_payload(db_path))
+    book_id = _parse_book_api_path(path)
+    if book_id is not None:
+        payload = book_detail_payload(db_path, book_id)
+        if payload is None:
+            return api_error(HTTPStatus.NOT_FOUND, "book_not_found", "Book not found.")
+        return ApiResponse(HTTPStatus.OK, payload)
     blueprint_id = _parse_blueprint_api_path(path)
     if blueprint_id is not None:
         return get_blueprint_json(db_path, blueprint_id)
@@ -70,6 +77,16 @@ def read_api_json_body(
 def _parse_blueprint_api_path(path: str) -> int | None:
     parts = path.strip("/").split("/")
     if len(parts) != 3 or parts[:2] != ["api", "blueprints"]:
+        return None
+    try:
+        return int(parts[2])
+    except ValueError:
+        return 0
+
+
+def _parse_book_api_path(path: str) -> int | None:
+    parts = path.strip("/").split("/")
+    if len(parts) != 3 or parts[:2] != ["api", "books"]:
         return None
     try:
         return int(parts[2])
