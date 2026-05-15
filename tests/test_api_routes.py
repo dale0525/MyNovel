@@ -63,6 +63,7 @@ def test_bootstrap_opens_home_with_matching_provider_fingerprints(tmp_path: Path
         ("1", b"\xff"),
         ("not-an-int", b"{}"),
         ("", b"{}"),
+        ("10", b"{}"),
     ],
 )
 def test_read_api_json_body_returns_invalid_json_error(

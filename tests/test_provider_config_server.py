@@ -3,6 +3,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
+from mynovel.api_routes import dispatch_api_get
 from mynovel.db import create_engine_for_path
 from mynovel.domain.models import ProviderConfig
 from mynovel.domain.repositories import get_provider_config, get_provider_config_validation
@@ -87,6 +88,38 @@ def test_provider_config_save_tests_changed_previously_passed_model_again(
 
     assert response.status == HTTPStatus.SEE_OTHER
     assert second_checker.calls == ["llm", "rerank"]
+
+
+def test_failed_edit_keeps_existing_valid_provider_config_active(tmp_path: Path) -> None:
+    db_path = tmp_path / "mynovel.sqlite"
+    original_form = _form()
+    changed_form = _form()
+    changed_form["llm_model"] = "gpt-new"
+    changed_form["rerank_model"] = "rerank-new"
+    changed_checker = FakeChecker(failures={"rerank"})
+
+    saved_response = handle_provider_config_post(db_path, original_form, FakeChecker())
+    failed_response = handle_provider_config_post(
+        db_path,
+        changed_form,
+        changed_checker,
+    )
+
+    assert saved_response.status == HTTPStatus.SEE_OTHER
+    assert failed_response.status == HTTPStatus.BAD_REQUEST
+    assert changed_checker.calls == ["llm", "rerank"]
+    assert "rerank failed" in failed_response.body
+
+    with Session(create_engine_for_path(db_path)) as session:
+        saved = get_provider_config(session)
+
+    assert saved is not None
+    assert saved.llm_model == "gpt-test"
+    assert saved.rerank_model == "rerank-test"
+
+    bootstrap = dispatch_api_get("/api/app/bootstrap", "", db_path)
+    assert bootstrap.body["providerConfigured"] is True
+    assert bootstrap.body["initialRoute"] == "/"
 
 
 def _form() -> dict[str, str]:

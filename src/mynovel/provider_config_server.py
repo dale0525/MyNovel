@@ -8,8 +8,10 @@ from urllib.parse import quote
 
 from sqlmodel import Session
 
+from mynovel.api_serializers import is_provider_config_validated
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.repositories import (
+    get_provider_config,
     get_provider_config_validation,
     save_provider_config,
     save_provider_config_validation,
@@ -43,15 +45,19 @@ def handle_provider_config_post(
     create_db_and_tables(engine)
 
     with Session(engine) as session:
+        saved_config = get_provider_config(session)
+        saved_validation = get_provider_config_validation(session)
+        saved_config_valid = is_provider_config_validated(saved_config, saved_validation)
         report = asyncio.run(
             validate_provider_config(
                 config,
-                get_provider_config_validation(session),
+                saved_validation,
                 model_checker,
             )
         )
-        save_provider_config_validation(session, report.validation)
         if not report.passed:
+            if not saved_config_valid:
+                save_provider_config_validation(session, report.validation)
             message = _validation_failure_message(report)
             return ProviderConfigPostResponse(
                 status=HTTPStatus.BAD_REQUEST,
@@ -63,6 +69,7 @@ def handle_provider_config_post(
                 ),
             )
 
+        save_provider_config_validation(session, report.validation)
         save_provider_config(session, config)
 
     return ProviderConfigPostResponse(

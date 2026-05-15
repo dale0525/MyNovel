@@ -28,7 +28,10 @@ def read_api_json_body(
         length = int("0" if content_length is None else content_length)
         if length < 0:
             raise ValueError
-        body = {} if length == 0 else json.loads(read(length).decode("utf-8"))
+        raw_body = b"" if length == 0 else read(length)
+        if len(raw_body) != length:
+            raise ValueError
+        body = {} if length == 0 else json.loads(raw_body.decode("utf-8"))
     except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
         return {}, invalid_json_response()
     if not isinstance(body, dict):
