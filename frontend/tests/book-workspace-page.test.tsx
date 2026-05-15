@@ -54,7 +54,7 @@ test("does not treat accepted chapters as the current task", async () => {
 test("workspace runs planned chapters and batch production through api actions", async () => {
   const fetchMock = vi
     .fn()
-    .mockResolvedValueOnce(Response.json(bookPayload({ chapterStatus: "planned" })))
+    .mockResolvedValueOnce(Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "planned" })))
     .mockResolvedValueOnce(Response.json({ chapterId: 8, redirectTo: "/chapters/8" }, { status: 202 }))
     .mockResolvedValueOnce(Response.json({ chapterId: 9, redirectTo: "/chapters/9" }, { status: 202 }));
   vi.stubGlobal("fetch", fetchMock);
@@ -86,6 +86,22 @@ test("workspace runs planned chapters and batch production through api actions",
     ),
   );
   expect(window.location.pathname).toBe("/chapters/9");
+});
+
+test("workspace hides production actions before trusted state is locked", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(bookPayload({ chapterStatus: "planned", includeLatestCanon: false })),
+    ),
+  );
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
+  expect(screen.queryByRole("button", { name: "运行当前章节" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "批量生产" })).not.toBeInTheDocument();
+  expect(screen.getByText("可信设定锁定后才能批量生产章节。")).toBeInTheDocument();
 });
 
 test("workspace saves word targets through json api", async () => {
@@ -135,19 +151,23 @@ test("aborts in-flight book fetch on unmount", () => {
 });
 
 function bookPayload({
+  bookStatus = "draft",
   chapterStatus = "running",
   chapterTitle = "失落灯塔",
   chapterSummary = "领航员发现星港残影。",
   targetWordCount = 120000,
   chapterWordCount = 2800,
+  includeLatestCanon = true,
   includeTrace = false,
   includeVolumePlan = false,
 }: {
+  bookStatus?: string;
   chapterStatus?: string;
   chapterTitle?: string;
   chapterSummary?: string;
   targetWordCount?: number;
   chapterWordCount?: number;
+  includeLatestCanon?: boolean;
   includeTrace?: boolean;
   includeVolumePlan?: boolean;
 } = {}) {
@@ -157,7 +177,7 @@ function bookPayload({
       title: "星港遗梦",
       genre: "科幻",
       audience: "成人",
-      status: "draft",
+      status: bookStatus,
       premise: "领航员追查失落星港的真相。",
     },
     wordTargets: {
@@ -177,17 +197,19 @@ function bookPayload({
         updatedAt: "2026-05-16T00:00:00+00:00",
       },
     ],
-    latestCanon: {
-      id: 3,
-      bookId: 42,
-      version: 2,
-      content: {
-        world_rules: [{ rule: "灯塔会记录航线" }],
-        characters: [{ name: "岑星" }],
-        chapter_summaries: [],
-      },
-      createdAt: "2026-05-16T00:00:00+00:00",
-    },
+    latestCanon: includeLatestCanon
+      ? {
+          id: 3,
+          bookId: 42,
+          version: 2,
+          content: {
+            world_rules: [{ rule: "灯塔会记录航线" }],
+            characters: [{ name: "岑星" }],
+            chapter_summaries: [],
+          },
+          createdAt: "2026-05-16T00:00:00+00:00",
+        }
+      : null,
     runTraces: includeTrace
       ? [
           {

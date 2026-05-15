@@ -85,12 +85,12 @@ def _mark_chapter_running(db_path: Path, chapter_id: int) -> int:
         chapter = get_chapter(session, chapter_id)
         if chapter is None or chapter.id is None:
             raise ValueError("Chapter does not exist.")
-        book = get_book(session, chapter.book_id)
-        canon = get_latest_canon(session, chapter.book_id)
-        if book is None or canon is None:
-            raise ValueError("Chapter must belong to a book with trusted state.")
-        if book.status == BookStatus.DRAFT:
-            raise ValueError("Trusted state must be locked before chapter production.")
+        _assert_book_ready_for_chapter_production(
+            session,
+            chapter.book_id,
+            missing_book_message="Chapter must belong to a book with trusted state.",
+            missing_canon_message="Chapter must belong to a book with trusted state.",
+        )
         if chapter.status in {ChapterStatus.AWAITING_REVIEW, ChapterStatus.ACCEPTED}:
             raise ValueError("Chapter is not eligible for production.")
         if chapter.status != ChapterStatus.RUNNING:
@@ -129,9 +129,12 @@ def _mark_next_batch_chapter_running(db_path: Path, book_id: int) -> int:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
-        book = get_book(session, book_id)
-        if book is None:
-            raise ValueError("Book does not exist.")
+        _assert_book_ready_for_chapter_production(
+            session,
+            book_id,
+            missing_book_message="Book does not exist.",
+            missing_canon_message="Trusted state must be locked before chapter production.",
+        )
         for chapter in list_chapters_for_book(session, book_id):
             if chapter.status not in {
                 ChapterStatus.PLANNED,
@@ -148,6 +151,23 @@ def _mark_next_batch_chapter_running(db_path: Path, book_id: int) -> int:
             session.refresh(chapter)
             return chapter.id
     raise ValueError("No chapter is eligible for batch production.")
+
+
+def _assert_book_ready_for_chapter_production(
+    session: Session,
+    book_id: int,
+    *,
+    missing_book_message: str,
+    missing_canon_message: str,
+) -> None:
+    book = get_book(session, book_id)
+    if book is None:
+        raise ValueError(missing_book_message)
+    canon = get_latest_canon(session, book_id)
+    if canon is None:
+        raise ValueError(missing_canon_message)
+    if book.status == BookStatus.DRAFT:
+        raise ValueError("Trusted state must be locked before chapter production.")
 
 
 def _run_chapter_job(

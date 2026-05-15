@@ -112,6 +112,45 @@ def test_invalid_book_word_targets_return_json_error(tmp_path: Path) -> None:
     assert response.body["error"]["code"] == "word_target_failed"
 
 
+def test_batch_chapter_run_requires_locked_trusted_state(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = Book(
+            title="星港遗梦",
+            genre="科幻",
+            audience="成人",
+            status=BookStatus.DRAFT,
+        )
+        session.add(book)
+        session.commit()
+        session.refresh(book)
+        chapter = Chapter(
+            book_id=book.id or 0,
+            number=1,
+            title="失落灯塔",
+            status=ChapterStatus.PLANNED,
+        )
+        session.add(chapter)
+        session.commit()
+        book_id = book.id or 0
+        chapter_id = chapter.id or 0
+
+    response = dispatch_api_post(
+        f"/api/books/{book_id}/chapters/run-batch",
+        {"limit": 3},
+        db_path,
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["error"]["code"] == "chapter_action_failed"
+    with Session(engine) as session:
+        saved_chapter = session.get(Chapter, chapter_id)
+    assert saved_chapter is not None
+    assert saved_chapter.status == ChapterStatus.PLANNED
+
+
 def test_updates_metadata_route_returns_json(tmp_path: Path) -> None:
     response = dispatch_api_get("/api/updates", "", tmp_path / "dev.sqlite")
 

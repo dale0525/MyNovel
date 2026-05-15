@@ -155,6 +155,7 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
   const { book, chapters, latestCanon, runTraces, volumePlans } = state.data;
   const currentTask = currentChapterTask(chapters);
   const currentTaskId = currentTask?.id ?? null;
+  const productionReady = latestCanon !== null && book.status !== "draft";
   const recentTraces = [...runTraces].reverse().slice(0, 4);
 
   return (
@@ -213,7 +214,7 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
                   打开当前章节
                 </a>
               ) : null}
-              {currentTaskId !== null && currentTask && canRunChapter(currentTask) ? (
+              {productionReady && currentTaskId !== null && currentTask && canRunChapter(currentTask) ? (
                 <button
                   className="workbench-action-button"
                   disabled={actionBusy !== null}
@@ -299,21 +300,25 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
           <section className="workspace-result-section" aria-labelledby="batch-production-title">
             <p className="eyebrow">Production</p>
             <h2 id="batch-production-title">批量生产</h2>
-            <form className="chapter-action-form" onSubmit={(event) => void runBatchProduction(event)}>
-              <label>
-                批量章节数
-                <input
-                  max={10}
-                  min={1}
-                  type="number"
-                  value={batchLimit}
-                  onChange={(event) => setBatchLimit(clampedPositiveInt(event.target.value, 1, 10))}
-                />
-              </label>
-              <button className="workbench-action-button" disabled={actionBusy !== null} type="submit">
-                {actionBusy === "run-batch" ? "提交中..." : "批量生产"}
-              </button>
-            </form>
+            {productionReady ? (
+              <form className="chapter-action-form" onSubmit={(event) => void runBatchProduction(event)}>
+                <label>
+                  批量章节数
+                  <input
+                    max={10}
+                    min={1}
+                    type="number"
+                    value={batchLimit}
+                    onChange={(event) => setBatchLimit(clampedPositiveInt(event.target.value, 1, 10))}
+                  />
+                </label>
+                <button className="workbench-action-button" disabled={actionBusy !== null} type="submit">
+                  {actionBusy === "run-batch" ? "提交中..." : "批量生产"}
+                </button>
+              </form>
+            ) : (
+              <p>可信设定锁定后才能批量生产章节。</p>
+            )}
           </section>
 
           <section className="workspace-result-section" aria-labelledby="word-target-title">
