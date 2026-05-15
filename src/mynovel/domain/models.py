@@ -227,3 +227,9 @@ class OpenBookBlueprint(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
     started_at: datetime | None = None
     finished_at: datetime | None = None
+
+
+class BlueprintAcceptance(SQLModel, table=True):
+    blueprint_id: int = Field(primary_key=True, foreign_key="openbookblueprint.id")
+    book_id: int = Field(index=True, foreign_key="book.id")
+    created_at: datetime = Field(default_factory=utc_now)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from http import HTTPStatus
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from sqlmodel import Session
@@ -17,7 +18,7 @@ from mynovel.blueprint_acceptance import (
 from mynovel.blueprint_jobs import reset_blueprint_for_retry, start_blueprint_job
 from mynovel.blueprint_revision import create_revision_blueprint_job, revision_notes_from_form
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import BlueprintStatus
+from mynovel.domain.models import BlueprintAcceptance, BlueprintStatus
 from mynovel.domain.repositories import (
     get_book,
     get_open_book_blueprint,
@@ -26,6 +27,10 @@ from mynovel.domain.repositories import (
 )
 from mynovel.word_targets import book_idea_from_form
 from mynovel.workflows.open_book_blueprint import create_blueprint_job
+
+
+_blueprint_action_locks_guard = Lock()
+_blueprint_action_locks: dict[int, Lock] = {}
 
 
 def create_open_book_blueprint_json(db_path: Path, body: dict[str, Any]) -> ApiResponse:
@@ -82,16 +87,17 @@ def retry_blueprint_json(db_path: Path, blueprint_id: int) -> ApiResponse:
             "provider_not_configured",
             "请先完成模型连接验证。",
         )
-    engine = create_engine_for_path(db_path)
-    create_db_and_tables(engine)
-    with Session(engine) as session:
-        blueprint = get_open_book_blueprint(session, blueprint_id)
-        if blueprint is None:
-            return _blueprint_not_found()
-        if blueprint.status != BlueprintStatus.FAILED:
-            return _invalid_blueprint_action("只有失败的蓝图可以重试。")
-        reset_blueprint_for_retry(session, blueprint)
-    start_blueprint_job(db_path, blueprint_id, provider_config)
+    with _blueprint_action_lock(blueprint_id):
+        engine = create_engine_for_path(db_path)
+        create_db_and_tables(engine)
+        with Session(engine) as session:
+            blueprint = get_open_book_blueprint(session, blueprint_id)
+            if blueprint is None:
+                return _blueprint_not_found()
+            if blueprint.status != BlueprintStatus.FAILED:
+                return _invalid_blueprint_action("只有失败的蓝图可以重试。")
+            reset_blueprint_for_retry(session, blueprint)
+        start_blueprint_job(db_path, blueprint_id, provider_config)
     return _accepted_blueprint_response(blueprint_id)
 
 
@@ -144,32 +150,33 @@ def revise_blueprint_json(db_path: Path, blueprint_id: int, body: dict[str, Any]
 
 
 def accept_blueprint_json(db_path: Path, blueprint_id: int, body: dict[str, Any]) -> ApiResponse:
-    existing_book_id = _accepted_book_id(db_path, blueprint_id)
-    if existing_book_id is not None:
-        return _accepted_book_response(existing_book_id)
+    with _blueprint_action_lock(blueprint_id):
+        existing_book_id = _accepted_book_id(db_path, blueprint_id)
+        if existing_book_id is not None:
+            return _accepted_book_response(existing_book_id)
 
-    form = _string_form(
-        {
-            **body,
-            "blueprint_id": blueprint_id,
-            "selected_title": body.get("selectedTitle", body.get("selected_title", "")),
-        }
-    )
-    try:
-        book = accept_blueprint_for_foundation_review(db_path, form)
-    except BlueprintNotFoundError:
-        return _blueprint_not_found()
-    except BlueprintNotReadyError:
-        return api_error(HTTPStatus.BAD_REQUEST, "blueprint_not_ready", "蓝图尚未生成完成。")
-    except BlueprintTitleSelectionError:
-        return api_error(
-            HTTPStatus.BAD_REQUEST,
-            "blueprint_title_required",
-            "请选择一个蓝图书名。",
+        form = _string_form(
+            {
+                **body,
+                "blueprint_id": blueprint_id,
+                "selected_title": body.get("selectedTitle", body.get("selected_title", "")),
+            }
         )
-    book_id = book.id or 0
-    if book_id > 0:
-        _record_accepted_book_id(db_path, blueprint_id, book_id)
+        try:
+            book = accept_blueprint_for_foundation_review(db_path, form)
+        except BlueprintNotFoundError:
+            return _blueprint_not_found()
+        except BlueprintNotReadyError:
+            return api_error(HTTPStatus.BAD_REQUEST, "blueprint_not_ready", "蓝图尚未生成完成。")
+        except BlueprintTitleSelectionError:
+            return api_error(
+                HTTPStatus.BAD_REQUEST,
+                "blueprint_title_required",
+                "请选择一个蓝图书名。",
+            )
+        book_id = book.id or 0
+        if book_id > 0:
+            _record_accepted_book_id(db_path, blueprint_id, book_id)
     return _accepted_book_response(book_id)
 
 
@@ -177,27 +184,38 @@ def _accepted_book_id(db_path: Path, blueprint_id: int) -> int | None:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
-        blueprint = get_open_book_blueprint(session, blueprint_id)
-        if blueprint is None:
+        acceptance = session.get(BlueprintAcceptance, blueprint_id)
+        if acceptance is None:
             return None
-        raw_book_id = blueprint.content.get("accepted_book_id")
-        if not isinstance(raw_book_id, int) or raw_book_id <= 0:
+        if acceptance.book_id <= 0:
             return None
-        if get_book(session, raw_book_id) is None:
+        if get_book(session, acceptance.book_id) is None:
             return None
-        return raw_book_id
+        return acceptance.book_id
 
 
 def _record_accepted_book_id(db_path: Path, blueprint_id: int, book_id: int) -> None:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
-        blueprint = get_open_book_blueprint(session, blueprint_id)
-        if blueprint is None:
+        if get_open_book_blueprint(session, blueprint_id) is None:
             return
-        blueprint.content = {**blueprint.content, "accepted_book_id": book_id}
-        session.add(blueprint)
+        acceptance = session.get(BlueprintAcceptance, blueprint_id)
+        if acceptance is None:
+            acceptance = BlueprintAcceptance(blueprint_id=blueprint_id, book_id=book_id)
+        else:
+            acceptance.book_id = book_id
+        session.add(acceptance)
         session.commit()
+
+
+def _blueprint_action_lock(blueprint_id: int) -> Lock:
+    with _blueprint_action_locks_guard:
+        lock = _blueprint_action_locks.get(blueprint_id)
+        if lock is None:
+            lock = Lock()
+            _blueprint_action_locks[blueprint_id] = lock
+        return lock
 
 
 def _validated_provider_config(db_path: Path):

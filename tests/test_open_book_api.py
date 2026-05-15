@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from http import HTTPStatus
 from pathlib import Path
+from threading import Barrier, BrokenBarrierError, Thread
+from typing import Any
 
 from sqlmodel import Session, select
 
+import mynovel.api_open_book as api_open_book
 from mynovel.api_routes import dispatch_api_get, dispatch_api_post
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import (
     Book,
     BlueprintStatus,
+    BlueprintAcceptance,
     OpenBookBlueprint,
     ProviderConfig,
     ProviderConfigValidation,
@@ -130,6 +134,22 @@ def test_retry_blueprint_resets_and_starts_job(tmp_path: Path, monkeypatch) -> N
     assert blueprint.content == {}
     assert blueprint.parse_error is None
     assert blueprint.error_message is None
+
+
+def test_retry_rejects_second_attempt_after_first_reset(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    _save_validated_provider(db_path)
+    blueprint_id = _save_blueprint(db_path, status=BlueprintStatus.FAILED)
+    started: list[int] = []
+    monkeypatch.setattr("mynovel.api_open_book.start_blueprint_job", lambda _db, blueprint_id, _config: started.append(blueprint_id))
+
+    first = dispatch_api_post(f"/api/blueprints/{blueprint_id}/retry", {}, db_path)
+    second = dispatch_api_post(f"/api/blueprints/{blueprint_id}/retry", {}, db_path)
+
+    assert first.status == HTTPStatus.ACCEPTED
+    assert second.status == HTTPStatus.BAD_REQUEST
+    assert second.body["error"]["code"] == "blueprint_action_invalid"
+    assert started == [blueprint_id]
 
 
 def test_retry_rejects_running_blueprint_without_starting_job(
@@ -292,12 +312,77 @@ def test_accept_blueprint_is_idempotent_for_same_blueprint(tmp_path: Path) -> No
     assert first.status == HTTPStatus.OK
     assert second.status == HTTPStatus.OK
     assert second.body["bookId"] == first.body["bookId"]
+    payload_response = dispatch_api_get(f"/api/blueprints/{blueprint_id}", "", db_path)
     with Session(create_engine_for_path(db_path)) as session:
         books = list(session.exec(select(Book)))
         blueprint = get_open_book_blueprint(session, blueprint_id)
+        acceptance = session.get(BlueprintAcceptance, blueprint_id)
     assert len(books) == 1
     assert blueprint is not None
-    assert blueprint.content["accepted_book_id"] == first.body["bookId"]
+    assert acceptance is not None
+    assert acceptance.book_id == first.body["bookId"]
+    assert "accepted_book_id" not in blueprint.content
+    assert "accepted_book_id" not in payload_response.body["blueprint"]["content"]
+
+
+def test_concurrent_accept_blueprint_creates_one_book(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    blueprint_id = _save_blueprint(
+        db_path,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜档案"],
+            "genre": "奇幻",
+            "audience": "成人",
+            "premise": "档案员追查禁书真相。",
+        },
+    )
+    original_accept = api_open_book.accept_blueprint_for_foundation_review
+    barrier = Barrier(2, timeout=1.0)
+
+    def accept_after_both_requests_reach_create(
+        db_path: Path,
+        form: dict[str, str],
+    ):
+        try:
+            barrier.wait()
+        except BrokenBarrierError:
+            pass
+        return original_accept(db_path, form)
+
+    monkeypatch.setattr(
+        api_open_book,
+        "accept_blueprint_for_foundation_review",
+        accept_after_both_requests_reach_create,
+    )
+    responses: list[dict[str, Any]] = []
+
+    def accept_blueprint() -> None:
+        response = dispatch_api_post(
+            f"/api/blueprints/{blueprint_id}/accept",
+            {"selectedTitle": "长夜档案"},
+            db_path,
+        )
+        responses.append({"status": response.status, "body": response.body})
+
+    threads = [Thread(target=accept_blueprint), Thread(target=accept_blueprint)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert [response["status"] for response in responses] == [HTTPStatus.OK, HTTPStatus.OK]
+    book_ids = {response["body"]["bookId"] for response in responses}
+    with Session(create_engine_for_path(db_path)) as session:
+        books = list(session.exec(select(Book)))
+        blueprint = get_open_book_blueprint(session, blueprint_id)
+        acceptance = session.get(BlueprintAcceptance, blueprint_id)
+    assert len(book_ids) == 1
+    assert len(books) == 1
+    assert blueprint is not None
+    assert acceptance is not None
+    assert acceptance.book_id in book_ids
+    assert "accepted_book_id" not in blueprint.content
 
 
 def _save_validated_provider(db_path: Path) -> None:
