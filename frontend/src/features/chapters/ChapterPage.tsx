@@ -89,9 +89,10 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
     try {
       const payload = await postJson<unknown>(`/api/chapters/${chapterId}/${action}`, body);
       const parsed = parseChapterResponse(payload);
-      if (parsed) {
-        setState({ status: "ready", data: parsed, error: null });
+      if (!parsed) {
+        throw new Error("章节数据格式无效。");
       }
+      setState({ status: "ready", data: parsed, error: null });
       setActionState({
         status: "success",
         action: null,

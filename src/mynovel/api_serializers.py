@@ -238,7 +238,7 @@ def chapter_review_payload(db_path: Path, chapter_id: int) -> dict[str, Any] | N
             return None
         canon = get_latest_canon(session, chapter.book_id)
         chapters = list_chapters_for_book(session, chapter.book_id)
-        run_traces = list_run_traces_for_book(session, chapter.book_id)
+        run_traces = _chapter_run_traces(list_run_traces_for_book(session, chapter.book_id), chapter)
         return {
             "book": book_payload(book),
             "chapter": chapter_detail_payload(chapter),
@@ -247,6 +247,18 @@ def chapter_review_payload(db_path: Path, chapter_id: int) -> dict[str, Any] | N
             "traces": [run_trace_payload(trace) for trace in run_traces],
             "stageSlots": chapter_stage_slots(chapter),
         }
+
+
+def _chapter_run_traces(run_traces: list[RunTrace], chapter: Chapter) -> list[RunTrace]:
+    identifiers = {chapter.number, str(chapter.number), chapter.id, str(chapter.id)}
+    return sorted(
+        [
+            trace
+            for trace in run_traces
+            if (trace.metadata_ or {}).get("chapter") in identifiers
+        ],
+        key=lambda trace: (trace.created_at, trace.id or 0),
+    )
 
 
 def trusted_state_payload(

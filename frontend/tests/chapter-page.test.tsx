@@ -61,7 +61,7 @@ test("chapter review actions call edit repair approve and export endpoints", asy
     .fn()
     .mockResolvedValueOnce(Response.json(chapterPayload()))
     .mockResolvedValueOnce(Response.json(chapterPayload({ revisedText: "人工修正文。" })))
-    .mockResolvedValueOnce(Response.json({ chapterId: 12, redirectTo: "/chapters/12" }, { status: 202 }))
+    .mockResolvedValueOnce(Response.json(chapterPayload({ status: "running" }), { status: 202 }))
     .mockResolvedValueOnce(Response.json(chapterPayload({ status: "accepted" })));
   vi.stubGlobal("fetch", fetchMock);
 
@@ -94,6 +94,23 @@ test("chapter review actions call edit repair approve and export endpoints", asy
     ),
   );
   expect(screen.getByRole("link", { name: "导出正文" })).toHaveAttribute("href", "/api/chapters/12/export.txt");
+});
+
+test("rejects action responses without chapter payload", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(chapterPayload()))
+    .mockResolvedValueOnce(Response.json({ chapterId: 12, redirectTo: "/chapters/12" }, { status: 202 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  fireEvent.change(screen.getByLabelText("修复要求"), { target: { value: "补强结尾。" } });
+  fireEvent.click(screen.getByRole("button", { name: "让 AI 修复" }));
+
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("章节数据格式无效。"));
+  expect(screen.queryByText("任务已提交，页面会自动刷新。")).not.toBeInTheDocument();
 });
 
 test("run action enters running state from the action response", async () => {

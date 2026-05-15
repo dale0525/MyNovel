@@ -59,7 +59,13 @@ def test_chapter_detail_returns_review_payload(tmp_path: Path) -> None:
             prompt_id="chapter_audit",
             metadata_={"chapter": 2},
         )
-        session.add_all([canon, first, second, trace])
+        sibling_trace = RunTrace(
+            book_id=book.id,
+            stage="兄弟章节审计",
+            prompt_id="chapter_audit",
+            metadata_={"chapter": 1},
+        )
+        session.add_all([canon, first, second, trace, sibling_trace])
         session.commit()
         session.refresh(second)
         chapter_id = second.id or 0
@@ -74,6 +80,7 @@ def test_chapter_detail_returns_review_payload(tmp_path: Path) -> None:
     assert response.body["chapter"]["revisedText"] == "岑星抵达静默港湾。"
     assert [chapter["number"] for chapter in response.body["siblingChapters"]] == [1, 2]
     assert response.body["latestCanon"]["version"] == 2
+    assert [trace["stage"] for trace in response.body["traces"]] == ["审计"]
     assert response.body["traces"][0]["promptId"] == "chapter_audit"
     assert [slot["key"] for slot in response.body["stageSlots"]] == [
         "plan",
