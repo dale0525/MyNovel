@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from mynovel.dev_server import _provider_config_from_form
 from mynovel.domain.models import (
     Book,
     BookStatus,
@@ -11,6 +10,7 @@ from mynovel.domain.models import (
     OpenBookBlueprint,
     ProviderConfig,
 )
+from mynovel.provider_config_forms import provider_config_from_form as _provider_config_from_form
 from mynovel.product_views import (
     is_provider_config_complete,
     render_book_workspace,

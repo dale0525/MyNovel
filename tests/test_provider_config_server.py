@@ -3,7 +3,7 @@ from pathlib import Path
 
 from sqlmodel import Session
 
-from mynovel.db import create_db_and_tables, create_engine_for_path
+from mynovel.db import create_engine_for_path
 from mynovel.domain.models import ProviderConfig
 from mynovel.domain.repositories import get_provider_config, get_provider_config_validation
 from mynovel.provider_config_server import handle_provider_config_post
