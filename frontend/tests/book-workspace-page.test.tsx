@@ -90,6 +90,46 @@ test("renders book workspace details", async () => {
   expect(screen.getByText("chapter_draft")).toBeInTheDocument();
 });
 
+test("does not treat accepted chapters as the current task", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        book: {
+          id: 42,
+          title: "星港遗梦",
+          genre: "科幻",
+          audience: "成人",
+          status: "draft",
+          premise: "领航员追查失落星港的真相。",
+        },
+        chapters: [
+          {
+            id: 8,
+            bookId: 42,
+            number: 1,
+            title: "已完成灯塔",
+            status: "accepted",
+            summary: "这一章已经接受。",
+            wordCount: 1200,
+            reviewerNote: null,
+            updatedAt: "2026-05-16T00:00:00+00:00",
+          },
+        ],
+        latestCanon: null,
+        runTraces: [],
+        volumePlans: [],
+      }),
+    ),
+  );
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
+  expect(screen.getByText("暂无待推进章节。可以先检查可信设定，再创建章节生产任务。")).toBeInTheDocument();
+  expect(screen.getByText("已接受 · 1200 字")).toBeInTheDocument();
+});
+
 test("aborts in-flight book fetch on unmount", () => {
   let signal: AbortSignal | undefined;
   vi.stubGlobal(

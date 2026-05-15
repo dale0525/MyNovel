@@ -17,6 +17,14 @@ type TrustedStatePageProps = {
   bookId: number;
 };
 
+type CanonAction = "apply" | "discard" | "revise";
+
+type ActionState =
+  | { status: "idle"; message: null; action: null }
+  | { status: "submitting"; message: null; action: CanonAction }
+  | { status: "success"; message: string; action: null }
+  | { status: "error"; message: string; action: null };
+
 export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
   const [state, setState] = useState<TrustedState>({
     status: "loading",
@@ -25,7 +33,11 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
   });
   const [targetSection, setTargetSection] = useState("characters");
   const [instruction, setInstruction] = useState("");
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionState, setActionState] = useState<ActionState>({
+    status: "idle",
+    message: null,
+    action: null,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -74,9 +86,18 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
     if (typeof revisionId !== "number") {
       return;
     }
-    await postJson(`/api/books/${bookId}/canon-proposals/apply`, { revisionId });
-    setActionMessage("已应用修订。");
-    navigateTo(`/books/${bookId}/state`);
+    setActionState({ status: "submitting", message: null, action: "apply" });
+    try {
+      await postJson(`/api/books/${bookId}/canon-proposals/apply`, { revisionId });
+      setActionState({ status: "success", message: "已应用修订。", action: null });
+      navigateTo(`/books/${bookId}/state`);
+    } catch (error) {
+      setActionState({
+        status: "error",
+        message: errorMessage(error, "应用修订失败。"),
+        action: null,
+      });
+    }
   }
 
   async function discardRevision() {
@@ -84,20 +105,38 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
     if (typeof revisionId !== "number") {
       return;
     }
-    await postJson(`/api/books/${bookId}/canon-proposals/discard`, { revisionId });
-    setActionMessage("已放弃修订。");
-    navigateTo(`/books/${bookId}/state`);
+    setActionState({ status: "submitting", message: null, action: "discard" });
+    try {
+      await postJson(`/api/books/${bookId}/canon-proposals/discard`, { revisionId });
+      setActionState({ status: "success", message: "已放弃修订。", action: null });
+      navigateTo(`/books/${bookId}/state`);
+    } catch (error) {
+      setActionState({
+        status: "error",
+        message: errorMessage(error, "放弃修订失败。"),
+        action: null,
+      });
+    }
   }
 
   async function reviseState(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const response = await postJson<{ redirectTo?: string }>(
-      `/api/books/${bookId}/canon-proposals/revise`,
-      { targetSection, instruction },
-    );
-    setActionMessage("已提交修订任务。");
-    if (response.redirectTo) {
-      navigateTo(response.redirectTo);
+    setActionState({ status: "submitting", message: null, action: "revise" });
+    try {
+      const response = await postJson<{ redirectTo?: string }>(
+        `/api/books/${bookId}/canon-proposals/revise`,
+        { targetSection, instruction },
+      );
+      setActionState({ status: "success", message: "已提交修订任务。", action: null });
+      if (response.redirectTo) {
+        navigateTo(response.redirectTo);
+      }
+    } catch (error) {
+      setActionState({
+        status: "error",
+        message: errorMessage(error, "提交修订失败。"),
+        action: null,
+      });
     }
   }
 
@@ -127,6 +166,7 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
 
   const { book, canonSections, readiness, selectedRevision } = state.data;
   const editableSections = canonSections.filter((section) => section.editable && !section.locked);
+  const submittingAction = actionState.status === "submitting" ? actionState.action : null;
 
   return (
     <section className="workbench-page canon-gate-layout" aria-labelledby="trusted-state-title">
@@ -141,7 +181,16 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
 
       <div className="content-grid completion-grid">
         <main className="workbench-panel canon-gate-main">
-          {actionMessage ? <p role="status">{actionMessage}</p> : null}
+          {actionState.status === "success" ? (
+            <p className="setup-message" role="status">
+              {actionState.message}
+            </p>
+          ) : null}
+          {actionState.status === "error" ? (
+            <p className="setup-message" role="alert">
+              {actionState.message}
+            </p>
+          ) : null}
           <section
             className={readiness.complete ? "canon-completion-gate trusted" : "canon-completion-gate"}
           >
@@ -159,6 +208,7 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
 
           <RevisionPreview
             revision={selectedRevision}
+            submittingAction={submittingAction}
             onApply={() => void applyRevision()}
             onDiscard={() => void discardRevision()}
           />
@@ -188,7 +238,11 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
             <form className="canon-revision-form" onSubmit={(event) => void reviseState(event)}>
               <label>
                 修订分区
-                <select value={targetSection} onChange={(event) => setTargetSection(event.target.value)}>
+                <select
+                  disabled={submittingAction === "revise"}
+                  value={targetSection}
+                  onChange={(event) => setTargetSection(event.target.value)}
+                >
                   {editableSections.map((section) => (
                     <option key={section.key} value={section.key}>
                       {section.label}
@@ -199,13 +253,18 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
               <label>
                 修订指令
                 <textarea
+                  disabled={submittingAction === "revise"}
                   value={instruction}
                   onChange={(event) => setInstruction(event.target.value)}
                   placeholder="说明你希望 AI 如何调整这个分区"
                 />
               </label>
-              <button className="workbench-action-button" disabled={!editableSections.length} type="submit">
-                生成修订预览
+              <button
+                className="workbench-action-button"
+                disabled={!editableSections.length || submittingAction !== null}
+                type="submit"
+              >
+                {submittingAction === "revise" ? "提交中..." : "生成修订预览"}
               </button>
             </form>
           </section>
@@ -217,10 +276,12 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
 
 function RevisionPreview({
   revision,
+  submittingAction,
   onApply,
   onDiscard,
 }: {
   revision: CanonProposalRevisionPayload | null;
+  submittingAction: CanonAction | null;
   onApply: () => void;
   onDiscard: () => void;
 }) {
@@ -238,14 +299,12 @@ function RevisionPreview({
         <span className="status-pill pending">{revision.status}</span>
       </div>
 
-      <div className="canon-preview-actions">
-        <button className="workbench-action-button" onClick={onApply} type="button">
-          应用修订
-        </button>
-        <button className="workbench-secondary-button" onClick={onDiscard} type="button">
-          放弃修订
-        </button>
-      </div>
+      <RevisionPreviewActions
+        revision={revision}
+        submittingAction={submittingAction}
+        onApply={onApply}
+        onDiscard={onDiscard}
+      />
 
       <div className="canon-preview-sections">
         {Object.entries(revision.changedSections).map(([section, value]) => (
@@ -270,6 +329,56 @@ function RevisionPreview({
         </section>
       ) : null}
     </section>
+  );
+}
+
+function RevisionPreviewActions({
+  revision,
+  submittingAction,
+  onApply,
+  onDiscard,
+}: {
+  revision: CanonProposalRevisionPayload;
+  submittingAction: CanonAction | null;
+  onApply: () => void;
+  onDiscard: () => void;
+}) {
+  if (revision.status === "running") {
+    return (
+      <p className="setup-message" role="status">
+        修订生成中
+      </p>
+    );
+  }
+  if (revision.status === "failed") {
+    return (
+      <p className="setup-message" role="alert">
+        修订生成失败
+      </p>
+    );
+  }
+  if (revision.status !== "pending") {
+    return null;
+  }
+  return (
+    <div className="canon-preview-actions">
+      <button
+        className="workbench-action-button"
+        disabled={submittingAction !== null}
+        onClick={onApply}
+        type="button"
+      >
+        {submittingAction === "apply" ? "应用中..." : "应用修订"}
+      </button>
+      <button
+        className="workbench-secondary-button"
+        disabled={submittingAction !== null}
+        onClick={onDiscard}
+        type="button"
+      >
+        {submittingAction === "discard" ? "放弃中..." : "放弃修订"}
+      </button>
+    </div>
   );
 }
 
@@ -332,4 +441,8 @@ function statusLabel(status: string): string {
     paused: "暂停",
   };
   return labels[status] ?? status;
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
 }

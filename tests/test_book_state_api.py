@@ -197,6 +197,41 @@ def test_canon_proposal_apply_discard_and_revise_routes_map_to_workflow(
     assert invalid_revise.body["error"]["code"] == "canon_proposal_action_failed"
 
 
+def test_canon_proposal_lock_parses_false_string_as_false(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    book_id = _create_workspace_fixture(db_path)
+
+    locked = dispatch_api_post(
+        f"/api/books/{book_id}/canon-proposals/lock",
+        {"section": "world_rules", "locked": True},
+        db_path,
+    )
+    unlocked = dispatch_api_post(
+        f"/api/books/{book_id}/canon-proposals/lock",
+        {"section": "world_rules", "locked": "false"},
+        db_path,
+    )
+
+    assert locked.status == HTTPStatus.OK
+    assert locked.body["sectionLocks"]["world_rules"] is True
+    assert unlocked.status == HTTPStatus.OK
+    assert unlocked.body["sectionLocks"]["world_rules"] is False
+
+
+def test_canon_proposal_lock_rejects_invalid_locked_value(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    book_id = _create_workspace_fixture(db_path)
+
+    response = dispatch_api_post(
+        f"/api/books/{book_id}/canon-proposals/lock",
+        {"section": "world_rules", "locked": "not-a-bool"},
+        db_path,
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["error"]["code"] == "canon_proposal_action_failed"
+
+
 def _create_workspace_fixture(db_path: Path, title: str = "星港遗梦") -> int:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)

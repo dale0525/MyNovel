@@ -110,7 +110,7 @@ export function BootstrapGate({
   const route = routeForPath(locationState.pathname);
 
   return (
-    <AppShell activePath={route.activePath}>
+    <AppShell activePath={route.activePath} currentPath={locationState.pathname}>
       <Fragment key={`${locationState.pathname}:${locationState.revision}`}>
         {route.element}
       </Fragment>

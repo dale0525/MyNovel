@@ -77,7 +77,63 @@ test("apply discard and revise actions call canon proposal endpoints", async () 
   expect(window.location.search).toBe("?revisionId=9");
 });
 
-function trustedStatePayload() {
+test("running revision hides apply actions until preview is pending", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json(trustedStatePayload({ revisionStatus: "running" }))),
+  );
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByText("修订生成中")).toBeInTheDocument());
+  expect(screen.queryByRole("button", { name: "应用修订" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "放弃修订" })).not.toBeInTheDocument();
+});
+
+test("failed revision hides apply actions and shows failure state", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json(trustedStatePayload({ revisionStatus: "failed" }))),
+  );
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByText("修订生成失败")).toBeInTheDocument());
+  expect(screen.queryByRole("button", { name: "应用修订" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "放弃修订" })).not.toBeInTheDocument();
+});
+
+test("canon proposal action errors render feedback and keep user on the page", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(trustedStatePayload()))
+    .mockResolvedValueOnce(
+      Response.json(
+        {
+          error: {
+            code: "canon_proposal_action_failed",
+            message: "Revision is still running.",
+          },
+        },
+        { status: 400 },
+      ),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "应用修订" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "应用修订" }));
+
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Revision is still running."));
+  expect(window.location.pathname).toBe("/");
+});
+
+function trustedStatePayload({
+  revisionStatus = "pending",
+}: {
+  revisionStatus?: string;
+} = {}) {
   return {
     book: {
       id: 42,
@@ -131,7 +187,7 @@ function trustedStatePayload() {
       blockedSections: [{ section: "world_rules", reason: "已锁定" }],
       summary: "补强人物风险意识。",
       risks: [],
-      status: "pending",
+      status: revisionStatus,
       createdAt: "2026-05-16T00:00:00+00:00",
       appliedAt: null,
     },

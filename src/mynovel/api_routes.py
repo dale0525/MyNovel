@@ -245,7 +245,9 @@ def _toggle_canon_proposal_section_lock_json(
     body: dict[str, Any],
 ) -> ApiResponse:
     section = str(body.get("section") or "")
-    locked = bool(body.get("locked"))
+    locked = _body_bool(body, "locked")
+    if locked is None:
+        return _canon_proposal_action_error(ValueError("Canon proposal lock value must be boolean."))
     try:
         engine = create_engine_for_path(db_path)
         create_db_and_tables(engine)
@@ -308,6 +310,23 @@ def _body_int(body: dict[str, Any], *keys: str) -> int | None:
         value = _int_value(body.get(key))
         if value is not None:
             return value
+    return None
+
+
+def _body_bool(body: dict[str, Any], *keys: str) -> bool | None:
+    for key in keys:
+        if key not in body:
+            continue
+        value = body.get(key)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "on"}:
+                return True
+            if normalized in {"false", "0", "no", "off"}:
+                return False
+        return None
     return None
 
 

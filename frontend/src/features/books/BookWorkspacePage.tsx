@@ -265,10 +265,14 @@ function isBookPayload(value: unknown): value is BookPayload {
 }
 
 function currentChapterTask(chapters: ChapterPayload[]): ChapterPayload | null {
+  const activeTask = chapters.find((chapter) =>
+    ["running", "awaiting_review", "needs_revision"].includes(chapter.status),
+  );
+  if (activeTask) {
+    return activeTask;
+  }
   return (
-    chapters.find((chapter) => ["running", "awaiting_review", "needs_revision"].includes(chapter.status)) ??
     chapters.find((chapter) => chapter.status === "planned") ??
-    chapters[0] ??
     null
   );
 }
