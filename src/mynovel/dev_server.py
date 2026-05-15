@@ -41,7 +41,6 @@ from mynovel.domain.repositories import (
     list_open_book_blueprints,
     list_run_traces_for_book,
     list_volume_plans_for_book,
-    save_provider_config,
 )
 from mynovel.i18n import t
 from mynovel.path_display import display_path
@@ -58,6 +57,7 @@ from mynovel.product_views import (
     render_new_book_page,
     render_trusted_state_page,
 )
+from mynovel.provider_config_server import handle_provider_config_post
 from mynovel.provider_config_forms import provider_config_from_form as _provider_config_from_form
 from mynovel.quality_views import render_quality_center
 from mynovel.review_navigation import review_destination as _review_destination
@@ -214,7 +214,11 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 self._redirect_message(t("provider.saved"))
                 return
             if parsed.path == "/provider-config":
-                self._save_provider_config(state.db_path)
+                provider_response = handle_provider_config_post(state.db_path, self._read_form())
+                if provider_response.redirect_to:
+                    self._redirect(provider_response.redirect_to)
+                else:
+                    self._send_html(provider_response.body, status=provider_response.status)
                 return
             if parsed.path == "/books/import":
                 self._import_book(state.db_path)
@@ -390,13 +394,6 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             self._send_html(
                 render_blueprint_page(db_path, _load_provider_config(db_path), blueprint)
             )
-
-        def _save_provider_config(self, db_path: Path) -> None:
-            engine = create_engine_for_path(db_path)
-            create_db_and_tables(engine)
-            with Session(engine) as session:
-                save_provider_config(session, _provider_config_from_form(self._read_form()))
-            self._redirect_message(t("provider.saved"))
 
         def _import_book(self, db_path: Path) -> None:
             engine = create_engine_for_path(db_path)
