@@ -68,8 +68,9 @@ def provider_config_payload(config: ProviderConfig) -> dict[str, Any]:
 def validation_report_payload(
     report: ProviderValidationReport,
     config: ProviderConfig | None = None,
+    extra_secrets: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    secrets = _api_key_values(config)
+    secrets = _redaction_secret_values(config, extra_secrets)
     return {
         "passed": report.passed,
         "results": [
@@ -107,6 +108,7 @@ def save_provider_config_json(
     checker: ProviderConfigChecker | None = None,
 ) -> ApiResponse:
     config = provider_config_from_json(payload)
+    submitted_secrets = _submitted_api_key_values(payload)
     model_checker = checker or OpenAICompatibleProviderConfigChecker()
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
@@ -130,7 +132,7 @@ def save_provider_config_json(
                         "details": {},
                     },
                     "saved": False,
-                    "validation": validation_report_payload(report, config),
+                    "validation": validation_report_payload(report, config, submitted_secrets),
                 },
             )
 
@@ -142,7 +144,7 @@ def save_provider_config_json(
         {
             "saved": True,
             "providerConfig": provider_config_payload(saved),
-            "validation": validation_report_payload(report, config),
+            "validation": validation_report_payload(report, config, submitted_secrets),
         },
     )
 
@@ -207,6 +209,31 @@ def _api_key_values(config: ProviderConfig | None) -> tuple[str, ...]:
             config.resolved_rerank_api_key(),
         )
         if value is not None and value.strip()
+    }
+    return tuple(sorted(candidates, key=len, reverse=True))
+
+
+def _submitted_api_key_values(payload: dict[str, Any]) -> tuple[str, ...]:
+    candidates = {
+        value
+        for value in (
+            _str_value(payload, "llmApiKey"),
+            _str_value(payload, "embeddingApiKey"),
+            _str_value(payload, "rerankApiKey"),
+        )
+        if value
+    }
+    return tuple(sorted(candidates, key=len, reverse=True))
+
+
+def _redaction_secret_values(
+    config: ProviderConfig | None,
+    extra_secrets: tuple[str, ...],
+) -> tuple[str, ...]:
+    candidates = {
+        secret.strip()
+        for secret in (*_api_key_values(config), *extra_secrets)
+        if secret.strip()
     }
     return tuple(sorted(candidates, key=len, reverse=True))
 

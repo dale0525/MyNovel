@@ -210,6 +210,50 @@ def test_validation_error_redacts_submitted_keys_from_messages(tmp_path: Path) -
     assert "[redacted]" in _validation_message(response.body, "rerank")
 
 
+def test_validation_error_redacts_raw_submitted_embedding_key_when_inherited(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "mynovel.sqlite"
+    secret = "submitted-embedding-secret"
+    checker = ModelSecretLeakingChecker("embedding", secret)
+
+    response = save_provider_config_json(
+        db_path,
+        _payload(
+            embedding_use_llm_credentials=True,
+            embedding_api_key=secret,
+        ),
+        checker,
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["saved"] is False
+    _assert_no_secret_payload(response.body, secret)
+    assert "[redacted]" in _validation_message(response.body, "embedding")
+
+
+def test_validation_error_redacts_raw_submitted_rerank_key_when_inherited(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "mynovel.sqlite"
+    secret = "submitted-rerank-secret"
+    checker = ModelSecretLeakingChecker("rerank", secret)
+
+    response = save_provider_config_json(
+        db_path,
+        _payload(
+            rerank_use_llm_credentials=True,
+            rerank_api_key=secret,
+        ),
+        checker,
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["saved"] is False
+    _assert_no_secret_payload(response.body, secret)
+    assert "[redacted]" in _validation_message(response.body, "rerank")
+
+
 def test_keyless_llm_edit_reuses_existing_llm_api_key(tmp_path: Path) -> None:
     db_path = tmp_path / "mynovel.sqlite"
     original_key = "llm-existing-secret"
@@ -446,6 +490,23 @@ class SecretLeakingChecker(FakeChecker):
     async def check_rerank(self, config: ProviderConfig) -> None:
         self.calls.append("rerank")
         raise RuntimeError(f"rerank failed for {self.secret}")
+
+
+class ModelSecretLeakingChecker(FakeChecker):
+    def __init__(self, kind: str, secret: str) -> None:
+        super().__init__()
+        self.kind = kind
+        self.secret = secret
+
+    async def check_embedding(self, config: ProviderConfig) -> None:
+        self.calls.append("embedding")
+        if self.kind == "embedding":
+            raise RuntimeError(f"embedding failed for {self.secret}")
+
+    async def check_rerank(self, config: ProviderConfig) -> None:
+        self.calls.append("rerank")
+        if self.kind == "rerank":
+            raise RuntimeError(f"rerank failed for {self.secret}")
 
 
 def _validation_statuses(body: dict[str, object]) -> dict[str, str]:
