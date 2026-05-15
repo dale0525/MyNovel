@@ -1,6 +1,7 @@
 import { ProviderConfigPage } from "@/features/provider-config/ProviderConfigPage";
 import { WorkbenchPage } from "@/features/workbench/WorkbenchPage";
-import { BookWorkspacePage } from "@/features/book-workspace/BookWorkspacePage";
+import { BookWorkspacePage } from "@/features/books/BookWorkspacePage";
+import { TrustedStatePage } from "@/features/canon/TrustedStatePage";
 import { BlueprintPage } from "@/features/open-book/BlueprintPage";
 import { OpenBookPage } from "@/features/open-book/OpenBookPage";
 
@@ -28,6 +29,14 @@ export function routeForPath(pathname: string): RouteMatch {
     return {
       activePath: "/books/new",
       element: <BlueprintPage blueprintId={blueprintId} />,
+    };
+  }
+
+  const trustedStateBookId = parseBookStatePath(path);
+  if (trustedStateBookId !== null) {
+    return {
+      activePath: "/books/:id/state",
+      element: <TrustedStatePage bookId={trustedStateBookId} />,
     };
   }
 
@@ -82,6 +91,11 @@ function normalizePath(pathname: string): string {
 
 function parseBookProjectPath(path: string): number | null {
   const match = path.match(/^\/books\/(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
+function parseBookStatePath(path: string): number | null {
+  const match = path.match(/^\/books\/(\d+)\/state$/);
   return match ? Number(match[1]) : null;
 }
 

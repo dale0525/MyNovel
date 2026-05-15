@@ -10,7 +10,7 @@ const navItems = [
   { label: "开书", href: "/books/new", activePaths: ["/books/new"] },
   { label: "项目", href: "/", activePaths: ["/books/:id"] },
   { label: "章节", href: "/review", activePaths: ["/review"] },
-  { label: "可信设定", href: "/review", activePaths: ["/review"] },
+  { label: "可信设定", href: "/", activePaths: ["/books/:id/state"] },
   { label: "质量", href: "/review", activePaths: ["/review"] },
   { label: "设置", href: "/settings/provider", activePaths: ["/settings/provider"] },
 ];
