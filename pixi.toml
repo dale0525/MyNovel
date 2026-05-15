@@ -34,4 +34,4 @@ frontend-build = "pixi run frontend-install && npm --prefix frontend run build &
 frontend-typecheck = "pixi run frontend-install && npm --prefix frontend run typecheck"
 frontend-lint = "pixi run frontend-install && npm --prefix frontend run lint"
 frontend-test = "pixi run frontend-install && npm --prefix frontend run test"
-frontend-e2e = "pixi run frontend-install && npm --prefix frontend run e2e"
+frontend-e2e = "pixi run frontend-build && PLAYWRIGHT_BROWSERS_PATH=.tool/ms-playwright npm --prefix frontend exec playwright install chromium && npm --prefix frontend run e2e"

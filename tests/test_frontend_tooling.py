@@ -10,7 +10,9 @@ def test_frontend_package_has_required_scripts() -> None:
     assert package["scripts"]["typecheck"] == "tsc -b --pretty false"
     assert package["scripts"]["lint"] == "eslint ."
     assert package["scripts"]["test"] == "vitest run --environment jsdom"
-    assert package["scripts"]["e2e"] == "playwright test"
+    assert package["scripts"]["e2e"] == (
+        "PLAYWRIGHT_BROWSERS_PATH=.tool/ms-playwright playwright test"
+    )
 
 
 def test_pixi_exposes_frontend_tasks() -> None:
@@ -24,7 +26,9 @@ def test_pixi_exposes_frontend_tasks() -> None:
         "pixi run frontend-install && npm --prefix frontend run dev"
     )
     assert config["tasks"]["frontend-build"] == (
-        "pixi run frontend-install && npm --prefix frontend run build"
+        "pixi run frontend-install && npm --prefix frontend run build && "
+        "python -m mynovel.release_package sync-frontend-dist --source frontend/dist "
+        "--target src/mynovel/frontend/dist"
     )
     assert config["tasks"]["frontend-typecheck"] == (
         "pixi run frontend-install && npm --prefix frontend run typecheck"
@@ -36,7 +40,8 @@ def test_pixi_exposes_frontend_tasks() -> None:
         "pixi run frontend-install && npm --prefix frontend run test"
     )
     assert config["tasks"]["frontend-e2e"] == (
-        "pixi run frontend-install && npm --prefix frontend run e2e"
+        "pixi run frontend-build && PLAYWRIGHT_BROWSERS_PATH=.tool/ms-playwright "
+        "npm --prefix frontend exec playwright install chromium && npm --prefix frontend run e2e"
     )
 
 

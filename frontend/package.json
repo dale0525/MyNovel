@@ -9,7 +9,7 @@
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
     "test": "vitest run --environment jsdom",
-    "e2e": "playwright test"
+    "e2e": "PLAYWRIGHT_BROWSERS_PATH=.tool/ms-playwright playwright test"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",
