@@ -18,21 +18,35 @@ from mynovel.api_open_book import (
 from mynovel.api_provider_config import get_provider_config_json, save_provider_config_json
 from mynovel.api_serializers import (
     app_bootstrap_payload,
+    book_payload,
     book_detail_payload,
     books_payload,
     canon_proposal_revision_payload,
     chapter_review_payload,
+    deconstruction_study_payload,
+    quality_payload,
+    style_asset_payload,
     trusted_state_payload,
 )
 from mynovel.chapter_server import queue_chapter_batch_run, queue_chapter_repair, queue_chapter_run
 from mynovel.canon_proposal_server import handle_create_canon_proposal_revision
+from mynovel import __version__
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.repositories import get_chapter, get_provider_config
+from mynovel.domain.repositories import (
+    get_book,
+    get_chapter,
+    get_latest_canon,
+    get_provider_config,
+    list_chapters_for_book,
+)
+from mynovel.update import check_for_update, fetch_update_manifest, prepare_update_install
 from mynovel.workflows.canon_proposal import (
     apply_canon_proposal_revision,
     discard_canon_proposal_revision,
     set_canon_proposal_section_lock,
 )
+from mynovel.workflows.book_export import export_book_json, export_book_markdown
+from mynovel.workflows.book_import import import_book_json
 from mynovel.workflows.chapter_pipeline import (
     approve_chapter,
     apply_manual_chapter_edit,
@@ -40,6 +54,11 @@ from mynovel.workflows.chapter_pipeline import (
     return_chapter_for_revision,
 )
 from mynovel.workflows.open_book import lock_canon_foundation
+from mynovel.workflows.quality_enhancement import (
+    create_style_asset,
+    deconstruct_reference_text,
+    generate_quality_snapshot,
+)
 from sqlmodel import Session
 
 
@@ -48,6 +67,16 @@ def dispatch_api_get(path: str, query: str, db_path: Path) -> ApiResponse:
         return ApiResponse(HTTPStatus.OK, app_bootstrap_payload(db_path))
     if path == "/api/books":
         return ApiResponse(HTTPStatus.OK, books_payload(db_path))
+    book_export = _parse_book_export_api_path(path)
+    if book_export is not None:
+        book_id, export_format = book_export
+        return _export_book_json(db_path, book_id, export_format)
+    book_quality_id = _parse_book_quality_api_path(path)
+    if book_quality_id is not None:
+        payload = quality_payload(db_path, book_quality_id)
+        if payload is None:
+            return api_error(HTTPStatus.NOT_FOUND, "book_not_found", "Book not found.")
+        return ApiResponse(HTTPStatus.OK, payload)
     book_state_id = _parse_book_state_api_path(path)
     if book_state_id is not None:
         payload = trusted_state_payload(db_path, book_state_id, _revision_id_from_query(query))
@@ -82,6 +111,12 @@ def dispatch_api_post(path: str, body: dict[str, Any], db_path: Path) -> ApiResp
         return save_provider_config_json(db_path, body)
     if path == "/api/open-book":
         return create_open_book_blueprint_json(db_path, body)
+    if path == "/api/books/import":
+        return _import_book_json(db_path, body)
+    if path == "/api/updates/check":
+        return _check_update_json(body)
+    if path == "/api/updates/stage":
+        return _stage_update_json(db_path, body)
     state_lock_book_id = _parse_book_state_lock_api_path(path)
     if state_lock_book_id is not None:
         return _lock_book_state_json(db_path, state_lock_book_id)
@@ -98,6 +133,10 @@ def dispatch_api_post(path: str, body: dict[str, Any], db_path: Path) -> ApiResp
             return revise_blueprint_json(db_path, blueprint_id, body)
         if action == "accept":
             return accept_blueprint_json(db_path, blueprint_id, body)
+    quality_action = _parse_book_quality_action_api_path(path)
+    if quality_action is not None:
+        book_id, action = quality_action
+        return _quality_action_json(db_path, book_id, action, body)
     book_chapter_action = _parse_book_chapter_action_api_path(path)
     if book_chapter_action is not None:
         book_id, action = book_chapter_action
@@ -148,6 +187,33 @@ def _parse_book_api_path(path: str) -> int | None:
         return int(parts[2])
     except ValueError:
         return 0
+
+
+def _parse_book_quality_api_path(path: str) -> int | None:
+    parts = path.strip("/").split("/")
+    if len(parts) != 4 or parts[:2] != ["api", "books"] or parts[3] != "quality":
+        return None
+    try:
+        return int(parts[2])
+    except ValueError:
+        return 0
+
+
+def _parse_book_export_api_path(path: str) -> tuple[int, str] | None:
+    parts = path.strip("/").split("/")
+    if len(parts) != 4 or parts[:2] != ["api", "books"]:
+        return None
+    if parts[3] == "export.md":
+        export_format = "markdown"
+    elif parts[3] == "export.json":
+        export_format = "json"
+    else:
+        return None
+    try:
+        book_id = int(parts[2])
+    except ValueError:
+        book_id = 0
+    return book_id, export_format
 
 
 def _parse_chapter_api_path(path: str) -> int | None:
@@ -210,6 +276,19 @@ def _parse_book_chapter_action_api_path(path: str) -> tuple[int, str] | None:
     except ValueError:
         book_id = 0
     return book_id, parts[4]
+
+
+def _parse_book_quality_action_api_path(path: str) -> tuple[int, str] | None:
+    parts = path.strip("/").split("/")
+    if len(parts) != 4 or parts[:2] != ["api", "books"]:
+        return None
+    if parts[3] not in {"style-assets", "deconstruction-studies", "quality-snapshots"}:
+        return None
+    try:
+        book_id = int(parts[2])
+    except ValueError:
+        book_id = 0
+    return book_id, parts[3]
 
 
 def _parse_chapter_action_api_path(path: str) -> tuple[int, str] | None:
@@ -373,6 +452,164 @@ def _canon_proposal_action_error(error: ValueError) -> ApiResponse:
         "canon_proposal_action_failed",
         str(error),
     )
+
+
+def _import_book_json(db_path: Path, body: dict[str, Any]) -> ApiResponse:
+    raw_json = _optional_text(body, "projectJson", "project_json") or ""
+    try:
+        engine = create_engine_for_path(db_path)
+        create_db_and_tables(engine)
+        with Session(engine) as session:
+            book = import_book_json(session, raw_json)
+            payload_book = book_payload(book)
+    except ValueError as error:
+        return api_error(HTTPStatus.BAD_REQUEST, "import_failed", str(error))
+    book_id = book.id or 0
+    payload = {"book": payload_book, "redirectTo": f"/books/{book_id}"}
+    return ApiResponse(HTTPStatus.OK, payload)
+
+
+def _quality_action_json(
+    db_path: Path,
+    book_id: int,
+    action: str,
+    body: dict[str, Any],
+) -> ApiResponse:
+    if action == "style-assets":
+        return _create_style_asset_json(db_path, book_id, body)
+    if action == "deconstruction-studies":
+        return _create_deconstruction_study_json(db_path, book_id, body)
+    if action == "quality-snapshots":
+        return _create_quality_snapshot_json(db_path, book_id)
+    return api_error(HTTPStatus.NOT_FOUND, "not_found", "API route not found.")
+
+
+def _create_style_asset_json(db_path: Path, book_id: int, body: dict[str, Any]) -> ApiResponse:
+    try:
+        engine = create_engine_for_path(db_path)
+        create_db_and_tables(engine)
+        with Session(engine) as session:
+            asset = create_style_asset(
+                session,
+                book_id,
+                _optional_text(body, "name") or "",
+                _optional_text(body, "referenceText", "reference_text") or "",
+                _optional_text(body, "sourceTitle", "source_title"),
+            )
+    except ValueError as error:
+        return _quality_action_error(error)
+    return ApiResponse(HTTPStatus.OK, {"styleAsset": style_asset_payload(asset)})
+
+
+def _create_deconstruction_study_json(
+    db_path: Path,
+    book_id: int,
+    body: dict[str, Any],
+) -> ApiResponse:
+    try:
+        engine = create_engine_for_path(db_path)
+        create_db_and_tables(engine)
+        with Session(engine) as session:
+            study = deconstruct_reference_text(
+                session,
+                book_id,
+                _optional_text(body, "sourceTitle", "source_title") or "",
+                _optional_text(body, "referenceText", "reference_text") or "",
+            )
+    except ValueError as error:
+        return _quality_action_error(error)
+    return ApiResponse(HTTPStatus.OK, {"deconstructionStudy": deconstruction_study_payload(study)})
+
+
+def _create_quality_snapshot_json(db_path: Path, book_id: int) -> ApiResponse:
+    try:
+        engine = create_engine_for_path(db_path)
+        create_db_and_tables(engine)
+        with Session(engine) as session:
+            generate_quality_snapshot(session, book_id)
+    except ValueError as error:
+        return _quality_action_error(error)
+    payload = quality_payload(db_path, book_id)
+    if payload is None:
+        return api_error(HTTPStatus.NOT_FOUND, "book_not_found", "Book not found.")
+    return ApiResponse(HTTPStatus.OK, payload)
+
+
+def _quality_action_error(error: ValueError) -> ApiResponse:
+    return api_error(HTTPStatus.BAD_REQUEST, "quality_action_failed", str(error))
+
+
+def _check_update_json(body: dict[str, Any]) -> ApiResponse:
+    manifest_url = _optional_text(body, "manifestUrl", "manifest_url") or ""
+    try:
+        manifest = fetch_update_manifest(manifest_url)
+        result = check_for_update(
+            __version__,
+            manifest,
+            skipped_version=_optional_text(body, "skippedVersion", "skipped_version"),
+        )
+    except Exception as error:  # noqa: BLE001
+        return api_error(HTTPStatus.BAD_REQUEST, "update_action_failed", str(error))
+    return ApiResponse(HTTPStatus.OK, {"result": _update_result_payload(result)})
+
+
+def _stage_update_json(db_path: Path, body: dict[str, Any]) -> ApiResponse:
+    manifest_url = _optional_text(body, "manifestUrl", "manifest_url") or ""
+    try:
+        manifest = fetch_update_manifest(manifest_url)
+        result = check_for_update(__version__, manifest)
+        if not result.available:
+            return ApiResponse(HTTPStatus.OK, {"result": _update_result_payload(result)})
+        staged_install = prepare_update_install(
+            manifest,
+            db_path,
+            db_path.parent / "updates",
+            current_version=__version__,
+        )
+    except Exception as error:  # noqa: BLE001
+        return api_error(HTTPStatus.BAD_REQUEST, "update_action_failed", str(error))
+    return ApiResponse(
+        HTTPStatus.OK,
+        {
+            "result": _update_result_payload(result),
+            "stagedInstall": {
+                "planPath": str(staged_install.plan_path),
+                "payload": staged_install.payload,
+            },
+        },
+    )
+
+
+def _update_result_payload(result) -> dict[str, Any]:
+    return {
+        "available": result.available,
+        "version": result.version,
+        "url": result.url,
+        "sha256": result.sha256,
+        "notes": result.notes,
+        "publishedAt": result.published_at,
+        "sizeLabel": result.size_label,
+    }
+
+
+def _export_book_json(db_path: Path, book_id: int, export_format: str) -> ApiResponse:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = get_book(session, book_id)
+        if book is None:
+            return api_error(HTTPStatus.NOT_FOUND, "book_not_found", "Book not found.")
+        chapters = list_chapters_for_book(session, book_id)
+        canon = get_latest_canon(session, book_id)
+        if export_format == "markdown":
+            return ApiResponse(
+                HTTPStatus.OK,
+                export_book_markdown(book, chapters),
+                "text/markdown; charset=utf-8",
+            )
+        if export_format == "json":
+            return ApiResponse(HTTPStatus.OK, json.loads(export_book_json(book, canon, chapters)))
+    return api_error(HTTPStatus.NOT_FOUND, "not_found", "API route not found.")
 
 
 def _chapter_action_json(

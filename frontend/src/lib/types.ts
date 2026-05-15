@@ -79,12 +79,56 @@ export type VolumePlanPayload = {
   commitments: unknown[];
 };
 
+export type StyleAssetPayload = {
+  id: number | null;
+  bookId: number;
+  name: string;
+  sourceTitle: string | null;
+  sourceExcerpt: string;
+  fingerprint: Record<string, unknown>;
+  guidance: Record<string, unknown>;
+  createdAt: string | null;
+};
+
+export type DeconstructionStudyPayload = {
+  id: number | null;
+  bookId: number;
+  sourceTitle: string;
+  sourceExcerpt: string;
+  beatMap: unknown[];
+  craftNotes: Record<string, unknown>;
+  createdAt: string | null;
+};
+
+export type QualitySnapshotPayload = {
+  id: number | null;
+  bookId: number;
+  score: number;
+  metrics: Record<string, unknown>;
+  recommendations: unknown[];
+  createdAt: string | null;
+};
+
+export type CostStrategyPayload = {
+  mode: string;
+  batch_limit: number;
+  context_policy: string;
+};
+
 export type BookResponse = {
   book: BookPayload;
   chapters: ChapterPayload[];
   latestCanon: CanonPayload | null;
   runTraces: RunTracePayload[];
   volumePlans: VolumePlanPayload[];
+};
+
+export type QualityResponse = {
+  book: BookPayload;
+  styleAssets: StyleAssetPayload[];
+  deconstructionStudies: DeconstructionStudyPayload[];
+  latestSnapshot: QualitySnapshotPayload | null;
+  costStrategy: CostStrategyPayload | null;
 };
 
 export type ChapterResponse = {

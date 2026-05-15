@@ -1,10 +1,13 @@
 import { ProviderConfigPage } from "@/features/provider-config/ProviderConfigPage";
 import { WorkbenchPage } from "@/features/workbench/WorkbenchPage";
 import { BookWorkspacePage } from "@/features/books/BookWorkspacePage";
+import { ImportBookPage } from "@/features/books/ImportBookPage";
 import { TrustedStatePage } from "@/features/canon/TrustedStatePage";
 import { ChapterPage } from "@/features/chapters/ChapterPage";
 import { BlueprintPage } from "@/features/open-book/BlueprintPage";
 import { OpenBookPage } from "@/features/open-book/OpenBookPage";
+import { QualityPage } from "@/features/quality/QualityPage";
+import { UpdatesPage } from "@/features/updates/UpdatesPage";
 
 type RouteMatch = {
   activePath: string;
@@ -22,6 +25,20 @@ export function routeForPath(pathname: string): RouteMatch {
     return {
       activePath: "/books/new",
       element: <OpenBookPage />,
+    };
+  }
+
+  if (path === "/books/import") {
+    return {
+      activePath: "/books/import",
+      element: <ImportBookPage />,
+    };
+  }
+
+  if (path === "/updates") {
+    return {
+      activePath: "/updates",
+      element: <UpdatesPage />,
     };
   }
 
@@ -46,6 +63,14 @@ export function routeForPath(pathname: string): RouteMatch {
     return {
       activePath: "/chapters/:id",
       element: <ChapterPage chapterId={chapterId} />,
+    };
+  }
+
+  const qualityBookId = parseBookQualityPath(path);
+  if (qualityBookId !== null) {
+    return {
+      activePath: "/books/:id/quality",
+      element: <QualityPage bookId={qualityBookId} />,
     };
   }
 
@@ -105,6 +130,11 @@ function parseBookProjectPath(path: string): number | null {
 
 function parseBookStatePath(path: string): number | null {
   const match = path.match(/^\/books\/(\d+)\/state$/);
+  return match ? Number(match[1]) : null;
+}
+
+function parseBookQualityPath(path: string): number | null {
+  const match = path.match(/^\/books\/(\d+)\/quality$/);
   return match ? Number(match[1]) : null;
 }
 

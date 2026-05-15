@@ -1,0 +1,163 @@
+import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+
+import { routeForPath } from "@/app/AppRoutes";
+import { ImportBookPage } from "@/features/books/ImportBookPage";
+import { QualityPage } from "@/features/quality/QualityPage";
+import { UpdatesPage } from "@/features/updates/UpdatesPage";
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+test("routes secondary product pages", () => {
+  expect(routeForPath("/books/import").element).toEqual(<ImportBookPage />);
+  expect(routeForPath("/books/42/quality").element).toEqual(<QualityPage bookId={42} />);
+  expect(routeForPath("/updates").element).toEqual(<UpdatesPage />);
+});
+
+test("import page posts project json and navigates to imported book", async () => {
+  const fetchMock = vi.fn(async () =>
+    Response.json({
+      book: {
+        id: 42,
+        title: "星港遗梦",
+        genre: "科幻",
+        audience: "成人",
+        status: "producing",
+        premise: null,
+      },
+      redirectTo: "/books/42",
+    }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ImportBookPage />);
+
+  fireEvent.change(screen.getByLabelText("项目 JSON"), {
+    target: { value: "{\"book\":{\"title\":\"星港遗梦\"}}" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "导入项目" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/books/import",
+      expect.objectContaining({ method: "POST" }),
+    ),
+  );
+  expect(window.location.pathname).toBe("/books/42");
+});
+
+test("quality page renders assets and creates a quality snapshot", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(qualityPayload()))
+    .mockResolvedValueOnce(Response.json(qualityPayload({ score: 91 })));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<QualityPage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "质量中心" })).toBeInTheDocument());
+  expect(screen.getByText("雾谷悬疑节奏")).toBeInTheDocument();
+  expect(screen.getByText("参考章节")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "刷新质量分析" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/books/42/quality-snapshots",
+      expect.objectContaining({ method: "POST" }),
+    ),
+  );
+  expect(screen.getByText("91")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "导出 Markdown" })).toHaveAttribute("href", "/api/books/42/export.md");
+  expect(screen.getByRole("link", { name: "导出 JSON" })).toHaveAttribute("href", "/api/books/42/export.json");
+});
+
+test("updates page checks manifest and renders json result", async () => {
+  const fetchMock = vi.fn(async () =>
+    Response.json({
+      result: {
+        available: true,
+        version: "0.2.0",
+        notes: "修复章节恢复。",
+        sizeLabel: "120.6 KB",
+        publishedAt: "2026-05-11T00:00:00Z",
+        sha256: "abc123",
+        url: "https://example.test/MyNovel.dmg",
+      },
+    }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<UpdatesPage />);
+
+  fireEvent.change(screen.getByLabelText("更新元数据地址"), {
+    target: { value: "https://example.test/update.json" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/updates/check",
+      expect.objectContaining({ method: "POST" }),
+    ),
+  );
+  expect(screen.getByText("发现新版本 0.2.0")).toBeInTheDocument();
+  expect(screen.getByText("修复章节恢复。")).toBeInTheDocument();
+});
+
+function qualityPayload({ score = 73 }: { score?: number } = {}) {
+  return {
+    book: {
+      id: 42,
+      title: "星港遗梦",
+      genre: "科幻",
+      audience: "成人",
+      status: "producing",
+      premise: "领航员追查失落星港的真相。",
+    },
+    styleAssets: [
+      {
+        id: 2,
+        bookId: 42,
+        name: "雾谷悬疑节奏",
+        sourceTitle: "雾谷",
+        sourceExcerpt: "雾贴着石阶流动。",
+        fingerprint: { average_sentence_chars: 14.2 },
+        guidance: { style_rules: ["保持短句推进。"] },
+        createdAt: "2026-05-16T00:00:00+00:00",
+      },
+    ],
+    deconstructionStudies: [
+      {
+        id: 3,
+        bookId: 42,
+        sourceTitle: "参考章节",
+        sourceExcerpt: "莉拉离开村庄。",
+        beatMap: [{ beat: "开局钩子", summary: "莉拉离开村庄。" }],
+        craftNotes: { reusable_moves: ["先给人物动作，再揭示异常信号。"] },
+        createdAt: "2026-05-16T00:00:00+00:00",
+      },
+    ],
+    latestSnapshot: {
+      id: 4,
+      bookId: 42,
+      score,
+      metrics: {
+        accepted_chapters: 3,
+        review_backlog: 1,
+        high_risk_issues: 0,
+        estimated_chars: 12000,
+      },
+      recommendations: ["质量状态稳定，可以继续按当前节奏生产。"],
+      createdAt: "2026-05-16T00:00:00+00:00",
+    },
+    costStrategy: {
+      mode: "balanced",
+      batch_limit: 5,
+      context_policy: "保留关键人物、伏笔和最近章节摘要。",
+    },
+  };
+}

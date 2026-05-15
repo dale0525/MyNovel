@@ -13,10 +13,13 @@ from mynovel.domain.models import (
     CanonProposalRevision,
     CanonProposalRevisionStatus,
     Chapter,
+    DeconstructionStudy,
     OpenBookBlueprint,
     ProviderConfig,
     ProviderConfigValidation,
+    QualitySnapshot,
     RunTrace,
+    StyleAsset,
     VolumePlan,
 )
 from mynovel.domain.repositories import (
@@ -26,8 +29,11 @@ from mynovel.domain.repositories import (
     get_provider_config,
     get_provider_config_validation,
     list_chapters_for_book,
+    list_deconstruction_studies_for_book,
     list_pending_canon_proposal_revisions_for_book,
+    list_quality_snapshots_for_book,
     list_run_traces_for_book,
+    list_style_assets_for_book,
     list_volume_plans_for_book,
 )
 from mynovel.provider_config_validation import provider_model_fingerprint
@@ -38,6 +44,7 @@ from mynovel.workflows.canon_proposal import (
     locks_hash,
     section_locks_for_book,
 )
+from mynovel.workflows.quality_enhancement import recommend_cost_strategy
 
 
 def app_bootstrap_payload(db_path: Path) -> dict[str, Any]:
@@ -145,6 +152,42 @@ def run_trace_payload(trace: RunTrace) -> dict[str, Any]:
     }
 
 
+def style_asset_payload(asset: StyleAsset) -> dict[str, Any]:
+    return {
+        "id": asset.id,
+        "bookId": asset.book_id,
+        "name": asset.name,
+        "sourceTitle": asset.source_title,
+        "sourceExcerpt": asset.source_excerpt,
+        "fingerprint": asset.fingerprint,
+        "guidance": asset.guidance,
+        "createdAt": _isoformat(asset.created_at),
+    }
+
+
+def deconstruction_study_payload(study: DeconstructionStudy) -> dict[str, Any]:
+    return {
+        "id": study.id,
+        "bookId": study.book_id,
+        "sourceTitle": study.source_title,
+        "sourceExcerpt": study.source_excerpt,
+        "beatMap": study.beat_map,
+        "craftNotes": study.craft_notes,
+        "createdAt": _isoformat(study.created_at),
+    }
+
+
+def quality_snapshot_payload(snapshot: QualitySnapshot) -> dict[str, Any]:
+    return {
+        "id": snapshot.id,
+        "bookId": snapshot.book_id,
+        "score": snapshot.score,
+        "metrics": snapshot.metrics,
+        "recommendations": snapshot.recommendations,
+        "createdAt": _isoformat(snapshot.created_at),
+    }
+
+
 def volume_plan_payload(volume_plan: VolumePlan) -> dict[str, Any]:
     return {
         "id": volume_plan.id,
@@ -223,6 +266,37 @@ def book_detail_payload(db_path: Path, book_id: int) -> dict[str, Any] | None:
             "latestCanon": canon_payload(canon) if canon is not None else None,
             "runTraces": [run_trace_payload(trace) for trace in run_traces],
             "volumePlans": [volume_plan_payload(volume_plan) for volume_plan in volume_plans],
+        }
+
+
+def quality_payload(db_path: Path, book_id: int) -> dict[str, Any] | None:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = session.get(Book, book_id)
+        if book is None:
+            return None
+        snapshots = list_quality_snapshots_for_book(session, book_id)
+        latest_snapshot = snapshots[-1] if snapshots else None
+        return {
+            "book": book_payload(book),
+            "styleAssets": [
+                style_asset_payload(asset) for asset in list_style_assets_for_book(session, book_id)
+            ],
+            "deconstructionStudies": [
+                deconstruction_study_payload(study)
+                for study in list_deconstruction_studies_for_book(session, book_id)
+            ],
+            "latestSnapshot": (
+                quality_snapshot_payload(latest_snapshot)
+                if latest_snapshot is not None
+                else None
+            ),
+            "costStrategy": (
+                recommend_cost_strategy(latest_snapshot)
+                if latest_snapshot is not None
+                else None
+            ),
         }
 
 
