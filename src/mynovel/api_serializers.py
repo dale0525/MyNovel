@@ -6,15 +6,30 @@ from typing import Any
 from sqlmodel import Session
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
+from mynovel.domain.models import ProviderConfig, ProviderConfigValidation
 from mynovel.domain.repositories import get_provider_config, get_provider_config_validation
+from mynovel.provider_config_validation import provider_model_fingerprint
 
 
 def app_bootstrap_payload(db_path: Path) -> dict[str, Any]:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
-        configured = (
-            get_provider_config(session) is not None
-            and get_provider_config_validation(session) is not None
+        configured = is_provider_config_validated(
+            get_provider_config(session),
+            get_provider_config_validation(session),
         )
     return {"providerConfigured": configured, "initialRoute": "/" if configured else "/setup", "message": None}
+
+
+def is_provider_config_validated(
+    config: ProviderConfig | None,
+    validation: ProviderConfigValidation | None,
+) -> bool:
+    if config is None or validation is None:
+        return False
+    return (
+        validation.llm_fingerprint == provider_model_fingerprint(config, "llm")
+        and validation.embedding_fingerprint == provider_model_fingerprint(config, "embedding")
+        and validation.rerank_fingerprint == provider_model_fingerprint(config, "rerank")
+    )

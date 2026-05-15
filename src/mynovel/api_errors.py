@@ -18,3 +18,7 @@ def api_error(
     details: dict[str, Any] | None = None,
 ) -> ApiResponse:
     return ApiResponse(status, {"error": {"code": code, "message": message, "details": details or {}}})
+
+
+def invalid_json_response() -> ApiResponse:
+    return api_error(HTTPStatus.BAD_REQUEST, "invalid_json", "Invalid JSON request body.")

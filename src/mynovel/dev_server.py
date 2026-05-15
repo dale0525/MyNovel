@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from sqlmodel import Session, select
 
 from mynovel.api_errors import ApiResponse
-from mynovel.api_routes import dispatch_api_get, dispatch_api_post
+from mynovel.api_routes import dispatch_api_get, dispatch_api_post, read_api_json_body
 from mynovel.book_abandonment import AbandonBookError, abandon_draft_book_from_form
 from mynovel.blueprint_acceptance import (
     BlueprintNotFoundError,
@@ -158,8 +158,12 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             if _is_api_path(parsed.path):
+                body, error = self._read_json()
+                if error is not None:
+                    self._send_api_response(error)
+                    return
                 self._send_api_response(
-                    dispatch_api_post(parsed.path, self._read_json(), state.db_path)
+                    dispatch_api_post(parsed.path, body, state.db_path)
                 )
                 return
             if canon_server.is_canon_proposal_post_path(parsed.path):
@@ -657,9 +661,8 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             body = self.rfile.read(length).decode("utf-8")
             return {key: values[-1].strip() for key, values in parse_qs(body).items()}
 
-        def _read_json(self) -> dict:
-            length = int(self.headers.get("Content-Length", "0"))
-            return {} if length == 0 else json.loads(self.rfile.read(length).decode("utf-8"))
+        def _read_json(self) -> tuple[dict[str, Any], ApiResponse | None]:
+            return read_api_json_body(self.headers.get("Content-Length"), self.rfile.read)
 
         def _send_html(self, body: str, status: HTTPStatus = HTTPStatus.OK) -> None:
             payload = body.encode("utf-8")

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
-from mynovel.api_errors import ApiResponse, api_error
+from mynovel.api_errors import ApiResponse, api_error, invalid_json_response
 from mynovel.api_serializers import app_bootstrap_payload
 
 
@@ -16,3 +18,19 @@ def dispatch_api_get(path: str, query: str, db_path: Path) -> ApiResponse:
 
 def dispatch_api_post(path: str, body: dict[str, Any], db_path: Path) -> ApiResponse:
     return api_error(HTTPStatus.NOT_FOUND, "not_found", "API route not found.")
+
+
+def read_api_json_body(
+    content_length: str | None,
+    read: Callable[[int], bytes],
+) -> tuple[dict[str, Any], ApiResponse | None]:
+    try:
+        length = int("0" if content_length is None else content_length)
+        if length < 0:
+            raise ValueError
+        body = {} if length == 0 else json.loads(read(length).decode("utf-8"))
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}, invalid_json_response()
+    if not isinstance(body, dict):
+        return {}, invalid_json_response()
+    return body, None
