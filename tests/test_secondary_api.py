@@ -46,6 +46,13 @@ def test_update_check_returns_json_instead_of_html(tmp_path: Path, monkeypatch) 
         )
 
     monkeypatch.setattr(api_routes, "fetch_update_manifest", fetch_manifest, raising=False)
+    monkeypatch.setattr(api_routes, "_allowed_update_hosts", lambda: {"example.test"}, raising=False)
+    monkeypatch.setattr(
+        api_routes,
+        "_resolve_update_host_addresses",
+        lambda host: ["93.184.216.34"],
+        raising=False,
+    )
 
     response = dispatch_api_post(
         "/api/updates/check",
@@ -79,6 +86,80 @@ def test_update_check_rejects_private_or_non_https_urls(tmp_path: Path) -> None:
     assert loopback_response.body["error"]["code"] == "update_action_failed"
 
 
+def test_update_check_rejects_hostnames_that_resolve_to_private_ips(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    def fetch_manifest(_manifest_url: str) -> UpdateManifest:
+        return UpdateManifest(
+            channel="stable",
+            version="0.2.0",
+            url="https://downloads.example.test/MyNovel.dmg",
+            sha256="abc123",
+        )
+
+    monkeypatch.setattr(api_routes, "fetch_update_manifest", fetch_manifest, raising=False)
+    monkeypatch.setattr(
+        api_routes,
+        "_allowed_update_hosts",
+        lambda: {"updates.example.test", "downloads.example.test"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        api_routes,
+        "_resolve_update_host_addresses",
+        lambda host: ["10.0.0.5"] if host == "updates.example.test" else ["93.184.216.34"],
+        raising=False,
+    )
+
+    response = dispatch_api_post(
+        "/api/updates/check",
+        {"manifestUrl": "https://updates.example.test/update.json"},
+        tmp_path / "dev.sqlite",
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["error"]["code"] == "update_action_failed"
+    assert "private" in response.body["error"]["message"]
+
+
+def test_update_check_rejects_hosts_outside_update_allowlist(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    def fetch_manifest(_manifest_url: str) -> UpdateManifest:
+        return UpdateManifest(
+            channel="stable",
+            version="0.2.0",
+            url="https://downloads.example.test/MyNovel.dmg",
+            sha256="abc123",
+        )
+
+    monkeypatch.setattr(api_routes, "fetch_update_manifest", fetch_manifest, raising=False)
+    monkeypatch.setattr(
+        api_routes,
+        "_allowed_update_hosts",
+        lambda: {"updates.example.test"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        api_routes,
+        "_resolve_update_host_addresses",
+        lambda _host: ["93.184.216.34"],
+        raising=False,
+    )
+
+    response = dispatch_api_post(
+        "/api/updates/check",
+        {"manifestUrl": "https://attacker.example.test/update.json"},
+        tmp_path / "dev.sqlite",
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["error"]["code"] == "update_action_failed"
+    assert "not an allowed update host" in response.body["error"]["message"]
+
+
 def test_update_check_rejects_unsafe_artifact_url(tmp_path: Path, monkeypatch) -> None:
     def fetch_manifest(_manifest_url: str) -> UpdateManifest:
         return UpdateManifest(
@@ -89,6 +170,13 @@ def test_update_check_rejects_unsafe_artifact_url(tmp_path: Path, monkeypatch) -
         )
 
     monkeypatch.setattr(api_routes, "fetch_update_manifest", fetch_manifest, raising=False)
+    monkeypatch.setattr(api_routes, "_allowed_update_hosts", lambda: {"example.test"}, raising=False)
+    monkeypatch.setattr(
+        api_routes,
+        "_resolve_update_host_addresses",
+        lambda host: ["93.184.216.34"],
+        raising=False,
+    )
 
     response = dispatch_api_post(
         "/api/updates/check",
