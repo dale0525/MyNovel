@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 import { getJson } from "@/lib/api";
 import type { BootstrapPayload } from "@/lib/types";
@@ -27,12 +27,19 @@ export function BootstrapGate({
       ? { status: "ready", payload: bootstrap, error: null }
       : { status: "loading", payload: null, error: null },
   );
-  const [pathname, setPathname] = useState(() => window.location.pathname);
+  const [locationState, setLocationState] = useState(() => ({
+    pathname: window.location.pathname,
+    revision: 0,
+  }));
 
   useEffect(() => {
     if (bootstrap) {
       setState({ status: "ready", payload: bootstrap, error: null });
-      setPathname(window.location.pathname);
+      setLocationState((current) => ({
+        pathname: window.location.pathname,
+        revision:
+          current.pathname === window.location.pathname ? current.revision : current.revision + 1,
+      }));
       return;
     }
 
@@ -60,7 +67,10 @@ export function BootstrapGate({
 
   useEffect(() => {
     function syncPathname() {
-      setPathname(window.location.pathname);
+      setLocationState((current) => ({
+        pathname: window.location.pathname,
+        revision: current.revision + 1,
+      }));
     }
 
     window.addEventListener("popstate", syncPathname);
@@ -97,9 +107,15 @@ export function BootstrapGate({
     );
   }
 
-  const route = routeForPath(pathname);
+  const route = routeForPath(locationState.pathname);
 
-  return <AppShell activePath={route.activePath}>{route.element}</AppShell>;
+  return (
+    <AppShell activePath={route.activePath}>
+      <Fragment key={`${locationState.pathname}:${locationState.revision}`}>
+        {route.element}
+      </Fragment>
+    </AppShell>
+  );
 }
 
 function fetchAppBootstrap(): Promise<BootstrapPayload> {

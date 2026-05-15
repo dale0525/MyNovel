@@ -483,6 +483,47 @@ test("BootstrapGate rerenders route after blueprint revision navigation", async 
   expect(fetchMock).toHaveBeenCalledWith("/api/blueprints/4", expect.anything());
 });
 
+test("BootstrapGate refetches blueprint after same-route retry navigation", async () => {
+  window.history.pushState(null, "", "/blueprints/3");
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === "/api/blueprints/3") {
+      const calls = fetchMock.mock.calls.filter(([calledPath]) => calledPath === path).length;
+      return Response.json({
+        blueprint: {
+          id: 3,
+          parentId: null,
+          idea: "一座图书馆",
+          version: 1,
+          status: calls === 1 ? "failed" : "pending",
+          instruction: null,
+          content: {},
+          parseError: calls === 1 ? "invalid json" : null,
+          errorMessage: calls === 1 ? "模型没有返回 JSON" : null,
+        },
+      });
+    }
+    if (path === "/api/blueprints/3/retry") {
+      return Response.json({ blueprintId: 3, redirectTo: "/blueprints/3" }, { status: 202 });
+    }
+    return Response.json({}, { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(
+    <BootstrapGate
+      bootstrap={{ providerConfigured: true, initialRoute: "/blueprints/3", message: null }}
+    />,
+  );
+
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("模型没有返回 JSON"));
+  fireEvent.click(screen.getByRole("button", { name: "重试生成" }));
+
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("蓝图排队中"));
+  expect(window.location.pathname).toBe("/blueprints/3");
+  expect(fetchMock.mock.calls.filter(([path]) => path === "/api/blueprints/3")).toHaveLength(2);
+});
+
 test("BootstrapGate routes configured settings path inside the app shell", () => {
   window.history.pushState(null, "", "/settings/provider");
 
