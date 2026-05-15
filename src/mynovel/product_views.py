@@ -83,6 +83,18 @@ def render_home(
 ) -> str:
     blueprints = blueprints or []
     configured = is_provider_config_complete(provider_config)
+    if not configured:
+        return _page(
+            title=t("model.title", locale),
+            active="create",
+            main=render_model_setup_content(db_path, provider_config, locale),
+            message=message,
+            bottom="",
+            locale=locale,
+            db_path=db_path,
+            eyebrow=t("model.title", locale),
+            content_class="content-grid model-setup-layout",
+        )
     if books:
         main = render_project_home(books, blueprints, configured, locale)
         content_class = "content-grid home-focus-layout"

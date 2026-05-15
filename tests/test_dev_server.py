@@ -74,11 +74,13 @@ def test_home_page_renders_product_surface() -> None:
 
     assert 'lang="zh-CN"' in page
     assert "MyNovel" in page
-    assert "先写下第一本书的核心灵感" in page
+    assert "连接你的 AI 模型" in page
     assert "模型配置" in page
-    assert "模型未配置" in page
-    assert "创建第一本书" in page
-    assert "可信设定" in page
+    assert "连接检查" in page
+    assert "先写下第一本书的核心灵感" not in page
+    assert "创建第一本书" not in page
+    assert "最近结果" not in page
+    assert "生产流水线" not in page
     assert ".mynovel/dev.sqlite" in page
     assert "Ready" in page
 
@@ -93,10 +95,14 @@ def test_home_page_renders_focused_next_action_language() -> None:
     )
     provider_config = ProviderConfig(
         llm_base_url="https://api.example.test/v1",
+        llm_api_key="sk-test",
         llm_model="gpt-test",
         embedding_use_llm_credentials=True,
         embedding_base_url="",
         embedding_model="text-embedding-test",
+        rerank_use_llm_credentials=True,
+        rerank_base_url="",
+        rerank_model="rerank-test",
     )
     blueprint = OpenBookBlueprint(
         id=8,

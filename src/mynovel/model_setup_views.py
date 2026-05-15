@@ -5,6 +5,7 @@ from pathlib import Path
 
 from mynovel.domain.models import ProviderConfig
 from mynovel.i18n import DEFAULT_LOCALE
+from mynovel.path_display import display_path
 from mynovel.provider_config_validation import ProviderValidationReport
 
 
@@ -115,7 +116,7 @@ def render_model_setup_content(
             <li>可以随时备份或迁移到其他设备</li>
           </ul>
           <a class="button secondary" href="/">查看数据位置</a>
-          <p class="db-path">{html.escape(str(db_path))}</p>
+          <p class="db-path">{html.escape(display_path(db_path))}</p>
         </section>
       </aside>
 """

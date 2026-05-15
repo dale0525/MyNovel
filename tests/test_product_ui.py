@@ -26,18 +26,32 @@ from mynovel.provider_config_validation import ProviderCheckResult, ProviderVali
 from mynovel.ui_shell import app_css, render_app_page
 
 
+def _complete_provider_config() -> ProviderConfig:
+    return ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_api_key="sk-test",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-test",
+        rerank_use_llm_credentials=True,
+        rerank_base_url="",
+        rerank_model="rerank-test",
+    )
+
+
 def test_home_page_uses_product_language_without_exposed_english_terms() -> None:
     page = render_home(
         Path(".mynovel/dev.sqlite"),
         books=[],
-        provider_config=None,
+        provider_config=_complete_provider_config(),
         blueprints=[],
         message=None,
     )
 
     assert "MyNovel" in page
     assert "创建第一本书" in page
-    assert "模型未配置" in page
+    assert "模型已配置" in page
     assert "可信设定" in page
 
     forbidden_terms = [
@@ -66,13 +80,7 @@ def test_home_page_prioritizes_single_next_action_card() -> None:
         audience="成长冒险读者",
         status=BookStatus.PRODUCING,
     )
-    provider_config = ProviderConfig(
-        llm_base_url="https://api.example.test/v1",
-        llm_model="gpt-test",
-        embedding_use_llm_credentials=True,
-        embedding_base_url="",
-        embedding_model="text-embedding-test",
-    )
+    provider_config = _complete_provider_config()
     blueprint = OpenBookBlueprint(
         id=7,
         idea="失意档案员重建禁书馆",
@@ -116,13 +124,7 @@ def test_home_page_prefers_newest_result_across_books_and_blueprints() -> None:
         created_at=datetime(2026, 5, 14, 7, 0, tzinfo=UTC),
         updated_at=datetime(2026, 5, 15, 9, 0, tzinfo=UTC),
     )
-    provider_config = ProviderConfig(
-        llm_base_url="https://api.example.test/v1",
-        llm_model="gpt-test",
-        embedding_use_llm_credentials=True,
-        embedding_base_url="",
-        embedding_model="text-embedding-test",
-    )
+    provider_config = _complete_provider_config()
 
     page = render_home(Path("/tmp/demo.db"), [newer_book], provider_config, [older_blueprint])
 
@@ -139,13 +141,7 @@ def test_home_page_escapes_recent_result_titles() -> None:
         status=BookStatus.PRODUCING,
         updated_at=datetime(2026, 5, 15, 10, 0, tzinfo=UTC),
     )
-    provider_config = ProviderConfig(
-        llm_base_url="https://api.example.test/v1",
-        llm_model="gpt-test",
-        embedding_use_llm_credentials=True,
-        embedding_base_url="",
-        embedding_model="text-embedding-test",
-    )
+    provider_config = _complete_provider_config()
 
     page = render_home(Path("/tmp/demo.db"), [book], provider_config, [])
 
@@ -162,13 +158,7 @@ def test_project_home_uses_translation_for_settings_link(monkeypatch) -> None:
         audience="悬疑推理读者",
         status=BookStatus.PRODUCING,
     )
-    provider_config = ProviderConfig(
-        llm_base_url="https://api.example.test/v1",
-        llm_model="gpt-test",
-        embedding_use_llm_credentials=True,
-        embedding_base_url="",
-        embedding_model="text-embedding-test",
-    )
+    provider_config = _complete_provider_config()
 
     page = render_home(Path("/tmp/demo.db"), [book], provider_config, [])
 
@@ -207,24 +197,18 @@ def test_first_launch_home_matches_empty_project_flow_surface() -> None:
         message=None,
     )
 
-    assert "first-launch-layout" in page
-    assert "first-launch-hero" in page
-    assert 'href="/books/new"' in page
-    assert 'href="/books/import"' in page
-    assert 'href="/provider-config"' in page
-    assert "先写下第一本书的核心灵感" in page
-    assert "你现在只需要做什么" in page
-    assert "最近结果" in page
-    assert "打开项目" in page
-    assert '<a class="button secondary compact-button" href="/books/import">打开项目</a>' in page
-    assert "模型就绪状态" in page
-    assert "模型未配置" in page
-    assert "生产流水线" in page
-    assert "开书" in page
-    assert "定盘" in page
-    assert "生成" in page
-    assert "审核" in page
-    assert "写入可信设定" in page
+    assert "model-setup-layout" in page
+    assert "连接你的 AI 模型" in page
+    assert "连接检查" in page
+    assert '<div class="content-grid first-launch-layout">' not in page
+    assert '<section class="main-panel current-focus-card first-launch-hero">' not in page
+    assert '<a class="button launch-primary" href="/books/new">' not in page
+    assert 'href="/books/import"' not in page
+    assert "先写下第一本书的核心灵感" not in page
+    assert "最近结果" not in page
+    assert "模型就绪状态" not in page
+    assert "生产流水线" not in page
+    assert "保存并测试模型" in page
 
 
 def test_import_project_page_exposes_json_import_form() -> None:
@@ -249,7 +233,7 @@ def test_empty_home_keeps_latest_blueprint_entry_visible() -> None:
     page = render_home(
         Path(".mynovel/dev.sqlite"),
         books=[],
-        provider_config=None,
+        provider_config=_complete_provider_config(),
         blueprints=[blueprint],
         message=None,
     )
@@ -893,7 +877,7 @@ def test_home_page_opts_into_compact_global_status_strip_tokens() -> None:
     page = render_home(
         Path(".mynovel/dev.sqlite"),
         books=[],
-        provider_config=None,
+        provider_config=_complete_provider_config(),
         blueprints=[],
         message=None,
     )
