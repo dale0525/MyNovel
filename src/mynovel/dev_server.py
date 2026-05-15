@@ -13,6 +13,8 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from sqlmodel import Session, select
 
+from mynovel.api_errors import ApiResponse
+from mynovel.api_routes import dispatch_api_get, dispatch_api_post
 from mynovel.book_abandonment import AbandonBookError, abandon_draft_book_from_form
 from mynovel.blueprint_acceptance import (
     BlueprintNotFoundError,
@@ -140,7 +142,9 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(build_health_payload(state.db_path))
                 return
             if route == "api":
-                self.send_error(HTTPStatus.NOT_FOUND)
+                self._send_api_response(
+                    dispatch_api_get(parsed.path, parsed.query, state.db_path)
+                )
                 return
             if route == "book_export":
                 book_id, export_format = _parse_book_export(parsed.path)
@@ -153,6 +157,11 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
+            if _is_api_path(parsed.path):
+                self._send_api_response(
+                    dispatch_api_post(parsed.path, self._read_json(), state.db_path)
+                )
+                return
             if canon_server.is_canon_proposal_post_path(parsed.path):
                 canon_response = canon_server.dispatch_canon_proposal_post(
                     parsed.path,
@@ -648,6 +657,10 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             body = self.rfile.read(length).decode("utf-8")
             return {key: values[-1].strip() for key, values in parse_qs(body).items()}
 
+        def _read_json(self) -> dict:
+            length = int(self.headers.get("Content-Length", "0"))
+            return {} if length == 0 else json.loads(self.rfile.read(length).decode("utf-8"))
+
         def _send_html(self, body: str, status: HTTPStatus = HTTPStatus.OK) -> None:
             payload = body.encode("utf-8")
             self.send_response(status)
@@ -660,6 +673,14 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             payload = json.dumps(body).encode("utf-8")
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def _send_api_response(self, response: ApiResponse) -> None:
+            payload = json.dumps(response.body, ensure_ascii=False).encode("utf-8")
+            self.send_response(response.status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
@@ -685,13 +706,17 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
 def _classify_get_path(path: str) -> str:
     if path == "/health":
         return "health"
-    if path.startswith("/api/"):
+    if _is_api_path(path):
         return "api"
     if _parse_book_export(path)[1]:
         return "book_export"
     if _parse_chapter_export_id(path):
         return "chapter_export"
     return "static"
+
+
+def _is_api_path(path: str) -> bool:
+    return path == "/api" or path.startswith("/api/")
 
 
 def _load_books(db_path: Path) -> list[Book]:
