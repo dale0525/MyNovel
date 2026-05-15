@@ -87,9 +87,9 @@ def dispatch_api_get(path: str, query: str, db_path: Path) -> ApiResponse:
         if payload is None:
             return api_error(HTTPStatus.NOT_FOUND, "book_not_found", "Book not found.")
         return ApiResponse(HTTPStatus.OK, payload)
-    book_id = _parse_book_api_path(path)
-    if book_id is not None:
-        payload = book_detail_payload(db_path, book_id)
+    book_detail_id = _parse_book_api_path(path)
+    if book_detail_id is not None:
+        payload = book_detail_payload(db_path, book_detail_id)
         if payload is None:
             return api_error(HTTPStatus.NOT_FOUND, "book_not_found", "Book not found.")
         return ApiResponse(HTTPStatus.OK, payload)
