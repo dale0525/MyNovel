@@ -10,6 +10,7 @@ from mynovel.domain.models import (
     DeconstructionStudy,
     OpenBookBlueprint,
     ProviderConfig,
+    ProviderConfigValidation,
     QualitySnapshot,
     RunTrace,
     StyleAsset,
@@ -249,6 +250,32 @@ def save_provider_config(session: Session, config: ProviderConfig) -> ProviderCo
     existing.rerank_base_url = config.rerank_base_url
     existing.rerank_api_key = config.rerank_api_key
     existing.rerank_model = config.rerank_model
+    existing.updated_at = utc_now()
+    session.add(existing)
+    session.commit()
+    session.refresh(existing)
+    return existing
+
+
+def get_provider_config_validation(session: Session) -> ProviderConfigValidation | None:
+    return session.get(ProviderConfigValidation, 1)
+
+
+def save_provider_config_validation(
+    session: Session,
+    validation: ProviderConfigValidation,
+) -> ProviderConfigValidation:
+    existing = get_provider_config_validation(session)
+    if existing is None:
+        validation.id = 1
+        session.add(validation)
+        session.commit()
+        session.refresh(validation)
+        return validation
+
+    existing.llm_fingerprint = validation.llm_fingerprint
+    existing.embedding_fingerprint = validation.embedding_fingerprint
+    existing.rerank_fingerprint = validation.rerank_fingerprint
     existing.updated_at = utc_now()
     session.add(existing)
     session.commit()

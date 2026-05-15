@@ -204,6 +204,15 @@ class ProviderConfig(SQLModel, table=True):
         return self.rerank_api_key
 
 
+class ProviderConfigValidation(SQLModel, table=True):
+    id: int | None = Field(default=1, primary_key=True)
+    llm_fingerprint: str | None = None
+    embedding_fingerprint: str | None = None
+    rerank_fingerprint: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class OpenBookBlueprint(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     parent_id: int | None = Field(default=None, index=True, foreign_key="openbookblueprint.id")

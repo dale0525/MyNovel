@@ -1,8 +1,13 @@
 from sqlmodel import Session
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import ProviderConfig
-from mynovel.domain.repositories import get_provider_config, save_provider_config
+from mynovel.domain.models import ProviderConfig, ProviderConfigValidation
+from mynovel.domain.repositories import (
+    get_provider_config,
+    get_provider_config_validation,
+    save_provider_config,
+    save_provider_config_validation,
+)
 
 
 def test_provider_config_round_trips_through_sqlite(tmp_path) -> None:
@@ -50,3 +55,25 @@ def test_provider_config_can_reuse_llm_endpoint_for_embedding_and_rerank() -> No
     assert config.resolved_embedding_api_key() == "sk-llm"
     assert config.resolved_rerank_base_url() == "https://api.example.test/v1"
     assert config.resolved_rerank_api_key() == "sk-llm"
+
+
+def test_provider_config_validation_round_trips_through_sqlite(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+
+    with Session(engine) as session:
+        saved = save_provider_config_validation(
+            session,
+            ProviderConfigValidation(
+                llm_fingerprint="llm-pass",
+                embedding_fingerprint="embedding-pass",
+                rerank_fingerprint="rerank-pass",
+            ),
+        )
+        loaded = get_provider_config_validation(session)
+
+    assert saved.id == 1
+    assert loaded is not None
+    assert loaded.llm_fingerprint == "llm-pass"
+    assert loaded.embedding_fingerprint == "embedding-pass"
+    assert loaded.rerank_fingerprint == "rerank-pass"
