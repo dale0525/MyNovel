@@ -185,13 +185,25 @@ def _accepted_book_id(db_path: Path, blueprint_id: int) -> int | None:
     create_db_and_tables(engine)
     with Session(engine) as session:
         acceptance = session.get(BlueprintAcceptance, blueprint_id)
-        if acceptance is None:
+        if acceptance is not None:
+            if acceptance.book_id <= 0:
+                return None
+            if get_book(session, acceptance.book_id) is None:
+                return None
+            return acceptance.book_id
+
+        blueprint = get_open_book_blueprint(session, blueprint_id)
+        if blueprint is None:
             return None
-        if acceptance.book_id <= 0:
+        raw_book_id = blueprint.content.get("accepted_book_id")
+        if not isinstance(raw_book_id, int) or raw_book_id <= 0:
             return None
-        if get_book(session, acceptance.book_id) is None:
+        if get_book(session, raw_book_id) is None:
             return None
-        return acceptance.book_id
+
+        session.add(BlueprintAcceptance(blueprint_id=blueprint_id, book_id=raw_book_id))
+        session.commit()
+        return raw_book_id
 
 
 def _record_accepted_book_id(db_path: Path, blueprint_id: int, book_id: int) -> None:

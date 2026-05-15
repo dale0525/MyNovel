@@ -8,6 +8,7 @@ from typing import Any
 from sqlmodel import Session, select
 
 import mynovel.api_open_book as api_open_book
+import mynovel.blueprint_jobs as blueprint_jobs
 from mynovel.api_routes import dispatch_api_get, dispatch_api_post
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import (
@@ -100,6 +101,20 @@ def test_get_blueprint_returns_json_status_content_and_errors(tmp_path: Path) ->
         "parseError": "invalid json",
         "errorMessage": "model returned prose",
     }
+
+
+def test_get_blueprint_filters_legacy_internal_content_fields(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    blueprint_id = _save_blueprint(
+        db_path,
+        status=BlueprintStatus.SUCCEEDED,
+        content={"title_options": ["长夜档案"], "accepted_book_id": 42},
+    )
+
+    response = dispatch_api_get(f"/api/blueprints/{blueprint_id}", "", db_path)
+
+    assert response.status == HTTPStatus.OK
+    assert response.body["blueprint"]["content"] == {"title_options": ["长夜档案"]}
 
 
 def test_get_blueprint_missing_returns_json_404(tmp_path: Path) -> None:
@@ -211,6 +226,59 @@ def test_revise_blueprint_creates_revision_job(tmp_path: Path, monkeypatch) -> N
     assert revision.parent_id == blueprint_id
     assert revision.version == 2
     assert revision.instruction == "主角更疯一点"
+
+
+def test_revision_job_filters_legacy_internal_content_from_previous_blueprint(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    parent_id = _save_blueprint(
+        db_path,
+        status=BlueprintStatus.SUCCEEDED,
+        content={"title_options": ["长夜档案"], "accepted_book_id": 42},
+    )
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        revision = add_open_book_blueprint(
+            session,
+            OpenBookBlueprint(
+                parent_id=parent_id,
+                idea="一座图书馆",
+                version=2,
+                status=BlueprintStatus.PENDING,
+                instruction="加强悬疑感",
+            ),
+        )
+        assert revision.id is not None
+        revision_id = revision.id
+    captured_previous: list[dict[str, Any] | None] = []
+
+    async def request_blueprint(
+        _provider_config: ProviderConfig,
+        _idea: str,
+        previous_blueprint: dict[str, Any] | None,
+        _revision_notes: str | None,
+    ) -> str:
+        captured_previous.append(previous_blueprint)
+        return _valid_blueprint_json()
+
+    monkeypatch.setattr(blueprint_jobs, "request_blueprint", request_blueprint)
+
+    blueprint_jobs.run_blueprint_job(
+        db_path,
+        revision_id,
+        ProviderConfig(
+            llm_base_url="https://api.example.test/v1",
+            llm_api_key="sk-test",
+            llm_model="gpt-test",
+            embedding_base_url="https://api.example.test/v1",
+            embedding_model="text-embedding-test",
+        ),
+    )
+
+    assert captured_previous == [{"title_options": ["长夜档案"]}]
 
 
 def test_revise_rejects_failed_blueprint_without_creating_revision(
@@ -325,6 +393,55 @@ def test_accept_blueprint_is_idempotent_for_same_blueprint(tmp_path: Path) -> No
     assert "accepted_book_id" not in payload_response.body["blueprint"]["content"]
 
 
+def test_accept_blueprint_reuses_and_migrates_legacy_content_marker(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        existing_book = Book(
+            title="长夜档案",
+            genre="奇幻",
+            audience="成人",
+            premise="档案员追查禁书真相。",
+        )
+        session.add(existing_book)
+        session.commit()
+        session.refresh(existing_book)
+        assert existing_book.id is not None
+        blueprint = add_open_book_blueprint(
+            session,
+            OpenBookBlueprint(
+                idea="一座图书馆",
+                status=BlueprintStatus.SUCCEEDED,
+                content={
+                    "title_options": ["长夜档案"],
+                    "genre": "奇幻",
+                    "audience": "成人",
+                    "premise": "档案员追查禁书真相。",
+                    "accepted_book_id": existing_book.id,
+                },
+            ),
+        )
+        assert blueprint.id is not None
+        blueprint_id = blueprint.id
+        existing_book_id = existing_book.id
+
+    response = dispatch_api_post(
+        f"/api/blueprints/{blueprint_id}/accept",
+        {"selectedTitle": "长夜档案"},
+        db_path,
+    )
+
+    assert response.status == HTTPStatus.OK
+    assert response.body["bookId"] == existing_book_id
+    with Session(create_engine_for_path(db_path)) as session:
+        books = list(session.exec(select(Book)))
+        acceptance = session.get(BlueprintAcceptance, blueprint_id)
+    assert len(books) == 1
+    assert acceptance is not None
+    assert acceptance.book_id == existing_book_id
+
+
 def test_concurrent_accept_blueprint_creates_one_book(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "dev.sqlite"
     blueprint_id = _save_blueprint(
@@ -432,3 +549,30 @@ def _save_blueprint(
         )
         assert blueprint.id is not None
         return blueprint.id
+
+
+def _valid_blueprint_json() -> str:
+    return """
+{
+  "title_options": ["长夜档案"],
+  "genre": "奇幻",
+  "audience": "成人",
+  "selling_points": ["禁书悬疑"],
+  "protagonist": {"name": "林既明"},
+  "world": {"summary": "禁书会吞噬记忆"},
+  "central_conflict": "档案员追查禁书真相。",
+  "reader_promises": ["真相反转"],
+  "chapter_directions": [
+    {"title": "第1章", "goal": "发现禁书"},
+    {"title": "第2章", "goal": "确认代价"},
+    {"title": "第3章", "goal": "遭遇追捕"},
+    {"title": "第4章", "goal": "进入密库"},
+    {"title": "第5章", "goal": "结识盟友"},
+    {"title": "第6章", "goal": "发现旧案"},
+    {"title": "第7章", "goal": "误信敌人"},
+    {"title": "第8章", "goal": "夺回线索"},
+    {"title": "第9章", "goal": "揭开背叛"},
+    {"title": "第10章", "goal": "立下目标"}
+  ]
+}
+"""

@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlmodel import Session
 
+from mynovel.blueprint_content import public_blueprint_content
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import BlueprintStatus, OpenBookBlueprint, ProviderConfig, utc_now
 from mynovel.domain.repositories import get_open_book_blueprint
@@ -57,7 +58,7 @@ def run_blueprint_job(
         revision_notes = blueprint.instruction
         if blueprint.parent_id is not None:
             parent = get_open_book_blueprint(session, blueprint.parent_id)
-            previous_blueprint = parent.content if parent else None
+            previous_blueprint = public_blueprint_content(parent.content) if parent else None
         session.add(blueprint)
         session.commit()
 

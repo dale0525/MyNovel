@@ -5,6 +5,7 @@ from typing import Any, cast
 
 from sqlmodel import Session, select
 
+from mynovel.blueprint_content import public_blueprint_content
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import Book, OpenBookBlueprint, ProviderConfig, ProviderConfigValidation
 from mynovel.domain.repositories import get_provider_config, get_provider_config_validation
@@ -41,7 +42,7 @@ def blueprint_payload(blueprint: OpenBookBlueprint) -> dict[str, Any]:
         "version": blueprint.version,
         "status": blueprint.status.value,
         "instruction": blueprint.instruction,
-        "content": blueprint.content,
+        "content": public_blueprint_content(blueprint.content),
         "parseError": blueprint.parse_error,
         "errorMessage": blueprint.error_message,
     }
