@@ -9,6 +9,7 @@ def test_frontend_package_has_required_scripts() -> None:
     assert package["scripts"]["build"] == "tsc -b && vite build"
     assert package["scripts"]["typecheck"] == "tsc -b --pretty false"
     assert package["scripts"]["lint"] == "eslint ."
+    assert package["scripts"]["test"] == "vitest run --environment jsdom"
 
 
 def test_pixi_exposes_frontend_tasks() -> None:
