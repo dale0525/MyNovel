@@ -69,6 +69,7 @@ def test_chapter_detail_returns_review_payload(tmp_path: Path) -> None:
         session.commit()
         session.refresh(second)
         chapter_id = second.id or 0
+        assert chapter_id == first.number
 
     response = dispatch_api_get(f"/api/chapters/{chapter_id}", "", db_path)
 
