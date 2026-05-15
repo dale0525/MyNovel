@@ -12,13 +12,13 @@ from urllib.parse import parse_qs, quote, urlparse
 from sqlmodel import Session, select
 
 from mynovel.api_errors import ApiResponse
+from mynovel.api_open_book import BlueprintAcceptanceInProgressError, accept_blueprint_form_safely
 from mynovel.api_routes import dispatch_api_get, dispatch_api_post, read_api_json_body
 from mynovel.book_abandonment import AbandonBookError, abandon_draft_book_from_form
 from mynovel.blueprint_acceptance import (
     BlueprintNotFoundError,
     BlueprintNotReadyError,
     BlueprintTitleSelectionError,
-    accept_blueprint_for_foundation_review,
     lock_canon_from_form,
 )
 from mynovel.blueprint_revision import create_revision_blueprint_job, revision_notes_from_form
@@ -470,11 +470,13 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             form = self._read_form()
             provider_config = _load_provider_config(db_path)
             try:
-                book = accept_blueprint_for_foundation_review(db_path, form)
-            except (BlueprintNotFoundError, BlueprintNotReadyError) as error:
+                book = accept_blueprint_form_safely(db_path, form)
+            except (BlueprintNotFoundError, BlueprintNotReadyError, BlueprintAcceptanceInProgressError) as error:
                 status = (
                     HTTPStatus.NOT_FOUND
                     if isinstance(error, BlueprintNotFoundError)
+                    else HTTPStatus.CONFLICT
+                    if isinstance(error, BlueprintAcceptanceInProgressError)
                     else HTTPStatus.BAD_REQUEST
                 )
                 self.send_error(status)

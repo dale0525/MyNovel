@@ -443,7 +443,7 @@ def test_accept_blueprint_reuses_and_migrates_legacy_content_marker(tmp_path: Pa
     assert acceptance.book_id == existing_book_id
 
 
-def test_accept_blueprint_incomplete_claim_blocks_second_book_creation(
+def test_accept_blueprint_rolls_back_when_transactional_creation_fails(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -458,38 +458,77 @@ def test_accept_blueprint_incomplete_claim_blocks_second_book_creation(
             "premise": "档案员追查禁书真相。",
         },
     )
-    original_record = api_open_book._record_accepted_book_id
+    original_create = api_open_book.create_draft_book_from_blueprint_in_session
     fail_once = True
 
-    def fail_first_record(db_path: Path, blueprint_id: int, book_id: int) -> None:
+    def fail_after_creating_book(*args, **kwargs):
         nonlocal fail_once
+        book = original_create(*args, **kwargs)
         if fail_once:
             fail_once = False
-            raise RuntimeError("simulated acceptance finalize failure")
-        original_record(db_path, blueprint_id, book_id)
+            raise RuntimeError("simulated transactional acceptance failure")
+        return book
 
-    monkeypatch.setattr(api_open_book, "_record_accepted_book_id", fail_first_record)
+    monkeypatch.setattr(
+        api_open_book,
+        "create_draft_book_from_blueprint_in_session",
+        fail_after_creating_book,
+    )
 
-    with pytest.raises(RuntimeError, match="simulated acceptance finalize failure"):
+    with pytest.raises(RuntimeError, match="simulated transactional acceptance failure"):
         dispatch_api_post(
             f"/api/blueprints/{blueprint_id}/accept",
             {"selectedTitle": "长夜档案"},
             db_path,
         )
+    with Session(create_engine_for_path(db_path)) as session:
+        assert list(session.exec(select(Book))) == []
+        assert session.get(BlueprintAcceptance, blueprint_id) is None
+
     second = dispatch_api_post(
         f"/api/blueprints/{blueprint_id}/accept",
         {"selectedTitle": "长夜档案"},
         db_path,
     )
 
-    assert second.status == HTTPStatus.CONFLICT
-    assert second.body["error"]["code"] == "blueprint_acceptance_in_progress"
+    assert second.status == HTTPStatus.OK
     with Session(create_engine_for_path(db_path)) as session:
         books = list(session.exec(select(Book)))
         acceptance = session.get(BlueprintAcceptance, blueprint_id)
     assert len(books) == 1
     assert acceptance is not None
-    assert acceptance.book_id is None
+    assert acceptance.book_id == second.body["bookId"]
+
+
+def test_legacy_accept_helper_records_acceptance_and_reuses_book(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    blueprint_id = _save_blueprint(
+        db_path,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜档案"],
+            "genre": "奇幻",
+            "audience": "成人",
+            "premise": "档案员追查禁书真相。",
+        },
+    )
+
+    first = api_open_book.accept_blueprint_form_safely(
+        db_path,
+        {"blueprint_id": str(blueprint_id), "selected_title": "长夜档案"},
+    )
+    second = api_open_book.accept_blueprint_form_safely(
+        db_path,
+        {"blueprint_id": str(blueprint_id), "selected_title": "长夜档案"},
+    )
+
+    assert first.id == second.id
+    with Session(create_engine_for_path(db_path)) as session:
+        books = list(session.exec(select(Book)))
+        acceptance = session.get(BlueprintAcceptance, blueprint_id)
+    assert len(books) == 1
+    assert acceptance is not None
+    assert acceptance.book_id == first.id
 
 
 def test_concurrent_accept_blueprint_creates_one_book(tmp_path: Path, monkeypatch) -> None:
@@ -504,23 +543,20 @@ def test_concurrent_accept_blueprint_creates_one_book(tmp_path: Path, monkeypatc
             "premise": "档案员追查禁书真相。",
         },
     )
-    original_accept = api_open_book.accept_blueprint_for_foundation_review
+    original_create = api_open_book.create_draft_book_from_blueprint_in_session
     barrier = Barrier(2, timeout=1.0)
 
-    def accept_after_both_requests_reach_create(
-        db_path: Path,
-        form: dict[str, str],
-    ):
+    def create_after_both_requests_reach_create(*args, **kwargs):
         try:
             barrier.wait()
         except BrokenBarrierError:
             pass
-        return original_accept(db_path, form)
+        return original_create(*args, **kwargs)
 
     monkeypatch.setattr(
         api_open_book,
-        "accept_blueprint_for_foundation_review",
-        accept_after_both_requests_reach_create,
+        "create_draft_book_from_blueprint_in_session",
+        create_after_both_requests_reach_create,
     )
     responses: list[dict[str, Any]] = []
 

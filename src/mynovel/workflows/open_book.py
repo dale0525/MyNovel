@@ -14,9 +14,6 @@ from mynovel.domain.models import (
 )
 from mynovel.domain.repositories import (
     add_book,
-    add_canon,
-    add_chapter,
-    add_volume_plan,
     get_book,
     get_latest_canon,
 )
@@ -48,6 +45,23 @@ def create_draft_book_from_blueprint(
     selected_title: str,
     lock_foundation: bool = True,
 ) -> Book:
+    book = create_draft_book_from_blueprint_in_session(
+        session,
+        blueprint,
+        selected_title,
+        lock_foundation=lock_foundation,
+    )
+    session.commit()
+    session.refresh(book)
+    return book
+
+
+def create_draft_book_from_blueprint_in_session(
+    session: Session,
+    blueprint: OpenBookBlueprint,
+    selected_title: str,
+    lock_foundation: bool = True,
+) -> Book:
     title = selected_title.strip()
     if not title:
         raise ValueError("Title selection is required.")
@@ -58,12 +72,11 @@ def create_draft_book_from_blueprint(
 
     selected_content = content_for_selected_title(blueprint.content, title)
     target_words = target_word_counts_from_text(blueprint.idea)
-    book = create_draft_book(
-        session,
+    book = Book(
         title=title,
-        idea=blueprint.idea,
         genre=_blueprint_text(selected_content.get("genre")),
         audience=_blueprint_text(selected_content.get("audience")),
+        premise=blueprint.idea,
     )
     book.status = BookStatus.CANON_LOCKED if lock_foundation else BookStatus.DRAFT
     book.constraints = {
@@ -72,25 +85,23 @@ def create_draft_book_from_blueprint(
         **target_words,
     }
     session.add(book)
-    session.commit()
-    session.refresh(book)
+    session.flush()
 
     if book.id is None:
         raise ValueError("Book must be persisted before creating production state.")
 
-    add_canon(
-        session,
-        Canon(book_id=book.id, version=1, content=_initial_canon_content(book, selected_content)),
+    session.add(
+        Canon(book_id=book.id, version=1, content=_initial_canon_content(book, selected_content))
     )
-    add_volume_plan(session, _volume_plan_from_blueprint(book.id, selected_content))
+    session.add(_volume_plan_from_blueprint(book.id, selected_content))
     for chapter in _chapters_from_blueprint(
         book.id,
         selected_content,
         target_words.get(CHAPTER_WORD_COUNT_KEY),
     ):
-        add_chapter(session, chapter)
+        session.add(chapter)
 
-    session.refresh(book)
+    session.flush()
     return book
 
 
