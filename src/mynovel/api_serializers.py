@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import ProviderConfig, ProviderConfigValidation
+from mynovel.domain.models import Book, ProviderConfig, ProviderConfigValidation
 from mynovel.domain.repositories import get_provider_config, get_provider_config_validation
 from mynovel.provider_config_validation import provider_model_fingerprint
 
@@ -20,6 +20,25 @@ def app_bootstrap_payload(db_path: Path) -> dict[str, Any]:
             get_provider_config_validation(session),
         )
     return {"providerConfigured": configured, "initialRoute": "/" if configured else "/setup", "message": None}
+
+
+def book_payload(book: Book) -> dict[str, Any]:
+    return {
+        "id": book.id,
+        "title": book.title,
+        "genre": book.genre,
+        "audience": book.audience,
+        "status": book.status.value,
+        "premise": book.premise,
+    }
+
+
+def books_payload(db_path: Path) -> dict[str, Any]:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        books = list(session.exec(select(Book).order_by(Book.created_at.desc()).limit(20)))
+    return {"books": [book_payload(book) for book in books]}
 
 
 def is_provider_config_validated(

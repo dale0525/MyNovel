@@ -302,6 +302,27 @@ test("BootstrapGate renders only setup when provider is not configured", () => {
   expect(screen.queryByText("项目")).not.toBeInTheDocument();
 });
 
+test("BootstrapGate renders the workbench shell when provider is configured", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        books: [],
+      }),
+    ),
+  );
+
+  render(
+    <BootstrapGate bootstrap={{ providerConfigured: true, initialRoute: "/", message: null }} />,
+  );
+
+  expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "工作台" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "设置" })).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByText("还没有作品")).toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "开始一本新书" })).toBeInTheDocument();
+});
+
 function fillRequiredFields(overrides: Partial<ProviderConfigDraft> = {}) {
   const values = {
     llmBaseUrl: "https://api.example.test/v1",

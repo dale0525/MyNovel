@@ -1,0 +1,81 @@
+from http import HTTPStatus
+from pathlib import Path
+
+from sqlmodel import Session
+
+from mynovel.api_routes import dispatch_api_get
+from mynovel.db import create_db_and_tables, create_engine_for_path
+from mynovel.domain.models import Book, ProviderConfig, ProviderConfigValidation
+from mynovel.domain.repositories import save_provider_config, save_provider_config_validation
+from mynovel.provider_config_validation import provider_model_fingerprint
+
+
+def test_bootstrap_opens_workbench_with_valid_saved_provider(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    config = _provider_config()
+    _save_provider_state(
+        db_path,
+        config,
+        ProviderConfigValidation(
+            llm_fingerprint=provider_model_fingerprint(config, "llm"),
+            embedding_fingerprint=provider_model_fingerprint(config, "embedding"),
+            rerank_fingerprint=provider_model_fingerprint(config, "rerank"),
+        ),
+    )
+
+    response = dispatch_api_get("/api/app/bootstrap", "", db_path)
+
+    assert response.status == HTTPStatus.OK
+    assert response.body["providerConfigured"] is True
+    assert response.body["initialRoute"] == "/"
+
+
+def test_books_returns_recent_books(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = Book(title="长夜图书馆", genre="奇幻", audience="男频")
+        session.add(book)
+        session.commit()
+        session.refresh(book)
+
+    response = dispatch_api_get("/api/books", "", db_path)
+
+    assert response.status == HTTPStatus.OK
+    assert response.body == {
+        "books": [
+            {
+                "id": book.id,
+                "title": "长夜图书馆",
+                "genre": "奇幻",
+                "audience": "男频",
+                "status": "draft",
+                "premise": None,
+            },
+        ],
+    }
+
+
+def _provider_config() -> ProviderConfig:
+    return ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_api_key="sk-test",
+        llm_model="gpt-test",
+        embedding_base_url="https://api.example.test/v1",
+        embedding_model="text-embedding-test",
+        rerank_base_url="https://rerank.example.test/v1",
+        rerank_model="rerank-test",
+    )
+
+
+def _save_provider_state(
+    db_path: Path,
+    config: ProviderConfig,
+    validation: ProviderConfigValidation,
+) -> None:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        save_provider_config(session, config)
+        save_provider_config_validation(session, validation)
