@@ -590,14 +590,14 @@ def test_non_api_form_posts_are_not_user_entrypoints(
         lambda _db, blueprint_id, _config: started.append(blueprint_id),
     )
 
-    status, location = _post_form(
-        db_path,
-        "/open-book",
-        {"idea": "失意档案员重建禁书图书馆"},
-    )
-
-    assert status == HTTPStatus.NOT_FOUND
-    assert location is None
+    for path in {"/open-book", "/check-update", "/stage-update", "/provider-config"}:
+        status, location = _post_form(
+            db_path,
+            path,
+            {"idea": "失意档案员重建禁书图书馆"},
+        )
+        assert status == HTTPStatus.NOT_FOUND
+        assert location is None
     assert started == []
 
 

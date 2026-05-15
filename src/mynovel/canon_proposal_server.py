@@ -18,7 +18,7 @@ from mynovel.domain.repositories import (
     get_provider_config,
 )
 from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
-from mynovel.product_views import is_provider_config_complete
+from mynovel.provider_config_status import is_provider_config_complete
 from mynovel.workflows.canon_proposal import (
     SECTION_REGISTRY,
     apply_canon_proposal_revision,

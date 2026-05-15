@@ -8,6 +8,7 @@ from mynovel.domain.repositories import (
     save_provider_config,
     save_provider_config_validation,
 )
+from mynovel.provider_config_status import is_provider_config_complete
 
 
 def test_provider_config_round_trips_through_sqlite(tmp_path) -> None:
@@ -55,6 +56,39 @@ def test_provider_config_can_reuse_llm_endpoint_for_embedding_and_rerank() -> No
     assert config.resolved_embedding_api_key() == "sk-llm"
     assert config.resolved_rerank_base_url() == "https://api.example.test/v1"
     assert config.resolved_rerank_api_key() == "sk-llm"
+
+
+def test_provider_config_is_complete_only_with_all_required_models() -> None:
+    missing_rerank = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_api_key="sk-llm",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_api_key=None,
+        embedding_model="text-embedding-test",
+        rerank_use_llm_credentials=True,
+        rerank_base_url=None,
+        rerank_api_key=None,
+        rerank_model="",
+    )
+    complete = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_api_key="sk-llm",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_api_key=None,
+        embedding_model="text-embedding-test",
+        rerank_use_llm_credentials=True,
+        rerank_base_url=None,
+        rerank_api_key=None,
+        rerank_model="rerank-test",
+    )
+
+    assert is_provider_config_complete(None) is False
+    assert is_provider_config_complete(missing_rerank) is False
+    assert is_provider_config_complete(complete) is True
 
 
 def test_provider_config_validation_round_trips_through_sqlite(tmp_path) -> None:

@@ -7,7 +7,6 @@ from mynovel.api_routes import dispatch_api_get, dispatch_api_post
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import Book, BookStatus, Canon, Chapter, ChapterStatus
 from mynovel.update import UpdateManifest
-from mynovel.update_server import handle_check_update, handle_stage_update
 
 
 def test_invalid_import_returns_import_failed(tmp_path: Path) -> None:
@@ -215,43 +214,6 @@ def test_update_check_rejects_unsafe_artifact_url(tmp_path: Path, monkeypatch) -
 
     assert response.status == HTTPStatus.BAD_REQUEST
     assert response.body["error"]["code"] == "update_action_failed"
-
-
-def test_legacy_update_forms_reuse_safe_url_validation(tmp_path: Path, monkeypatch) -> None:
-    from mynovel import update_security
-
-    def fetch_manifest(_manifest_url: str) -> UpdateManifest:
-        return UpdateManifest(
-            channel="stable",
-            version="0.0.1",
-            url="https://downloads.example.test/MyNovel.dmg",
-            sha256="abc123",
-        )
-
-    monkeypatch.setattr(update_security, "fetch_update_manifest", fetch_manifest, raising=False)
-    monkeypatch.setattr(
-        update_security,
-        "_allowed_update_hosts",
-        lambda: {"updates.example.test", "downloads.example.test"},
-    )
-    monkeypatch.setattr(
-        update_security,
-        "_resolve_update_host_addresses",
-        lambda host: ["10.0.0.5"] if host == "updates.example.test" else ["93.184.216.34"],
-    )
-
-    check_response = handle_check_update(
-        {"manifest_url": "https://updates.example.test/update.json"}
-    )
-    stage_response = handle_stage_update(
-        {"manifest_url": "https://updates.example.test/update.json"},
-        tmp_path / "dev.sqlite",
-    )
-
-    assert check_response.status == HTTPStatus.BAD_REQUEST
-    assert stage_response.status == HTTPStatus.BAD_REQUEST
-    assert "private" in check_response.body
-    assert "private" in stage_response.body
 
 
 def test_book_exports_are_available_under_api_download_routes(tmp_path: Path) -> None:
