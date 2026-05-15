@@ -598,14 +598,22 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             self.wfile.write(payload)
 
         def _send_api_response(self, response: ApiResponse) -> None:
-            payload = json.dumps(response.body, ensure_ascii=False).encode("utf-8")
+            if response.content_type.startswith("application/json"):
+                payload = json.dumps(response.body, ensure_ascii=False).encode("utf-8")
+            elif isinstance(response.body, bytes):
+                payload = response.body
+            else:
+                payload = str(response.body).encode("utf-8")
             self.send_response(response.status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Type", response.content_type)
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
 
         def _redirect_api_response(self, response: ApiResponse) -> None:
+            if not isinstance(response.body, dict):
+                self.send_error(response.status)
+                return
             redirect_to = response.body.get("redirectTo")
             if response.status in {HTTPStatus.OK, HTTPStatus.ACCEPTED} and isinstance(
                 redirect_to,

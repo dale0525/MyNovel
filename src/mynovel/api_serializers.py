@@ -21,6 +21,7 @@ from mynovel.domain.models import (
 )
 from mynovel.domain.repositories import (
     get_canon_proposal_revision,
+    get_chapter,
     get_latest_canon,
     get_provider_config,
     get_provider_config_validation,
@@ -77,6 +78,47 @@ def chapter_payload(chapter: Chapter) -> dict[str, Any]:
         "reviewerNote": chapter.reviewer_note,
         "updatedAt": _isoformat(chapter.updated_at),
     }
+
+
+def chapter_detail_payload(chapter: Chapter) -> dict[str, Any]:
+    payload = chapter_payload(chapter)
+    payload.update(
+        {
+            "plan": chapter.plan,
+            "contextPackage": chapter.context_package,
+            "draftText": chapter.draft_text,
+            "revisedText": chapter.revised_text,
+            "finalText": chapter.final_text,
+            "auditReport": chapter.audit_report,
+            "stateDelta": chapter.state_delta,
+        }
+    )
+    return payload
+
+
+def chapter_stage_slots(chapter: Chapter) -> list[dict[str, Any]]:
+    return [
+        _stage_slot("plan", "章节规划", bool(chapter.plan), _plan_summary(chapter.plan)),
+        _stage_slot(
+            "context",
+            "上下文",
+            bool(chapter.context_package),
+            _context_summary(chapter.context_package),
+        ),
+        _stage_slot("draft", "草稿", bool(chapter.draft_text), _text_summary(chapter.draft_text)),
+        _stage_slot(
+            "delta",
+            "状态变化",
+            bool(_state_delta_changes(chapter.state_delta)),
+            _delta_summary(chapter.state_delta),
+        ),
+        _stage_slot(
+            "audit",
+            "审计",
+            bool(chapter.audit_report),
+            _audit_summary(chapter.audit_report),
+        ),
+    ]
 
 
 def canon_payload(canon: Canon) -> dict[str, Any]:
@@ -184,6 +226,29 @@ def book_detail_payload(db_path: Path, book_id: int) -> dict[str, Any] | None:
         }
 
 
+def chapter_review_payload(db_path: Path, chapter_id: int) -> dict[str, Any] | None:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        chapter = get_chapter(session, chapter_id)
+        if chapter is None:
+            return None
+        book = session.get(Book, chapter.book_id)
+        if book is None:
+            return None
+        canon = get_latest_canon(session, chapter.book_id)
+        chapters = list_chapters_for_book(session, chapter.book_id)
+        run_traces = list_run_traces_for_book(session, chapter.book_id)
+        return {
+            "book": book_payload(book),
+            "chapter": chapter_detail_payload(chapter),
+            "siblingChapters": [chapter_payload(item) for item in chapters],
+            "latestCanon": canon_payload(canon) if canon is not None else None,
+            "traces": [run_trace_payload(trace) for trace in run_traces],
+            "stageSlots": chapter_stage_slots(chapter),
+        }
+
+
 def trusted_state_payload(
     db_path: Path,
     book_id: int,
@@ -270,3 +335,61 @@ def _canon_section_payloads(
 
 def _isoformat(value) -> str | None:
     return value.isoformat() if value is not None else None
+
+
+def _stage_slot(key: str, label: str, ready: bool, summary: str) -> dict[str, Any]:
+    return {
+        "key": key,
+        "label": label,
+        "ready": ready,
+        "status": "ready" if ready else "empty",
+        "summary": summary,
+    }
+
+
+def _plan_summary(plan: dict[str, Any]) -> str:
+    goal = str(plan.get("goal") or "").strip()
+    word_budget = plan.get("word_budget")
+    if goal and word_budget:
+        return f"{goal} · {word_budget} 字目标"
+    if goal:
+        return goal
+    if word_budget:
+        return f"{word_budget} 字目标"
+    return ""
+
+
+def _context_summary(context_package: dict[str, Any]) -> str:
+    trusted_state = context_package.get("trusted_state")
+    if isinstance(trusted_state, dict) and trusted_state.get("version"):
+        return f"可信设定 v{trusted_state['version']}"
+    if context_package:
+        return f"{len(context_package)} 个上下文分区"
+    return ""
+
+
+def _text_summary(text: str) -> str:
+    return f"{len(text)} 字" if text else ""
+
+
+def _delta_summary(state_delta: dict[str, Any]) -> str:
+    changes = _state_delta_changes(state_delta)
+    return f"{len(changes)} 条状态变化" if changes else ""
+
+
+def _state_delta_changes(state_delta: dict[str, Any]) -> list[Any]:
+    changes = state_delta.get("changes")
+    return changes if isinstance(changes, list) else []
+
+
+def _audit_summary(audit_report: dict[str, Any]) -> str:
+    if not audit_report:
+        return ""
+    risk = str(audit_report.get("risk_level") or "").strip()
+    issues = audit_report.get("issues")
+    issue_count = len(issues) if isinstance(issues, list) else 0
+    if risk and issue_count:
+        return f"{risk} 风险 · {issue_count} 个问题"
+    if risk:
+        return f"{risk} 风险"
+    return f"{issue_count} 个问题" if issue_count else "已生成审计报告"

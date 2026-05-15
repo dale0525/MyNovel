@@ -29,6 +29,24 @@ export type ChapterPayload = {
   updatedAt: string | null;
 };
 
+export type ChapterDetailPayload = ChapterPayload & {
+  plan: Record<string, unknown>;
+  contextPackage: Record<string, unknown>;
+  draftText: string;
+  revisedText: string;
+  finalText: string;
+  auditReport: Record<string, unknown>;
+  stateDelta: Record<string, unknown>;
+};
+
+export type ChapterStageSlotPayload = {
+  key: "plan" | "context" | "draft" | "delta" | "audit" | string;
+  label: string;
+  ready: boolean;
+  status: string;
+  summary: string;
+};
+
 export type CanonPayload = {
   id: number | null;
   bookId: number;
@@ -67,6 +85,15 @@ export type BookResponse = {
   latestCanon: CanonPayload | null;
   runTraces: RunTracePayload[];
   volumePlans: VolumePlanPayload[];
+};
+
+export type ChapterResponse = {
+  book: BookPayload;
+  chapter: ChapterDetailPayload;
+  siblingChapters: ChapterPayload[];
+  latestCanon: CanonPayload | null;
+  traces: RunTracePayload[];
+  stageSlots: ChapterStageSlotPayload[];
 };
 
 export type CanonSectionPayload = {

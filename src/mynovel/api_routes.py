@@ -21,14 +21,23 @@ from mynovel.api_serializers import (
     book_detail_payload,
     books_payload,
     canon_proposal_revision_payload,
+    chapter_review_payload,
     trusted_state_payload,
 )
+from mynovel.chapter_server import queue_chapter_batch_run, queue_chapter_repair, queue_chapter_run
 from mynovel.canon_proposal_server import handle_create_canon_proposal_revision
 from mynovel.db import create_db_and_tables, create_engine_for_path
+from mynovel.domain.repositories import get_chapter, get_provider_config
 from mynovel.workflows.canon_proposal import (
     apply_canon_proposal_revision,
     discard_canon_proposal_revision,
     set_canon_proposal_section_lock,
+)
+from mynovel.workflows.chapter_pipeline import (
+    approve_chapter,
+    apply_manual_chapter_edit,
+    export_chapter_text,
+    return_chapter_for_revision,
 )
 from mynovel.workflows.open_book import lock_canon_foundation
 from sqlmodel import Session
@@ -56,6 +65,15 @@ def dispatch_api_get(path: str, query: str, db_path: Path) -> ApiResponse:
         return get_blueprint_json(db_path, blueprint_id)
     if path == "/api/provider-config":
         return get_provider_config_json(db_path)
+    chapter_export_id = _parse_chapter_export_api_path(path)
+    if chapter_export_id is not None:
+        return _export_chapter_text_json(db_path, chapter_export_id)
+    chapter_id = _parse_chapter_api_path(path)
+    if chapter_id is not None:
+        payload = chapter_review_payload(db_path, chapter_id)
+        if payload is None:
+            return api_error(HTTPStatus.NOT_FOUND, "chapter_not_found", "Chapter not found.")
+        return ApiResponse(HTTPStatus.OK, payload)
     return api_error(HTTPStatus.NOT_FOUND, "not_found", "API route not found.")
 
 
@@ -80,6 +98,16 @@ def dispatch_api_post(path: str, body: dict[str, Any], db_path: Path) -> ApiResp
             return revise_blueprint_json(db_path, blueprint_id, body)
         if action == "accept":
             return accept_blueprint_json(db_path, blueprint_id, body)
+    book_chapter_action = _parse_book_chapter_action_api_path(path)
+    if book_chapter_action is not None:
+        book_id, action = book_chapter_action
+        if action == "run-batch":
+            return _run_chapter_batch_json(db_path, book_id, body)
+        return _chapter_action_error(ValueError("Unknown chapter action."))
+    chapter_action = _parse_chapter_action_api_path(path)
+    if chapter_action is not None:
+        chapter_id, action = chapter_action
+        return _chapter_action_json(db_path, chapter_id, action, body)
     return api_error(HTTPStatus.NOT_FOUND, "not_found", "API route not found.")
 
 
@@ -122,6 +150,26 @@ def _parse_book_api_path(path: str) -> int | None:
         return 0
 
 
+def _parse_chapter_api_path(path: str) -> int | None:
+    parts = path.strip("/").split("/")
+    if len(parts) != 3 or parts[:2] != ["api", "chapters"]:
+        return None
+    try:
+        return int(parts[2])
+    except ValueError:
+        return 0
+
+
+def _parse_chapter_export_api_path(path: str) -> int | None:
+    parts = path.strip("/").split("/")
+    if len(parts) != 4 or parts[:2] != ["api", "chapters"] or parts[3] != "export.txt":
+        return None
+    try:
+        return int(parts[2])
+    except ValueError:
+        return 0
+
+
 def _parse_book_state_api_path(path: str) -> int | None:
     parts = path.strip("/").split("/")
     if len(parts) != 4 or parts[:2] != ["api", "books"] or parts[3] != "state":
@@ -151,6 +199,28 @@ def _parse_book_canon_proposal_action_api_path(path: str) -> tuple[int, str] | N
     except ValueError:
         book_id = 0
     return book_id, parts[4]
+
+
+def _parse_book_chapter_action_api_path(path: str) -> tuple[int, str] | None:
+    parts = path.strip("/").split("/")
+    if len(parts) != 5 or parts[:2] != ["api", "books"] or parts[3] != "chapters":
+        return None
+    try:
+        book_id = int(parts[2])
+    except ValueError:
+        book_id = 0
+    return book_id, parts[4]
+
+
+def _parse_chapter_action_api_path(path: str) -> tuple[int, str] | None:
+    parts = path.strip("/").split("/")
+    if len(parts) != 4 or parts[:2] != ["api", "chapters"]:
+        return None
+    try:
+        chapter_id = int(parts[2])
+    except ValueError:
+        chapter_id = 0
+    return chapter_id, parts[3]
 
 
 def _parse_blueprint_action_api_path(path: str) -> tuple[int, str] | None:
@@ -303,6 +373,178 @@ def _canon_proposal_action_error(error: ValueError) -> ApiResponse:
         "canon_proposal_action_failed",
         str(error),
     )
+
+
+def _chapter_action_json(
+    db_path: Path,
+    chapter_id: int,
+    action: str,
+    body: dict[str, Any],
+) -> ApiResponse:
+    if action == "run":
+        return _run_chapter_json(db_path, chapter_id)
+    if action == "request-revision":
+        return _request_chapter_revision_json(db_path, chapter_id, body)
+    if action == "repair":
+        return _repair_chapter_json(db_path, chapter_id, body)
+    if action == "edit":
+        return _edit_chapter_json(db_path, chapter_id, body)
+    if action == "approve":
+        return _approve_chapter_json(db_path, chapter_id, body)
+    return _chapter_action_error(ValueError("Unknown chapter action."))
+
+
+def _run_chapter_json(db_path: Path, chapter_id: int) -> ApiResponse:
+    try:
+        queued_chapter_id = queue_chapter_run(
+            db_path,
+            chapter_id,
+            _load_provider_config(db_path),
+        )
+    except ValueError as error:
+        return _chapter_action_error(error)
+    return ApiResponse(
+        HTTPStatus.ACCEPTED,
+        {"chapterId": queued_chapter_id, "redirectTo": f"/chapters/{queued_chapter_id}"},
+    )
+
+
+def _run_chapter_batch_json(db_path: Path, book_id: int, body: dict[str, Any]) -> ApiResponse:
+    try:
+        queued_chapter_id = queue_chapter_batch_run(
+            db_path,
+            book_id,
+            _chapter_batch_limit(body),
+            _load_provider_config(db_path),
+        )
+    except ValueError as error:
+        return _chapter_action_error(error)
+    return ApiResponse(
+        HTTPStatus.ACCEPTED,
+        {"chapterId": queued_chapter_id, "redirectTo": f"/chapters/{queued_chapter_id}"},
+    )
+
+
+def _request_chapter_revision_json(
+    db_path: Path,
+    chapter_id: int,
+    body: dict[str, Any],
+) -> ApiResponse:
+    try:
+        engine = create_engine_for_path(db_path)
+        create_db_and_tables(engine)
+        with Session(engine) as session:
+            chapter = return_chapter_for_revision(
+                session,
+                chapter_id,
+                _optional_text(body, "reviewerNote", "reviewer_note"),
+            )
+    except ValueError as error:
+        return _chapter_action_error(error)
+    return _chapter_payload_response(db_path, chapter.id or chapter_id)
+
+
+def _repair_chapter_json(db_path: Path, chapter_id: int, body: dict[str, Any]) -> ApiResponse:
+    try:
+        queued_chapter_id = queue_chapter_repair(
+            db_path,
+            chapter_id,
+            _load_provider_config(db_path),
+            reviewer_note=_optional_text(body, "reviewerNote", "reviewer_note"),
+        )
+    except ValueError as error:
+        return _chapter_action_error(error)
+    return ApiResponse(
+        HTTPStatus.ACCEPTED,
+        {"chapterId": queued_chapter_id, "redirectTo": f"/chapters/{queued_chapter_id}"},
+    )
+
+
+def _edit_chapter_json(db_path: Path, chapter_id: int, body: dict[str, Any]) -> ApiResponse:
+    text = _optional_text(body, "revisedText", "manualText", "manual_text") or ""
+    try:
+        engine = create_engine_for_path(db_path)
+        create_db_and_tables(engine)
+        with Session(engine) as session:
+            chapter = apply_manual_chapter_edit(
+                session,
+                chapter_id,
+                text,
+                _optional_text(body, "reviewerNote", "reviewer_note"),
+            )
+    except ValueError as error:
+        return _chapter_action_error(error)
+    return _chapter_payload_response(db_path, chapter.id or chapter_id)
+
+
+def _approve_chapter_json(db_path: Path, chapter_id: int, body: dict[str, Any]) -> ApiResponse:
+    try:
+        engine = create_engine_for_path(db_path)
+        create_db_and_tables(engine)
+        with Session(engine) as session:
+            chapter = approve_chapter(
+                session,
+                chapter_id,
+                _optional_text(body, "reviewerNote", "reviewer_note"),
+                allow_major_changes=_body_bool(body, "allowMajorChanges", "allow_major_changes")
+                is True,
+            )
+    except ValueError as error:
+        return _chapter_action_error(error)
+    return _chapter_payload_response(db_path, chapter.id or chapter_id)
+
+
+def _export_chapter_text_json(db_path: Path, chapter_id: int) -> ApiResponse:
+    try:
+        engine = create_engine_for_path(db_path)
+        create_db_and_tables(engine)
+        with Session(engine) as session:
+            chapter = get_chapter(session, chapter_id)
+            if chapter is None:
+                return api_error(HTTPStatus.NOT_FOUND, "chapter_not_found", "Chapter not found.")
+            text = export_chapter_text(chapter)
+    except ValueError as error:
+        return _chapter_action_error(error)
+    return ApiResponse(HTTPStatus.OK, text, "text/plain; charset=utf-8")
+
+
+def _chapter_payload_response(db_path: Path, chapter_id: int) -> ApiResponse:
+    payload = chapter_review_payload(db_path, chapter_id)
+    if payload is None:
+        return api_error(HTTPStatus.NOT_FOUND, "chapter_not_found", "Chapter not found.")
+    return ApiResponse(HTTPStatus.OK, payload)
+
+
+def _chapter_action_error(error: ValueError) -> ApiResponse:
+    return api_error(
+        HTTPStatus.BAD_REQUEST,
+        "chapter_action_failed",
+        str(error),
+    )
+
+
+def _load_provider_config(db_path: Path):
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        return get_provider_config(session)
+
+
+def _chapter_batch_limit(body: dict[str, Any]) -> int:
+    limit = _body_int(body, "limit")
+    if limit is None:
+        return 1
+    return max(1, min(limit, 10))
+
+
+def _optional_text(body: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = body.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        return text or None
+    return None
 
 
 def _body_int(body: dict[str, Any], *keys: str) -> int | None:

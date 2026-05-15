@@ -2,6 +2,7 @@ import { ProviderConfigPage } from "@/features/provider-config/ProviderConfigPag
 import { WorkbenchPage } from "@/features/workbench/WorkbenchPage";
 import { BookWorkspacePage } from "@/features/books/BookWorkspacePage";
 import { TrustedStatePage } from "@/features/canon/TrustedStatePage";
+import { ChapterPage } from "@/features/chapters/ChapterPage";
 import { BlueprintPage } from "@/features/open-book/BlueprintPage";
 import { OpenBookPage } from "@/features/open-book/OpenBookPage";
 
@@ -37,6 +38,14 @@ export function routeForPath(pathname: string): RouteMatch {
     return {
       activePath: "/books/:id/state",
       element: <TrustedStatePage bookId={trustedStateBookId} />,
+    };
+  }
+
+  const chapterId = parseChapterPath(path);
+  if (chapterId !== null) {
+    return {
+      activePath: "/chapters/:id",
+      element: <ChapterPage chapterId={chapterId} />,
     };
   }
 
@@ -96,6 +105,11 @@ function parseBookProjectPath(path: string): number | null {
 
 function parseBookStatePath(path: string): number | null {
   const match = path.match(/^\/books\/(\d+)\/state$/);
+  return match ? Number(match[1]) : null;
+}
+
+function parseChapterPath(path: string): number | null {
+  const match = path.match(/^\/chapters\/(\d+)$/);
   return match ? Number(match[1]) : null;
 }
 

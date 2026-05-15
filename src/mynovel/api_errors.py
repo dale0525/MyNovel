@@ -8,7 +8,8 @@ from typing import Any
 @dataclass(frozen=True)
 class ApiResponse:
     status: HTTPStatus
-    body: dict[str, Any]
+    body: Any
+    content_type: str = "application/json; charset=utf-8"
 
 
 def api_error(
