@@ -3,7 +3,7 @@ from pathlib import Path
 
 import yaml
 
-from mynovel.release_package import normalize_release_version
+from mynovel.release_package import normalize_release_version, sync_frontend_dist
 
 
 def test_desktop_entrypoint_and_build_task_are_configured() -> None:
@@ -13,8 +13,33 @@ def test_desktop_entrypoint_and_build_task_are_configured() -> None:
     assert project["project"]["scripts"]["mynovel-desktop"] == "mynovel.desktop:main"
     assert "pyinstaller" in pixi["pypi-dependencies"]
     assert "src/mynovel/desktop.py" in pixi["tasks"]["desktop-build"]
+    assert "frontend-build" in pixi["tasks"]["desktop-build"]
+    assert "--collect-all mynovel" in pixi["tasks"]["desktop-build"]
     assert "native-package" in pixi["tasks"]
     assert "mynovel.release_package" in pixi["tasks"]["native-package"]
+
+
+def test_frontend_build_copies_assets_into_python_package() -> None:
+    pixi = tomllib.loads(Path("pixi.toml").read_text(encoding="utf-8"))
+
+    assert "src/mynovel/frontend/dist" in pixi["tasks"]["frontend-build"]
+
+
+def test_sync_frontend_dist_replaces_package_assets(tmp_path: Path) -> None:
+    source = tmp_path / "frontend" / "dist"
+    target = tmp_path / "src" / "mynovel" / "frontend" / "dist"
+    (source / "assets").mkdir(parents=True)
+    (source / "index.html").write_text("<div id='root'></div>", encoding="utf-8")
+    (source / "assets" / "old.js").write_text("console.log('new')", encoding="utf-8")
+    target.mkdir(parents=True)
+    (target / "stale.txt").write_text("stale", encoding="utf-8")
+
+    copied = sync_frontend_dist(source, target)
+
+    assert copied == target
+    assert (target / "index.html").read_text(encoding="utf-8") == "<div id='root'></div>"
+    assert (target / "assets" / "old.js").exists()
+    assert not (target / "stale.txt").exists()
 
 
 def test_release_workflow_builds_desktop_artifact_and_update_metadata() -> None:

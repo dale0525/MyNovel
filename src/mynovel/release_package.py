@@ -6,18 +6,27 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 from hashlib import sha256
 from pathlib import Path
 
 from mynovel.db import SCHEMA_VERSION
 
+DEFAULT_FRONTEND_DIST = Path("frontend/dist")
+DEFAULT_PACKAGE_FRONTEND_DIST = Path("src/mynovel/frontend/dist")
+
 
 def main(argv: list[str] | None = None) -> None:
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    if raw_args[:1] == ["sync-frontend-dist"]:
+        _sync_frontend_dist_command(raw_args[1:])
+        return
+
     parser = argparse.ArgumentParser(description="Create unsigned native MyNovel installer assets.")
     parser.add_argument("--dist", type=Path, default=Path("dist"))
     parser.add_argument("--version", default=os.environ.get("GITHUB_REF_NAME", "0.0.0"))
     parser.add_argument("--platform", default=_default_platform())
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_args)
 
     version = normalize_release_version(args.version)
     artifact = package_native_installer(args.dist, version, args.platform)
@@ -34,6 +43,28 @@ def package_native_installer(dist_dir: Path, version: str, platform_name: str) -
     if platform_name == "windows-x64":
         return _package_windows_msi(dist_dir, executable, version)
     raise ValueError(f"Unsupported release platform: {platform_name}")
+
+
+def sync_frontend_dist(
+    source_dir: Path = DEFAULT_FRONTEND_DIST,
+    target_dir: Path = DEFAULT_PACKAGE_FRONTEND_DIST,
+) -> Path:
+    if not (source_dir / "index.html").exists():
+        raise FileNotFoundError(f"Frontend build output not found at {source_dir}.")
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source_dir, target_dir)
+    return target_dir
+
+
+def _sync_frontend_dist_command(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(description="Copy Vite dist into the Python package.")
+    parser.add_argument("--source", type=Path, default=DEFAULT_FRONTEND_DIST)
+    parser.add_argument("--target", type=Path, default=DEFAULT_PACKAGE_FRONTEND_DIST)
+    args = parser.parse_args(argv)
+    copied = sync_frontend_dist(args.source, args.target)
+    print(f"Copied frontend dist to {copied}")
 
 
 def _package_macos_dmg(dist_dir: Path, executable: Path, platform_name: str) -> Path:

@@ -21,7 +21,7 @@ mynovel-dev = "mynovel.dev_server:main"
 mynovel-desktop = "mynovel.desktop:main"
 
 [tool.setuptools.package-data]
-mynovel = ["prompts/assets/*.yaml"]
+mynovel = ["prompts/assets/*.yaml", "frontend/dist/index.html", "frontend/dist/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
