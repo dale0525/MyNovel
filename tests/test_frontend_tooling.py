@@ -10,6 +10,7 @@ def test_frontend_package_has_required_scripts() -> None:
     assert package["scripts"]["typecheck"] == "tsc -b --pretty false"
     assert package["scripts"]["lint"] == "eslint ."
     assert package["scripts"]["test"] == "vitest run --environment jsdom"
+    assert package["scripts"]["e2e"] == "playwright test"
 
 
 def test_pixi_exposes_frontend_tasks() -> None:
@@ -19,3 +20,5 @@ def test_pixi_exposes_frontend_tasks() -> None:
     assert config["tasks"]["frontend-build"] == "npm --prefix frontend run build"
     assert config["tasks"]["frontend-typecheck"] == "npm --prefix frontend run typecheck"
     assert config["tasks"]["frontend-lint"] == "npm --prefix frontend run lint"
+    assert config["tasks"]["frontend-test"] == "npm --prefix frontend run test"
+    assert config["tasks"]["frontend-e2e"] == "npm --prefix frontend run e2e"
