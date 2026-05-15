@@ -12,6 +12,7 @@ from mynovel.domain.models import (
     ProviderConfig,
 )
 from mynovel.product_views import (
+    is_provider_config_complete,
     render_book_workspace,
     render_blueprint_page,
     render_chapter_review,
@@ -20,7 +21,7 @@ from mynovel.product_views import (
 )
 
 
-def test_model_setup_advanced_options_allow_dedicated_embedding_and_rerank_config() -> None:
+def test_model_setup_allows_dedicated_embedding_and_rerank_config() -> None:
     provider_config = ProviderConfig(
         llm_base_url="https://llm.example.test/v1",
         llm_api_key="llm-key",
@@ -37,7 +38,6 @@ def test_model_setup_advanced_options_allow_dedicated_embedding_and_rerank_confi
 
     page = render_model_setup_page(Path(".mynovel/dev.sqlite"), provider_config)
 
-    assert '<details class="advanced-model-options">' in page
     assert 'name="embedding_use_llm_credentials" type="checkbox" value="1" checked' in page
     assert 'name="embedding_base_url"' in page
     assert 'value="https://embedding.example.test/v1"' in page
@@ -48,7 +48,8 @@ def test_model_setup_advanced_options_allow_dedicated_embedding_and_rerank_confi
     assert 'value="https://rerank.example.test/v1"' in page
     assert 'name="rerank_api_key"' in page
     assert 'value="rerank-key"' in page
-    assert "高级配置" in page
+    assert "检索模型接口" in page
+    assert "重排模型接口" in page
 
 
 def test_provider_config_form_defaults_retrieval_credentials_to_llm() -> None:
@@ -91,6 +92,45 @@ def test_provider_config_form_can_save_dedicated_retrieval_credentials() -> None
     assert config.rerank_use_llm_credentials is False
     assert config.resolved_rerank_base_url() == "https://rerank.example.test/v1"
     assert config.resolved_rerank_api_key() == "rerank-key"
+
+
+def test_provider_config_is_incomplete_without_api_key_or_rerank_model() -> None:
+    missing_key = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-test",
+        rerank_use_llm_credentials=True,
+        rerank_base_url="",
+        rerank_model="rerank-test",
+    )
+    missing_rerank = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_api_key="sk-test",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-test",
+        rerank_use_llm_credentials=True,
+        rerank_base_url="",
+        rerank_model="",
+    )
+    complete = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_api_key="sk-test",
+        llm_model="gpt-test",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-test",
+        rerank_use_llm_credentials=True,
+        rerank_base_url="",
+        rerank_model="rerank-test",
+    )
+
+    assert is_provider_config_complete(missing_key) is False
+    assert is_provider_config_complete(missing_rerank) is False
+    assert is_provider_config_complete(complete) is True
 
 
 def test_new_book_idea_field_is_multiline() -> None:

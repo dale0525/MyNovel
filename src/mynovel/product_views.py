@@ -29,13 +29,14 @@ from mynovel.i18n import DEFAULT_LOCALE, t
 from mynovel.open_book_views import (
     render_open_book_page_main,
 )
+from mynovel.model_setup_views import render_model_setup_content
+from mynovel.provider_config_validation import ProviderValidationReport
 from mynovel.product_components import (
     render_canon_gate_aside,
     render_chapter_production_aside,
     render_chapter_production_main,
     render_completed_aside,
     render_completed_progress,
-    render_model_setup_content,
 )
 from mynovel.workspace_views import (
     build_workspace_task_summary,
@@ -109,11 +110,12 @@ def render_model_setup_page(
     provider_config: ProviderConfig | None,
     message: str | None = None,
     locale: str = DEFAULT_LOCALE,
+    validation_report: ProviderValidationReport | None = None,
 ) -> str:
     return _page(
         title=t("model.title", locale),
         active="create",
-        main=render_model_setup_content(db_path, provider_config, locale),
+        main=render_model_setup_content(db_path, provider_config, locale, validation_report),
         message=message,
         bottom=_render_start_pipeline(None, locale),
         locale=locale,
@@ -367,9 +369,14 @@ def is_provider_config_complete(provider_config: ProviderConfig | None) -> bool:
     return bool(
         provider_config
         and provider_config.llm_base_url.strip()
+        and provider_config.llm_api_key
         and provider_config.llm_model.strip()
         and provider_config.resolved_embedding_base_url().strip()
+        and provider_config.resolved_embedding_api_key()
         and provider_config.embedding_model.strip()
+        and (provider_config.resolved_rerank_base_url() or "").strip()
+        and provider_config.resolved_rerank_api_key()
+        and (provider_config.rerank_model or "").strip()
     )
 
 

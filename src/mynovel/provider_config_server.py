@@ -55,7 +55,12 @@ def handle_provider_config_post(
             message = _validation_failure_message(report)
             return ProviderConfigPostResponse(
                 status=HTTPStatus.BAD_REQUEST,
-                body=render_model_setup_page(db_path, config, message),
+                body=render_model_setup_page(
+                    db_path,
+                    config,
+                    message,
+                    validation_report=report,
+                ),
             )
 
         save_provider_config(session, config)

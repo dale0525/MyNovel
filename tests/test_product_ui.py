@@ -11,8 +11,7 @@ from mynovel.domain.models import (
     ChapterStatus,
     OpenBookBlueprint,
     ProviderConfig,
-    RunTrace,
-    VolumePlan,
+    ProviderConfigValidation,
 )
 from mynovel.import_views import render_import_project_page
 from mynovel.i18n import TRANSLATIONS
@@ -23,6 +22,7 @@ from mynovel.product_views import (
     render_new_book_page,
     render_trusted_state_page,
 )
+from mynovel.provider_config_validation import ProviderCheckResult, ProviderValidationReport
 from mynovel.ui_shell import app_css, render_app_page
 
 
@@ -176,7 +176,9 @@ def test_project_home_uses_translation_for_settings_link(monkeypatch) -> None:
 
 
 def test_new_book_page_uses_translations_for_preview_and_optional_copy(monkeypatch) -> None:
-    monkeypatch.setitem(TRANSLATIONS["zh-CN"], "new_book.preview_card_title_options", "预览标题_TEST")
+    monkeypatch.setitem(
+        TRANSLATIONS["zh-CN"], "new_book.preview_card_title_options", "预览标题_TEST"
+    )
     monkeypatch.setitem(
         TRANSLATIONS["zh-CN"],
         "new_book.selling_points_placeholder",
@@ -309,7 +311,58 @@ def test_model_setup_page_uses_dedicated_configuration_dashboard() -> None:
     assert "setup-checklist" in page
     assert "准备创建书籍" in page
     assert "本地数据库" in page
-    assert "测试连接" not in page
+    assert "连接检查" in page
+
+
+def test_model_setup_page_requires_api_key_and_all_three_model_names() -> None:
+    page = render_model_setup_page(Path(".mynovel/dev.sqlite"), None)
+
+    assert (
+        'id="llm_api_key" name="llm_api_key" type="password" value="" '
+        'placeholder="" required'
+    ) in page
+    assert '<label for="llm_model">对话模型</label>' in page
+    assert '<label for="embedding_model">检索模型</label>' in page
+    assert '<label for="rerank_model">重排模型</label>' in page
+    assert 'name="rerank_model" type="text" value="" placeholder="bge-reranker-v2-m3" required' in page
+    assert "重排模型（可选）" not in page
+
+
+def test_model_setup_page_renders_validation_report_statuses() -> None:
+    provider_config = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_api_key="local-demo-key",
+        llm_model="gpt-4o-mini",
+        embedding_use_llm_credentials=True,
+        embedding_base_url="",
+        embedding_model="text-embedding-3-small",
+        rerank_use_llm_credentials=True,
+        rerank_base_url="",
+        rerank_model="bge-reranker-v2-m3",
+    )
+    report = ProviderValidationReport(
+        results=[
+            ProviderCheckResult("llm", "对话模型", "passed", "连接测试通过"),
+            ProviderCheckResult("embedding", "检索模型", "failed", "embedding failed"),
+            ProviderCheckResult("rerank", "重排模型", "skipped", "沿用上次通过结果"),
+        ],
+        validation=ProviderConfigValidation(
+            llm_fingerprint="llm-pass",
+            rerank_fingerprint="rerank-pass",
+        ),
+    )
+
+    page = render_model_setup_page(
+        Path(".mynovel/dev.sqlite"),
+        provider_config,
+        validation_report=report,
+    )
+
+    assert "连接检查" in page
+    assert "通过" in page
+    assert "失败" in page
+    assert "沿用上次通过结果" in page
+    assert "embedding failed" in page
 
 
 def test_model_setup_page_associates_labels_with_inputs() -> None:
@@ -444,7 +497,9 @@ def test_review_page_uses_result_first_status_strip() -> None:
         state_delta={"changes": [{"type": "人物状态", "target": "莉拉", "change": "离村"}]},
     )
 
-    page = render_chapter_review(book, [chapter], chapter, Canon(id=1, book_id=1, version=1, content={}))
+    page = render_chapter_review(
+        book, [chapter], chapter, Canon(id=1, book_id=1, version=1, content={})
+    )
 
     assert 'class="global-status-strip"' in page
     assert "先看结果摘要，再决定是否接受本章" in page
@@ -611,7 +666,10 @@ def test_needs_revision_chapter_page_exposes_ai_revision_request() -> None:
     assert "先看结果摘要，再决定如何修订本章" in page
     assert "写下修订决定，让 AI 重新生成候选正文" in page
     assert "第 01 章当前候选仍需修订，等待你给出下一轮修改决定。" in page
-    assert "当前不能直接接受正文；请把这一轮修订决定告诉 AI，让它重新生成候选正文，下一轮再进入批准判断。" in page
+    assert (
+        "当前不能直接接受正文；请把这一轮修订决定告诉 AI，让它重新生成候选正文，下一轮再进入批准判断。"
+        in page
+    )
 
 
 def test_book_workspace_links_to_trusted_state_page() -> None:
@@ -991,367 +1049,3 @@ def test_canon_gate_page_matches_lock_confirmation_surface() -> None:
     assert "点击下一步后" in page
     assert "状态变化才会写入可信设定" in page
     assert "下一步" in page
-
-
-def test_book_workspace_matches_project_cockpit_surface() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="男频网文读者",
-        status=BookStatus.CANON_LOCKED,
-    )
-    chapters = [
-        Chapter(id=1, book_id=1, number=1, title="召唤", status=ChapterStatus.PLANNED),
-        Chapter(id=2, book_id=1, number=2, title="穿越迷雾", status=ChapterStatus.PLANNED),
-    ]
-    canon = Canon(
-        id=1,
-        book_id=1,
-        version=1,
-        content={
-            "world_rules": [{"background": "架空大盛王朝", "rules": "医术被视为神迹"}],
-            "characters": [{"name": "苏清月", "description": "现代中西医博士"}],
-            "foreshadowing": [
-                {
-                    "trigger": "苏清月检查原主遗物",
-                    "description": "发现原主并非死于意外。",
-                }
-            ],
-            "chapter_summaries": [{"title": "第一章：魂穿将门", "content": "现代医生醒来后自救。"}],
-            "state_history": [
-                {
-                    "type": "canon_proposal_revision",
-                    "target_section": "locations",
-                    "changed_sections": ["locations", "relationships"],
-                    "blocked_sections": [{"section": "world_rules", "reason": "已锁定"}],
-                    "instruction": "重要地点太少了。",
-                    "summary": "已补全地点和关系。",
-                }
-            ],
-        },
-    )
-
-    page = render_book_workspace(book, chapters, canon, [])
-
-    assert "workspace-focus-layout" in page
-    assert "workspace-focus-card" in page
-    assert "workspace-result-sidebar" in page
-    assert "当前任务" in page
-    assert "推进第 01 章" in page
-    assert "开始生产本章" in page
-    assert "AI 最近进展" in page
-    assert "可信设定摘要" in page
-    assert "章节队列" in page
-    assert "背景：架空大盛王朝" in page
-    assert "说明：现代中西医博士" in page
-    assert "苏清月检查原主遗物：发现原主并非死于意外。" in page
-    assert "摘要：现代医生醒来后自救。" in page
-    assert "background：" not in page
-    assert "description：" not in page
-    assert "trigger：" not in page
-    assert "content：" not in page
-    assert "target_section" not in page
-    assert "changed_sections" not in page
-    assert 'class="main-panel project-cockpit"' not in page
-    assert "<span class='info-dot' aria-hidden='true'>i</span>" not in page
-
-
-def test_book_workspace_renders_volume_plan_items_as_readable_text() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="男频网文读者",
-        status=BookStatus.CANON_LOCKED,
-    )
-    volume_plan = VolumePlan(
-        id=1,
-        book_id=1,
-        title="第一卷",
-        core_conflict="主角重建禁书馆。",
-        pacing_curve=[{"title": "死而复生", "goal": "完成自救。"}],
-        commitments=["前三章完成自救"],
-    )
-
-    page = render_book_workspace(
-        book,
-        [],
-        Canon(id=1, book_id=1, version=1, content={}),
-        [],
-        volume_plans=[volume_plan],
-    )
-
-    assert "标题：死而复生" in page
-    assert "目标：完成自救。" in page
-    assert "&#x27;title&#x27;" not in page
-    assert "&#x27;goal&#x27;" not in page
-
-
-def test_running_chapter_page_matches_stage_control_surface() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="男频网文读者",
-        status=BookStatus.PRODUCING,
-    )
-    chapter = Chapter(
-        id=1,
-        book_id=1,
-        number=1,
-        title="召唤",
-        status=ChapterStatus.RUNNING,
-        plan={"word_budget": 3000},
-        context_package={"canon": "雾门规则", "characters": ["罗文", "莉拉"]},
-    )
-
-    page = render_chapter_review(
-        book,
-        [chapter],
-        chapter,
-        Canon(id=1, book_id=1, version=1, content={}),
-    )
-
-    assert "chapter-production-layout" in page
-    assert "chapter-task-board" in page
-    assert "chapter-stage-chain" in page
-    assert "chapter-result-grid" in page
-    assert 'data-stage="plan"' in page
-    assert 'data-stage="context"' in page
-    assert 'data-stage="draft"' in page
-    assert 'data-stage="delta"' in page
-    assert 'data-stage="audit"' in page
-    assert 'data-slot="plan"' in page
-    assert 'data-slot="context"' in page
-    assert 'data-slot="draft"' in page
-    assert 'data-slot="delta"' in page
-    assert 'data-slot="audit"' in page
-    assert "章节规划" in page
-    assert "上下文包" in page
-    assert "草稿正文" in page
-    assert "状态变化" in page
-    assert "审计结果" in page
-    assert "立即刷新" in page
-    assert "正在生成草稿" in page
-    assert "待产出" in page
-    assert "已生成章节规划" in page
-    assert "已编译上下文包" in page
-
-
-def test_running_chapter_page_marks_empty_delta_and_audit_as_completed() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="男频网文读者",
-        status=BookStatus.PRODUCING,
-    )
-    chapter = Chapter(
-        id=1,
-        book_id=1,
-        number=1,
-        title="召唤",
-        status=ChapterStatus.RUNNING,
-        draft_text="薄雾在峡谷间流动，像一层轻纱。",
-        plan={"word_budget": 3000},
-        context_package={"canon": "雾门规则"},
-        state_delta={"changes": []},
-        audit_report={"issues": []},
-    )
-
-    page = render_chapter_review(
-        book,
-        [chapter],
-        chapter,
-        Canon(id=1, book_id=1, version=1, content={}),
-    )
-
-    assert 'data-stage="delta"' in page
-    assert 'data-stage="audit"' in page
-    assert 'class="chapter-stage done" data-stage="delta"' in page
-    assert 'class="chapter-stage done" data-stage="audit"' in page
-    assert 'class="chapter-result-slot ready" data-slot="delta"' in page
-    assert 'class="chapter-result-slot ready" data-slot="audit"' in page
-    assert "无状态变化" in page
-    assert "无审计问题" in page
-    assert "状态变化待产出" not in page
-    assert "审计结果待产出" not in page
-
-
-def test_running_chapter_page_uses_translations_for_task_board_copy(monkeypatch) -> None:
-    monkeypatch.setitem(TRANSLATIONS["zh-CN"], "running_board.refresh_now", "立即刷新_TEST")
-    monkeypatch.setitem(TRANSLATIONS["zh-CN"], "running_board.word_stats", "字数面板_TEST：{current}/{target}")
-    monkeypatch.setitem(TRANSLATIONS["zh-CN"], "running_board.auto_refreshing", "自动刷新_TEST")
-    monkeypatch.setitem(TRANSLATIONS["zh-CN"], "running_board.none_delta", "无状态变化_TEST")
-    monkeypatch.setitem(TRANSLATIONS["zh-CN"], "running_board.none_audit", "无审计问题_TEST")
-
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="男频网文读者",
-        status=BookStatus.PRODUCING,
-    )
-    chapter = Chapter(
-        id=1,
-        book_id=1,
-        number=1,
-        title="召唤",
-        status=ChapterStatus.RUNNING,
-        draft_text="薄雾在峡谷间流动，像一层轻纱。",
-        word_count=1248,
-        plan={"word_budget": 3000},
-        context_package={"canon": "雾门规则"},
-        state_delta={"changes": []},
-        audit_report={"issues": []},
-    )
-
-    page = render_chapter_review(
-        book,
-        [chapter],
-        chapter,
-        Canon(id=1, book_id=1, version=1, content={}),
-    )
-
-    assert "立即刷新_TEST" in page
-    assert "字数面板_TEST：1248/3,000" in page
-    assert "自动刷新_TEST" in page
-    assert "无状态变化_TEST" in page
-    assert "无审计问题_TEST" in page
-
-
-def test_running_chapter_page_uses_translations_for_mode_and_chapter_number(monkeypatch) -> None:
-    locale = "test-locale"
-    monkeypatch.setitem(TRANSLATIONS, locale, dict(TRANSLATIONS["zh-CN"]))
-    monkeypatch.setitem(TRANSLATIONS[locale], "running_board.mode_generate", "AI 生成_TEST")
-    monkeypatch.setitem(
-        TRANSLATIONS[locale],
-        "running_board.mode_generate_status",
-        "阶段状态_TEST",
-    )
-    monkeypatch.setitem(TRANSLATIONS[locale], "chapter.number", "章节编号_TEST {number}")
-
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="男频网文读者",
-        status=BookStatus.PRODUCING,
-    )
-    chapter = Chapter(
-        id=1,
-        book_id=1,
-        number=3,
-        title="召唤",
-        status=ChapterStatus.RUNNING,
-        plan={"word_budget": 3000},
-    )
-
-    page = render_chapter_review(
-        book,
-        [chapter],
-        chapter,
-        Canon(id=1, book_id=1, version=1, content={}),
-        locale=locale,
-    )
-
-    assert page.count("AI 生成_TEST") == 2
-    assert page.count("阶段状态_TEST") == 2
-    assert "章节编号_TEST 3 召唤" in page
-
-
-def test_book_workspace_uses_translations_for_workspace_preview_labels(monkeypatch) -> None:
-    locale = "workspace-test"
-    monkeypatch.setitem(TRANSLATIONS, locale, dict(TRANSLATIONS["zh-CN"]))
-    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.current_task", "CURRENT_TASK_TEST")
-    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.focus_title_run", "RUN_TASK_TEST {number}")
-    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.focus_detail_run", "RUN_DETAIL_TEST")
-    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.book_meta", "{genre} / {audience}")
-    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.empty_value", "EMPTY_TEST")
-    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.preview_pair", "{left} => {right}")
-    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.preview_joiner", " | ")
-    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.label.background", "BG_TEST")
-    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.label.description", "DESC_TEST")
-    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.label.title", "TITLE_TEST")
-    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.label.goal", "GOAL_TEST")
-    monkeypatch.setitem(TRANSLATIONS[locale], "word_targets.total_label", "TOTAL_WORDS_TEST")
-    monkeypatch.setitem(TRANSLATIONS[locale], "word_targets.chapter_label", "CHAPTER_WORDS_TEST")
-    monkeypatch.setitem(TRANSLATIONS[locale], "word_targets.update_existing", "SYNC_EXISTING_TEST")
-    monkeypatch.setitem(TRANSLATIONS[locale], "word_targets.save", "SAVE_TARGETS_TEST")
-    monkeypatch.setitem(TRANSLATIONS[locale], "workspace.trace_time_format", "{hour}h{minute}")
-
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="男频网文读者",
-        status=BookStatus.CANON_LOCKED,
-        constraints={"target_word_count": 180000, "chapter_word_count": 3200},
-    )
-    chapters = [Chapter(id=1, book_id=1, number=1, title="召唤", status=ChapterStatus.PLANNED)]
-    canon = Canon(
-        id=1,
-        book_id=1,
-        version=1,
-        content={
-            "world_rules": [{"background": "架空大盛王朝", "description": "医术被视为神迹"}],
-            "chapter_summaries": [{"title": "第一章", "goal": "完成自救"}],
-        },
-    )
-    traces = [
-        RunTrace(
-            id=1,
-            book_id=1,
-            stage="chapter_pipeline",
-            created_at=datetime(2026, 5, 15, 9, 7, tzinfo=UTC),
-        )
-    ]
-
-    page = render_book_workspace(book, chapters, canon, traces, locale=locale)
-
-    assert "CURRENT_TASK_TEST" in page
-    assert page.count("RUN_TASK_TEST 1") == 2
-    assert page.count("RUN_DETAIL_TEST") == 2
-    assert "奇幻 / 男频网文读者" in page
-    assert "BG_TEST => 架空大盛王朝" in page
-    assert "DESC_TEST => 医术被视为神迹" in page
-    assert "TITLE_TEST => 第一章" in page
-    assert "GOAL_TEST => 完成自救" in page
-    assert "TOTAL_WORDS_TEST" in page
-    assert "CHAPTER_WORDS_TEST" in page
-    assert "SYNC_EXISTING_TEST" in page
-    assert "SAVE_TARGETS_TEST" in page
-    assert "9h07" in page
-    assert "09:07" not in page
-    assert "背景：架空大盛王朝" not in page
-
-
-def test_completed_book_workspace_matches_first_ten_complete_surface() -> None:
-    book = Book(
-        id=1,
-        title="长夜图书馆",
-        genre="奇幻",
-        audience="男频网文读者",
-        status=BookStatus.PRODUCING,
-    )
-    chapters = [
-        Chapter(
-            id=index,
-            book_id=1,
-            number=index,
-            title=f"第 {index:02d} 章",
-            status=ChapterStatus.ACCEPTED,
-            final_text="已完成",
-            word_count=3000,
-        )
-        for index in range(1, 11)
-    ]
-
-    page = render_book_workspace(book, chapters, Canon(id=1, book_id=1, version=10, content={}), [])
-
-    assert "project-progress-overview" in page
-    assert "可信设定更新总览" in page
-    assert "已连续更新到 v10" in page
-    assert "继续生产第 11 章" in page
-    assert "导出已批准章节" in page

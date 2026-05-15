@@ -182,13 +182,13 @@ def _render_provider_form(config: ProviderConfig | None, locale: str) -> str:
     return f"""
       <form method="post" action="/provider-config" class="compact-form">
         {_input("llm_base_url", t("provider.llm_base_url", locale), t("provider.llm_base_url_placeholder", locale), _field(config.llm_base_url), True)}
-        {_input("llm_api_key", t("provider.llm_api_key", locale), "", _field(config.llm_api_key), False, "password")}
+        {_input("llm_api_key", t("provider.llm_api_key", locale), "", _field(config.llm_api_key), True, "password")}
         {_input("llm_model", t("provider.llm_model", locale), t("provider.llm_model_placeholder", locale), _field(config.llm_model), True)}
         {_input("embedding_model", t("provider.embedding_model", locale), t("provider.embedding_model_placeholder", locale), _field(config.embedding_model), True)}
         <label class="inline-check"><input name="embedding_use_llm_credentials" type="checkbox" value="1"{embedding_checked}>{t("provider.embedding_use_llm", locale)}</label>
         {_input("embedding_base_url", t("provider.embedding_base_url", locale), t("provider.embedding_base_url_placeholder", locale), _field(config.embedding_base_url))}
         {_input("embedding_api_key", t("provider.embedding_api_key", locale), "", _field(config.embedding_api_key), False, "password")}
-        {_input("rerank_model", t("provider.rerank_model", locale), t("provider.optional_placeholder", locale), _field(config.rerank_model))}
+        {_input("rerank_model", t("provider.rerank_model", locale), "填写重排模型名称", _field(config.rerank_model), True)}
         <label class="inline-check"><input name="rerank_use_llm_credentials" type="checkbox" value="1"{rerank_checked}>{t("provider.rerank_use_llm", locale)}</label>
         {_input("rerank_base_url", t("provider.rerank_base_url", locale), t("provider.optional_placeholder", locale), _field(config.rerank_base_url))}
         {_input("rerank_api_key", t("provider.rerank_api_key", locale), "", _field(config.rerank_api_key), False, "password")}
