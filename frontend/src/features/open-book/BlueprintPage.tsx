@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { ApiError, getJson, postJson } from "@/lib/api";
+import { ApiError, getJson, isAbortError, postJson } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
 import type { BlueprintPayload, BlueprintResponse } from "@/lib/types";
 
@@ -30,6 +30,7 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
+    const controller = new AbortController();
     setState({ status: "loading", blueprint: null, error: null });
     setRevisionNotes("");
     setSelectedTitle("");
@@ -39,7 +40,9 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
 
     async function loadBlueprint() {
       try {
-        const response = await getJson<BlueprintResponse>(`/api/blueprints/${blueprintId}`);
+        const response = await getJson<BlueprintResponse>(`/api/blueprints/${blueprintId}`, {
+          signal: controller.signal,
+        });
         if (cancelled) {
           return;
         }
@@ -52,6 +55,9 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
           }, 1500);
         }
       } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
         if (!cancelled) {
           setState({
             status: "error",
@@ -66,6 +72,7 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
 
     return () => {
       cancelled = true;
+      controller.abort();
       if (timer !== undefined) {
         window.clearTimeout(timer);
       }

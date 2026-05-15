@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { BlueprintPage } from "@/features/open-book/BlueprintPage";
@@ -12,6 +12,7 @@ afterEach(() => {
 });
 
 test("renders running blueprint state and polls while in progress", async () => {
+  vi.useFakeTimers();
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json({ blueprint: blueprintPayload({ status: "running" }) }))
@@ -27,11 +28,33 @@ test("renders running blueprint state and polls while in progress", async () => 
 
   render(<BlueprintPage blueprintId={3} />);
 
-  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("蓝图生成中"));
-  await waitFor(() => expect(screen.getByText("长夜档案")).toBeInTheDocument(), {
-    timeout: 3000,
+  await act(async () => {
+    await Promise.resolve();
   });
+  expect(screen.getByRole("status")).toHaveTextContent("蓝图生成中");
+  await act(async () => {
+    vi.advanceTimersByTime(1500);
+    await Promise.resolve();
+  });
+  expect(screen.getByText("长夜档案")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+test("aborts in-flight blueprint fetch on unmount", () => {
+  let signal: AbortSignal | undefined;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Promise<Response>(() => {});
+    }),
+  );
+
+  const { unmount } = render(<BlueprintPage blueprintId={3} />);
+
+  expect(signal?.aborted).toBe(false);
+  unmount();
+  expect(signal?.aborted).toBe(true);
 });
 
 test("renders failed blueprint details and retries", async () => {

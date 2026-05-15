@@ -547,37 +547,125 @@ def test_legacy_accept_blueprint_redirects_to_react_workspace(tmp_path: Path) ->
             "premise": "档案员追查禁书真相。",
         },
     )
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _make_handler(DevServerState(db_path)))
-    thread = Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    body = urlencode({"blueprint_id": str(blueprint_id), "selected_title": "长夜档案"}).encode(
-        "utf-8"
+    status, location = _post_legacy_form(
+        db_path,
+        "/accept-blueprint",
+        {"blueprint_id": str(blueprint_id), "selected_title": "长夜档案"},
     )
-
-    try:
-        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=5)
-        connection.request(
-            "POST",
-            "/accept-blueprint",
-            body=body,
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Content-Length": str(len(body)),
-            },
-        )
-        response = connection.getresponse()
-        response.read()
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
 
     with Session(create_engine_for_path(db_path)) as session:
         books = list(session.exec(select(Book)))
 
-    assert response.status == HTTPStatus.SEE_OTHER
+    assert status == HTTPStatus.SEE_OTHER
     assert len(books) == 1
-    assert response.getheader("Location") == f"/books/{books[0].id}"
+    assert location == f"/books/{books[0].id}"
+
+
+def test_legacy_open_book_redirects_to_react_blueprint_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    _save_validated_provider(db_path)
+    started: list[int] = []
+    monkeypatch.setattr(
+        api_open_book,
+        "start_blueprint_job",
+        lambda _db, blueprint_id, _config: started.append(blueprint_id),
+    )
+
+    status, location = _post_legacy_form(
+        db_path,
+        "/open-book",
+        {"idea": "失意档案员重建禁书图书馆"},
+    )
+
+    assert status == HTTPStatus.SEE_OTHER
+    assert location is not None
+    assert location == f"/blueprints/{started[0]}"
+
+
+def test_legacy_retry_requires_validated_provider(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    _save_unvalidated_provider(db_path)
+    blueprint_id = _save_blueprint(db_path, status=BlueprintStatus.FAILED)
+    started: list[int] = []
+    monkeypatch.setattr(
+        api_open_book,
+        "start_blueprint_job",
+        lambda _db, blueprint_id, _config: started.append(blueprint_id),
+    )
+
+    status, location = _post_legacy_form(
+        db_path,
+        "/retry-blueprint",
+        {"blueprint_id": str(blueprint_id)},
+    )
+
+    assert status == HTTPStatus.BAD_REQUEST
+    assert location is None
+    assert started == []
+
+
+def test_legacy_retry_redirects_to_react_blueprint_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    _save_validated_provider(db_path)
+    blueprint_id = _save_blueprint(db_path, status=BlueprintStatus.FAILED)
+    started: list[int] = []
+    monkeypatch.setattr(
+        api_open_book,
+        "start_blueprint_job",
+        lambda _db, blueprint_id, _config: started.append(blueprint_id),
+    )
+
+    status, location = _post_legacy_form(
+        db_path,
+        "/retry-blueprint",
+        {"blueprint_id": str(blueprint_id)},
+    )
+
+    assert status == HTTPStatus.SEE_OTHER
+    assert location == f"/blueprints/{blueprint_id}"
+    assert started == [blueprint_id]
+
+
+def test_legacy_revise_redirects_to_react_blueprint_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    _save_validated_provider(db_path)
+    blueprint_id = _save_blueprint(
+        db_path,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜档案"],
+            "genre": "奇幻",
+            "audience": "成人",
+        },
+    )
+    started: list[int] = []
+    monkeypatch.setattr(
+        api_open_book,
+        "start_blueprint_job",
+        lambda _db, blueprint_id, _config: started.append(blueprint_id),
+    )
+
+    status, location = _post_legacy_form(
+        db_path,
+        "/revise-blueprint",
+        {"blueprint_id": str(blueprint_id), "revision_notes": "主角更疯一点"},
+    )
+
+    assert status == HTTPStatus.SEE_OTHER
+    assert location is not None
+    assert location == f"/blueprints/{started[0]}"
 
 
 def test_concurrent_accept_blueprint_creates_one_book(tmp_path: Path, monkeypatch) -> None:
@@ -637,6 +725,67 @@ def test_concurrent_accept_blueprint_creates_one_book(tmp_path: Path, monkeypatc
     assert "accepted_book_id" not in blueprint.content
 
 
+def test_transactional_accept_serializes_without_process_lock(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    blueprint_id = _save_blueprint(
+        db_path,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜档案"],
+            "genre": "奇幻",
+            "audience": "成人",
+            "premise": "档案员追查禁书真相。",
+        },
+    )
+    original_create = api_open_book.create_draft_book_from_blueprint_in_session
+    barrier = Barrier(2, timeout=0.2)
+
+    def create_after_both_transactions_reach_create(*args, **kwargs):
+        try:
+            barrier.wait()
+        except BrokenBarrierError:
+            pass
+        return original_create(*args, **kwargs)
+
+    monkeypatch.setattr(
+        api_open_book,
+        "create_draft_book_from_blueprint_in_session",
+        create_after_both_transactions_reach_create,
+    )
+    results: list[int | None] = []
+    errors: list[Exception] = []
+
+    def accept_blueprint() -> None:
+        try:
+            book = api_open_book._accept_blueprint_form_transactionally(
+                db_path,
+                blueprint_id,
+                {"blueprint_id": str(blueprint_id), "selected_title": "长夜档案"},
+            )
+            results.append(book.id)
+        except Exception as error:  # pragma: no cover - assertion reports the concrete failure.
+            errors.append(error)
+
+    threads = [Thread(target=accept_blueprint), Thread(target=accept_blueprint)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    with Session(create_engine_for_path(db_path)) as session:
+        books = list(session.exec(select(Book)))
+        acceptance = session.get(BlueprintAcceptance, blueprint_id)
+
+    assert errors == []
+    assert len(set(results)) == 1
+    assert len(books) == 1
+    assert acceptance is not None
+    assert acceptance.book_id in results
+
+
 def _save_validated_provider(db_path: Path) -> None:
     config = ProviderConfig(
         llm_base_url="https://api.example.test/v1",
@@ -659,6 +808,58 @@ def _save_validated_provider(db_path: Path) -> None:
                 rerank_fingerprint=provider_model_fingerprint(config, "rerank"),
             ),
         )
+
+
+def _save_unvalidated_provider(db_path: Path) -> None:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        save_provider_config(
+            session,
+            ProviderConfig(
+                llm_base_url="https://api.example.test/v1",
+                llm_api_key="sk-test",
+                llm_model="gpt-test",
+                embedding_base_url="https://api.example.test/v1",
+                embedding_model="text-embedding-test",
+                rerank_base_url="https://rerank.example.test/v1",
+                rerank_model="rerank-test",
+            ),
+        )
+
+
+def _post_legacy_form(
+    db_path: Path,
+    path: str,
+    form: dict[str, str],
+) -> tuple[HTTPStatus, str | None]:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _make_handler(DevServerState(db_path)))
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    body = urlencode(form).encode("utf-8")
+
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        connection.request(
+            "POST",
+            path,
+            body=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Content-Length": str(len(body)),
+            },
+        )
+        response = connection.getresponse()
+        response.read()
+        status = HTTPStatus(response.status)
+        location = response.getheader("Location")
+        connection.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    return status, location
 
 
 def _save_blueprint(

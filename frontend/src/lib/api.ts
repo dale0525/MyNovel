@@ -20,23 +20,43 @@ export class ApiError extends Error {
   }
 }
 
-export async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path, {
+type ApiRequestOptions = {
+  signal?: AbortSignal;
+};
+
+export async function getJson<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const init: RequestInit = {
     headers: { Accept: "application/json" },
-  });
+  };
+  if (options.signal) {
+    init.signal = options.signal;
+  }
+  const response = await fetch(path, init);
   return parseJsonResponse<T>(response);
 }
 
-export async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
+export async function postJson<T>(
+  path: string,
+  body: unknown,
+  options: ApiRequestOptions = {},
+): Promise<T> {
+  const init: RequestInit = {
     method: "POST",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
-  });
+  };
+  if (options.signal) {
+    init.signal = options.signal;
+  }
+  const response = await fetch(path, init);
   return parseJsonResponse<T>(response);
+}
+
+export function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {

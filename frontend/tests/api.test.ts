@@ -32,3 +32,16 @@ test("getJson rejects 2xx non-JSON bodies with a controlled ApiError", async () 
   });
   await expect(getJson<{ ok: boolean }>("/api/text")).rejects.toBeInstanceOf(ApiError);
 });
+
+test("getJson forwards abort signal to fetch", async () => {
+  const controller = new AbortController();
+  const fetchMock = vi.fn(async () => Response.json({ ok: true }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  await getJson<{ ok: boolean }>("/api/ok", { signal: controller.signal });
+
+  expect(fetchMock).toHaveBeenCalledWith("/api/ok", {
+    headers: { Accept: "application/json" },
+    signal: controller.signal,
+  });
+});

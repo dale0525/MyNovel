@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { getJson } from "@/lib/api";
+import { getJson, isAbortError } from "@/lib/api";
 import type { BookPayload, BookResponse } from "@/lib/types";
 
 type BookWorkspaceState =
@@ -21,9 +21,10 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     setState({ status: "loading", book: null, error: null });
 
-    getJson<unknown>(`/api/books/${bookId}`)
+    getJson<unknown>(`/api/books/${bookId}`, { signal: controller.signal })
       .then((payload) => {
         const parsed = parseBookResponse(payload);
         if (!cancelled) {
@@ -35,6 +36,9 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
         }
       })
       .catch((error: unknown) => {
+        if (isAbortError(error)) {
+          return;
+        }
         if (!cancelled) {
           setState({
             status: "error",
@@ -46,6 +50,7 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [bookId]);
 

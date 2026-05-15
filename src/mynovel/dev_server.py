@@ -12,7 +12,13 @@ from urllib.parse import parse_qs, quote, urlparse
 from sqlmodel import Session, select
 
 from mynovel.api_errors import ApiResponse
-from mynovel.api_open_book import BlueprintAcceptanceInProgressError, accept_blueprint_form_safely
+from mynovel.api_open_book import (
+    BlueprintAcceptanceInProgressError,
+    accept_blueprint_form_safely,
+    create_open_book_blueprint_json,
+    retry_blueprint_json,
+    revise_blueprint_json,
+)
 from mynovel.api_routes import dispatch_api_get, dispatch_api_post, read_api_json_body
 from mynovel.book_abandonment import AbandonBookError, abandon_draft_book_from_form
 from mynovel.blueprint_acceptance import (
@@ -21,8 +27,6 @@ from mynovel.blueprint_acceptance import (
     BlueprintTitleSelectionError,
     lock_canon_from_form,
 )
-from mynovel.blueprint_revision import create_revision_blueprint_job, revision_notes_from_form
-from mynovel.blueprint_jobs import reset_blueprint_for_retry, start_blueprint_job
 from mynovel import canon_proposal_server as canon_server
 from mynovel.chapter_server import (
     chapter_model_client_from_provider_config,
@@ -49,13 +53,12 @@ from mynovel.path_display import display_path
 from mynovel.import_views import render_import_project_page
 from mynovel.legacy_cleanup import remove_legacy_placeholder_data
 from mynovel.product_views import (
-    is_provider_config_complete,
     render_book_workspace,
     render_blueprint_page,
     render_chapter_review,
-    render_home,
+    render_home,  # noqa: F401 - kept for import compatibility during SPA migration.
     render_model_setup_page,  # noqa: F401 - kept for import compatibility during SPA migration.
-    render_new_book_page,
+    render_new_book_page,  # noqa: F401 - kept for import compatibility during SPA migration.
     render_trusted_state_page,
 )
 from mynovel.provider_config_server import handle_provider_config_post
@@ -65,7 +68,7 @@ from mynovel.static_server import StaticResponse, resolve_spa_response
 from mynovel.update_server import handle_check_update, handle_stage_update
 from mynovel.update_views import render_update_page  # noqa: F401
 from mynovel.word_target_server import save_book_word_targets_from_form
-from mynovel.word_targets import book_idea_from_form as _book_idea_from_form
+from mynovel.word_targets import book_idea_from_form as _book_idea_from_form  # noqa: F401
 from mynovel.workflows.quality_enhancement import (
     create_style_asset,
     deconstruct_reference_text,
@@ -80,7 +83,6 @@ from mynovel.workflows.chapter_pipeline import (
 )
 from mynovel.workflows.book_export import export_book_json, export_book_markdown
 from mynovel.workflows.book_import import import_book_json
-from mynovel.workflows.open_book_blueprint import create_blueprint_job
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -368,103 +370,23 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             self._redirect(f"/book/{book.id or 0}")
 
         def _create_blueprint(self, db_path: Path) -> None:
-            form = self._read_form()
-            idea = _book_idea_from_form(form)
-            provider_config = _load_provider_config(db_path)
-            if not is_provider_config_complete(provider_config):
-                self._send_html(
-                    render_home(
-                        db_path,
-                        _load_books(db_path),
-                        provider_config,
-                        _load_open_book_blueprints(db_path),
-                        t("status.not_configured"),
-                    ),
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-                return
-            if not idea:
-                self._send_html(render_new_book_page(provider_config, t("book.idea_required")))
-                return
-
-            assert provider_config is not None
-            engine = create_engine_for_path(db_path)
-            create_db_and_tables(engine)
-            with Session(engine) as session:
-                blueprint = create_blueprint_job(
-                    session,
-                    idea=idea,
-                    version=1,
-                    instruction=None,
-                    parent_id=None,
-                )
-                blueprint_id = blueprint.id
-            if blueprint_id is None:
-                self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            start_blueprint_job(db_path, blueprint_id, provider_config)
-            self._redirect(f"/blueprint/{blueprint_id}")
+            self._redirect_api_response(create_open_book_blueprint_json(db_path, self._read_form()))
 
         def _revise_blueprint(self, db_path: Path) -> None:
             form = self._read_form()
-            revision_notes = revision_notes_from_form(form)
-            provider_config = _load_provider_config(db_path)
-            blueprints = _load_open_book_blueprints(db_path)
-            if not provider_config or not is_provider_config_complete(provider_config):
-                self.send_error(HTTPStatus.BAD_REQUEST)
-                return
-            if not blueprints:
-                self._redirect("/")
-                return
-            if not revision_notes:
-                self._send_html(
-                    render_home(
-                        db_path,
-                        _load_books(db_path),
-                        provider_config,
-                        blueprints,
-                        t("blueprint.revision_required"),
-                    ),
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-                return
-            engine = create_engine_for_path(db_path)
-            create_db_and_tables(engine)
-            with Session(engine) as session:
-                try:
-                    blueprint = create_revision_blueprint_job(
-                        session,
-                        form,
-                        blueprints,
-                        revision_notes,
-                    )
-                except ValueError:
-                    self.send_error(HTTPStatus.NOT_FOUND)
-                    return
-                blueprint_id = blueprint.id
-            if blueprint_id is None:
-                self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            start_blueprint_job(db_path, blueprint_id, provider_config)
-            self._redirect(f"/blueprint/{blueprint_id}")
+            try:
+                blueprint_id = int(form.get("blueprint_id", "0") or "0")
+            except ValueError:
+                blueprint_id = 0
+            self._redirect_api_response(revise_blueprint_json(db_path, blueprint_id, form))
 
         def _retry_blueprint(self, db_path: Path) -> None:
             form = self._read_form()
-            blueprint_id = int(form.get("blueprint_id", "0"))
-            provider_config = _load_provider_config(db_path)
-            if not provider_config or not is_provider_config_complete(provider_config):
-                self.send_error(HTTPStatus.BAD_REQUEST)
-                return
-            engine = create_engine_for_path(db_path)
-            create_db_and_tables(engine)
-            with Session(engine) as session:
-                blueprint = get_open_book_blueprint(session, blueprint_id)
-                if blueprint is None:
-                    self.send_error(HTTPStatus.NOT_FOUND)
-                    return
-                reset_blueprint_for_retry(session, blueprint)
-            start_blueprint_job(db_path, blueprint_id, provider_config)
-            self._redirect(f"/blueprint/{blueprint_id}")
+            try:
+                blueprint_id = int(form.get("blueprint_id", "0") or "0")
+            except ValueError:
+                blueprint_id = 0
+            self._redirect_api_response(retry_blueprint_json(db_path, blueprint_id))
 
         def _accept_blueprint(self, db_path: Path) -> None:
             form = self._read_form()
@@ -682,6 +604,16 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
+
+        def _redirect_api_response(self, response: ApiResponse) -> None:
+            redirect_to = response.body.get("redirectTo")
+            if response.status in {HTTPStatus.OK, HTTPStatus.ACCEPTED} and isinstance(
+                redirect_to,
+                str,
+            ):
+                self._redirect(redirect_to)
+                return
+            self.send_error(response.status)
 
         def _send_static_response(self, response: StaticResponse) -> None:
             self.send_response(response.status)
