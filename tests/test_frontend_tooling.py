@@ -17,12 +17,27 @@ def test_pixi_exposes_frontend_tasks() -> None:
     config = tomllib.loads(Path("pixi.toml").read_text(encoding="utf-8"))
     assert "nodejs" in config["dependencies"]
     assert config["dependencies"]["nodejs"] == ">=22.12,<23"
-    assert config["tasks"]["frontend-dev"] == "npm --prefix frontend run dev"
-    assert config["tasks"]["frontend-build"] == "npm --prefix frontend run build"
-    assert config["tasks"]["frontend-typecheck"] == "npm --prefix frontend run typecheck"
-    assert config["tasks"]["frontend-lint"] == "npm --prefix frontend run lint"
-    assert config["tasks"]["frontend-test"] == "npm --prefix frontend run test"
-    assert config["tasks"]["frontend-e2e"] == "npm --prefix frontend run e2e"
+    assert config["tasks"]["frontend-install"] == (
+        "npm --prefix frontend install --package-lock=false"
+    )
+    assert config["tasks"]["frontend-dev"] == (
+        "pixi run frontend-install && npm --prefix frontend run dev"
+    )
+    assert config["tasks"]["frontend-build"] == (
+        "pixi run frontend-install && npm --prefix frontend run build"
+    )
+    assert config["tasks"]["frontend-typecheck"] == (
+        "pixi run frontend-install && npm --prefix frontend run typecheck"
+    )
+    assert config["tasks"]["frontend-lint"] == (
+        "pixi run frontend-install && npm --prefix frontend run lint"
+    )
+    assert config["tasks"]["frontend-test"] == (
+        "pixi run frontend-install && npm --prefix frontend run test"
+    )
+    assert config["tasks"]["frontend-e2e"] == (
+        "pixi run frontend-install && npm --prefix frontend run e2e"
+    )
 
 
 def test_frontend_config_files_support_tooling() -> None:
@@ -53,6 +68,13 @@ def test_frontend_config_files_support_tooling() -> None:
     assert "@tailwind utilities;" in globals_css
     assert "--background:" in globals_css
     assert "--foreground:" in globals_css
+
+
+def test_frontend_shadcn_utils_helper_exists() -> None:
+    utils = Path("frontend/src/lib/utils.ts").read_text(encoding="utf-8")
+    assert 'import { clsx, type ClassValue } from "clsx";' in utils
+    assert 'import { twMerge } from "tailwind-merge";' in utils
+    assert "export function cn(" in utils
 
 
 def test_frontend_generated_artifacts_are_ignored() -> None:
