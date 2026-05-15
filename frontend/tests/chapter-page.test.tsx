@@ -7,6 +7,7 @@ import { ChapterPage } from "@/features/chapters/ChapterPage";
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -32,7 +33,16 @@ test("renders result report before chapter text and empty review states", async 
 });
 
 test("polls chapter every three seconds while it is running", async () => {
-  vi.useFakeTimers();
+  const realSetTimeout = globalThis.setTimeout;
+  const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(
+    (handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+      if (timeout === 3000 && typeof handler === "function") {
+        queueMicrotask(handler);
+        return 1 as unknown as ReturnType<typeof setTimeout>;
+      }
+      return realSetTimeout(handler, timeout, ...args);
+    },
+  );
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(chapterPayload({ status: "running" })))
@@ -41,11 +51,8 @@ test("polls chapter every three seconds while it is running", async () => {
 
   render(<ChapterPage chapterId={12} />);
 
-  expect(fetchMock).toHaveBeenCalledTimes(1);
-  await vi.advanceTimersByTimeAsync(0);
-  await vi.advanceTimersByTimeAsync(3000);
-
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 3000);
   expect(fetchMock).toHaveBeenLastCalledWith("/api/chapters/12", expect.objectContaining({ signal: expect.any(AbortSignal) }));
 });
 
@@ -87,6 +94,25 @@ test("chapter review actions call edit repair approve and export endpoints", asy
     ),
   );
   expect(screen.getByRole("link", { name: "导出正文" })).toHaveAttribute("href", "/api/chapters/12/export.txt");
+});
+
+test("run action enters running state from the action response", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(chapterPayload({ status: "planned" })))
+    .mockResolvedValueOnce(Response.json(chapterPayload({ status: "running" })));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "运行本章" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "运行本章" }));
+
+  await waitFor(() => expect(screen.getByText("星港遗梦 · 第 2 章 · 运行中")).toBeInTheDocument());
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/chapters/12/run",
+    expect.objectContaining({ method: "POST" }),
+  );
 });
 
 function chapterPayload({

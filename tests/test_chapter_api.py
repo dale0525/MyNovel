@@ -4,6 +4,7 @@ from pathlib import Path
 from sqlmodel import Session
 
 from mynovel.api_routes import dispatch_api_get, dispatch_api_post
+from mynovel import api_routes
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import Book, BookStatus, Canon, Chapter, ChapterStatus, RunTrace
 
@@ -89,3 +90,47 @@ def test_unknown_chapter_action_returns_chapter_action_failed(tmp_path: Path) ->
 
     assert response.status == HTTPStatus.BAD_REQUEST
     assert response.body["error"]["code"] == "chapter_action_failed"
+
+
+def test_run_chapter_action_returns_updated_review_payload(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = Book(
+            title="星港遗梦",
+            genre="科幻",
+            audience="成人",
+            status=BookStatus.CANON_LOCKED,
+        )
+        session.add(book)
+        session.commit()
+        session.refresh(book)
+        session.add(Canon(book_id=book.id or 0, version=1, content={"characters": []}))
+        chapter = Chapter(
+            book_id=book.id or 0,
+            number=1,
+            title="失落灯塔",
+            status=ChapterStatus.PLANNED,
+        )
+        session.add(chapter)
+        session.commit()
+        session.refresh(chapter)
+        chapter_id = chapter.id or 0
+
+    def mark_running(db_path: Path, chapter_id: int, provider_config=None) -> int:
+        with Session(create_engine_for_path(db_path)) as session:
+            chapter = session.get(Chapter, chapter_id)
+            assert chapter is not None
+            chapter.status = ChapterStatus.RUNNING
+            session.add(chapter)
+            session.commit()
+        return chapter_id
+
+    monkeypatch.setattr(api_routes, "queue_chapter_run", mark_running)
+
+    response = dispatch_api_post(f"/api/chapters/{chapter_id}/run", {}, db_path)
+
+    assert response.status == HTTPStatus.ACCEPTED
+    assert response.body["chapter"]["id"] == chapter_id
+    assert response.body["chapter"]["status"] == "running"

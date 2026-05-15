@@ -30,18 +30,20 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
     action: null,
     message: null,
   });
+  const [pollKey, setPollKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let controller: AbortController | null = null;
 
-    function loadChapter(initial = false) {
+    function loadChapter() {
       controller?.abort();
       controller = new AbortController();
-      if (initial) {
-        setState({ status: "loading", data: null, error: null });
-      }
+      setState((current) =>
+        current.status === "ready" && current.data.chapter.id === chapterId
+          ? current
+          : { status: "loading", data: null, error: null },
+      );
       getJson<unknown>(`/api/chapters/${chapterId}`, { signal: controller.signal })
         .then((payload) => {
           const parsed = parseChapterResponse(payload);
@@ -53,9 +55,6 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
             return;
           }
           setState({ status: "ready", data: parsed, error: null });
-          if (parsed.chapter.status === "running") {
-            pollTimer = setTimeout(() => loadChapter(false), 3000);
-          }
         })
         .catch((error: unknown) => {
           if (isAbortError(error) || cancelled) {
@@ -69,16 +68,21 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
         });
     }
 
-    loadChapter(true);
+    loadChapter();
 
     return () => {
       cancelled = true;
-      if (pollTimer) {
-        clearTimeout(pollTimer);
-      }
       controller?.abort();
     };
-  }, [chapterId]);
+  }, [chapterId, pollKey]);
+
+  useEffect(() => {
+    if (state.status !== "ready" || state.data.chapter.status !== "running") {
+      return;
+    }
+    const pollTimer = setTimeout(() => setPollKey((current) => current + 1), 3000);
+    return () => clearTimeout(pollTimer);
+  }, [state]);
 
   async function submitAction(action: ChapterReviewAction, body: Record<string, unknown>) {
     setActionState({ status: "submitting", action, message: null });

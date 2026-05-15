@@ -403,10 +403,7 @@ def _run_chapter_json(db_path: Path, chapter_id: int) -> ApiResponse:
         )
     except ValueError as error:
         return _chapter_action_error(error)
-    return ApiResponse(
-        HTTPStatus.ACCEPTED,
-        {"chapterId": queued_chapter_id, "redirectTo": f"/chapters/{queued_chapter_id}"},
-    )
+    return _chapter_payload_response(db_path, queued_chapter_id, HTTPStatus.ACCEPTED)
 
 
 def _run_chapter_batch_json(db_path: Path, book_id: int, body: dict[str, Any]) -> ApiResponse:
@@ -419,10 +416,7 @@ def _run_chapter_batch_json(db_path: Path, book_id: int, body: dict[str, Any]) -
         )
     except ValueError as error:
         return _chapter_action_error(error)
-    return ApiResponse(
-        HTTPStatus.ACCEPTED,
-        {"chapterId": queued_chapter_id, "redirectTo": f"/chapters/{queued_chapter_id}"},
-    )
+    return _chapter_payload_response(db_path, queued_chapter_id, HTTPStatus.ACCEPTED)
 
 
 def _request_chapter_revision_json(
@@ -454,10 +448,7 @@ def _repair_chapter_json(db_path: Path, chapter_id: int, body: dict[str, Any]) -
         )
     except ValueError as error:
         return _chapter_action_error(error)
-    return ApiResponse(
-        HTTPStatus.ACCEPTED,
-        {"chapterId": queued_chapter_id, "redirectTo": f"/chapters/{queued_chapter_id}"},
-    )
+    return _chapter_payload_response(db_path, queued_chapter_id, HTTPStatus.ACCEPTED)
 
 
 def _edit_chapter_json(db_path: Path, chapter_id: int, body: dict[str, Any]) -> ApiResponse:
@@ -508,11 +499,17 @@ def _export_chapter_text_json(db_path: Path, chapter_id: int) -> ApiResponse:
     return ApiResponse(HTTPStatus.OK, text, "text/plain; charset=utf-8")
 
 
-def _chapter_payload_response(db_path: Path, chapter_id: int) -> ApiResponse:
+def _chapter_payload_response(
+    db_path: Path,
+    chapter_id: int,
+    status: HTTPStatus = HTTPStatus.OK,
+) -> ApiResponse:
     payload = chapter_review_payload(db_path, chapter_id)
     if payload is None:
         return api_error(HTTPStatus.NOT_FOUND, "chapter_not_found", "Chapter not found.")
-    return ApiResponse(HTTPStatus.OK, payload)
+    payload["chapterId"] = chapter_id
+    payload["redirectTo"] = f"/chapters/{chapter_id}"
+    return ApiResponse(status, payload)
 
 
 def _chapter_action_error(error: ValueError) -> ApiResponse:
