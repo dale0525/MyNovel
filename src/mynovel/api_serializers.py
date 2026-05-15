@@ -250,7 +250,7 @@ def chapter_review_payload(db_path: Path, chapter_id: int) -> dict[str, Any] | N
 
 
 def _chapter_run_traces(run_traces: list[RunTrace], chapter: Chapter) -> list[RunTrace]:
-    identifiers = {chapter.number, str(chapter.number), chapter.id, str(chapter.id)}
+    identifiers = {chapter.number, str(chapter.number)}
     return sorted(
         [
             trace

@@ -31,7 +31,7 @@ def test_chapter_detail_returns_review_payload(tmp_path: Path) -> None:
         )
         first = Chapter(
             book_id=book.id or 0,
-            number=1,
+            number=2,
             title="失落灯塔",
             status=ChapterStatus.ACCEPTED,
             final_text="灯塔已经点亮。",
@@ -40,7 +40,7 @@ def test_chapter_detail_returns_review_payload(tmp_path: Path) -> None:
         )
         second = Chapter(
             book_id=book.id or 0,
-            number=2,
+            number=3,
             title="静默港湾",
             status=ChapterStatus.AWAITING_REVIEW,
             plan={"goal": "进入港湾", "word_budget": 3200},
@@ -48,7 +48,7 @@ def test_chapter_detail_returns_review_payload(tmp_path: Path) -> None:
             draft_text="岑星抵达港湾。",
             revised_text="岑星抵达静默港湾。",
             audit_report={"risk_level": "low", "issues": []},
-            state_delta={"chapter": 2, "changes": [{"target": "港湾", "change": "首次出现"}]},
+            state_delta={"chapter": 3, "changes": [{"target": "港湾", "change": "首次出现"}]},
             summary="岑星抵达港湾。",
             reviewer_note="等待人工确认。",
             word_count=10,
@@ -57,13 +57,13 @@ def test_chapter_detail_returns_review_payload(tmp_path: Path) -> None:
             book_id=book.id,
             stage="审计",
             prompt_id="chapter_audit",
-            metadata_={"chapter": 2},
+            metadata_={"chapter": 3},
         )
         sibling_trace = RunTrace(
             book_id=book.id,
             stage="兄弟章节审计",
             prompt_id="chapter_audit",
-            metadata_={"chapter": 1},
+            metadata_={"chapter": 2},
         )
         session.add_all([canon, first, second, trace, sibling_trace])
         session.commit()
@@ -78,7 +78,7 @@ def test_chapter_detail_returns_review_payload(tmp_path: Path) -> None:
     assert response.body["chapter"]["plan"] == {"goal": "进入港湾", "word_budget": 3200}
     assert response.body["chapter"]["draftText"] == "岑星抵达港湾。"
     assert response.body["chapter"]["revisedText"] == "岑星抵达静默港湾。"
-    assert [chapter["number"] for chapter in response.body["siblingChapters"]] == [1, 2]
+    assert [chapter["number"] for chapter in response.body["siblingChapters"]] == [2, 3]
     assert response.body["latestCanon"]["version"] == 2
     assert [trace["stage"] for trace in response.body["traces"]] == ["审计"]
     assert response.body["traces"][0]["promptId"] == "chapter_audit"
