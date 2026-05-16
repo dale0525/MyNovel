@@ -232,6 +232,38 @@ test("workspace keeps project tools collapsed until requested", async () => {
   expect(screen.getByRole("link", { name: "导出 Markdown" })).toHaveAttribute("href", "/api/books/42/export.md");
 });
 
+test("workspace checks trusted state when production-ready projects have no current task", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "accepted" })),
+    ),
+  );
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
+  expect(screen.getByRole("link", { name: "检查可信设定" })).toHaveAttribute("href", "/books/42/state");
+  expect(screen.queryByRole("button", { name: "运行当前章节" })).not.toBeInTheDocument();
+});
+
+test("workspace runs needs-revision chapters through the primary action", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "needs_revision" })),
+    ),
+  );
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "运行当前章节" })).toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("生成候选正文");
+  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("不会直接写入");
+  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("进入章节审核");
+});
+
 function bookPayload({
   bookStatus = "draft",
   chapterStatus = "running",
