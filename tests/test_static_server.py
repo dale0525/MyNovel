@@ -69,3 +69,12 @@ def test_missing_index_reports_frontend_not_built(tmp_path: Path) -> None:
     assert response.status == HTTPStatus.SERVICE_UNAVAILABLE
     assert response.content_type == "text/plain; charset=utf-8"
     assert b"pixi run frontend-build" in response.body
+
+
+def test_packaged_provider_setup_does_not_require_rerank_model() -> None:
+    dist = frontend_dist_path_from_module(Path("src/mynovel/frontend_assets.py"))
+    bundled_text = "\n".join(
+        asset.read_text(encoding="utf-8") for asset in (dist / "assets").glob("*.js")
+    )
+
+    assert "Rerank model name" not in bundled_text
