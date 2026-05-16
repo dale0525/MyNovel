@@ -104,6 +104,31 @@ def test_model_retrieval_falls_back_to_lexical_when_model_candidates_unavailable
     assert results[0].metadata["embedding_model"] == "old"
 
 
+def test_model_retrieval_fallback_scores_vector_entries_from_text(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        index_text(
+            session,
+            book.id,
+            "note",
+            "old",
+            "旧模型",
+            embedding_vector=[1.0, 0.0],
+            embedding_model="old",
+        )
+        results = retrieve_book_context(
+            session,
+            book.id,
+            "旧",
+            query_embedding=[1.0, 0.0],
+            embedding_model="new",
+        )
+
+    assert [result.source_id for result in results] == ["old"]
+
+
 def test_retrieval_budget_skips_oversized_context_and_keeps_later_small_context(
     tmp_path,
 ) -> None:

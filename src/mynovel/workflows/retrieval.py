@@ -235,11 +235,17 @@ def _cosine_similarity(left: list[float], right: list[float]) -> float | None:
 
 
 def _score_entry(query_counts: Counter[str], entry: VectorEntry) -> float:
-    entry_counts = Counter(entry.embedding or _token_counts(entry.text))
+    entry_counts = _entry_token_counts(entry)
     score = sum(weight * entry_counts.get(token, 0) for token, weight in query_counts.items())
     query_terms = [token for token in query_counts if len(token) >= 2]
     score += sum(4 for term in query_terms if term in entry.text)
     return float(score)
+
+
+def _entry_token_counts(entry: VectorEntry) -> Counter[str]:
+    if isinstance(entry.embedding, dict):
+        return Counter(entry.embedding)
+    return _token_counts(entry.text)
 
 
 def _token_counts(text: str) -> Counter[str]:
