@@ -24,8 +24,7 @@
   margin: 0;
 }
 
-.guided-identity__meta div,
-.status-block {
+.guided-identity__meta div {
   border: 1px solid rgb(23 32 24 / 0.1);
   border-radius: 0.75rem;
   background: rgb(246 241 232 / 0.62);
@@ -33,7 +32,6 @@
 }
 
 .guided-identity__meta dt,
-.status-block span,
 .impact-item span {
   color: #596954;
   font-size: 0.72rem;
@@ -95,6 +93,13 @@
   border-radius: 1rem;
   background: #fbfcf8;
   padding: 1rem;
+}
+
+.impact-panel--embedded {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
 }
 
 .impact-panel__grid {

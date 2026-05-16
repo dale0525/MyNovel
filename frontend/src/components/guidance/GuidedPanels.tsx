@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 
 export type IdentityMetaItem = {
   label: string;
@@ -23,7 +23,7 @@ type ProjectIdentityBarProps = {
 
 export function ProjectIdentityBar({ eyebrow, title, meta, actions }: ProjectIdentityBarProps) {
   return (
-    <header className="guided-identity" role="banner">
+    <div className="guided-identity">
       <div>
         <p className="eyebrow">{eyebrow}</p>
         <h1>{title}</h1>
@@ -37,18 +37,19 @@ export function ProjectIdentityBar({ eyebrow, title, meta, actions }: ProjectIde
         ))}
       </dl>
       {actions ? <div className="guided-identity__actions">{actions}</div> : null}
-    </header>
+    </div>
   );
 }
 
 type ImpactPanelProps = {
   title: string;
   items: ImpactItem[];
+  embedded?: boolean;
 };
 
-export function ImpactPanel({ title, items }: ImpactPanelProps) {
+export function ImpactPanel({ title, items, embedded = false }: ImpactPanelProps) {
   return (
-    <section className="impact-panel" aria-label={title}>
+    <section className={embedded ? "impact-panel impact-panel--embedded" : "impact-panel"} aria-label={title}>
       <h2>{title}</h2>
       <div className="impact-panel__grid">
         {items.map((item) => (
@@ -79,11 +80,13 @@ export function PrimaryActionPanel({
   impact,
   children,
 }: PrimaryActionPanelProps) {
+  const titleId = useId();
+
   return (
-    <section className="primary-action-panel" aria-labelledby="primary-action-title">
+    <section className="primary-action-panel" aria-labelledby={titleId}>
       <div className="primary-action-panel__main">
         <p className="eyebrow">{eyebrow}</p>
-        <h2 id="primary-action-title">{title}</h2>
+        <h2 id={titleId}>{title}</h2>
         <div className="primary-action-panel__summary">{summary}</div>
         <div className="primary-action-panel__action">{action}</div>
         {children}
