@@ -183,4 +183,13 @@ describe("normalizeBlueprintCandidates", () => {
       audience: "候选B读者",
     });
   });
+
+  test("uses premise as central conflict when central conflict is missing", () => {
+    const candidates = normalizeBlueprintCandidates({
+      title_options: ["长夜档案"],
+      premise: "档案员追查禁书真相。",
+    });
+
+    expect(candidates[0].centralConflict).toBe("档案员追查禁书真相。");
+  });
 });

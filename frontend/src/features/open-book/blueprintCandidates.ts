@@ -62,7 +62,7 @@ export function normalizeBlueprintCandidates(content: unknown): BlueprintCandida
       readerPromises: listValues(merged.reader_promises),
       protagonist: summaryValue(merged.protagonist),
       world: summaryValue(merged.world),
-      centralConflict: textValue(merged.central_conflict),
+      centralConflict: textValue(merged.central_conflict) || textValue(merged.premise),
       chapterDirections: normalizeChapterDirections(merged.chapter_directions),
       extras: extrasFor(blueprint, candidate),
     };
