@@ -1,6 +1,13 @@
-import { useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 
 import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
+import {
+  AdvancedDisclosure,
+  ImpactPanel,
+  type ImpactItem,
+  PrimaryActionPanel,
+  ProjectIdentityBar,
+} from "@/components/guidance/GuidedPanels";
 import { ApiError, getJson, isAbortError, postJson } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
 import type { BookPayload, BookResponse, ChapterPayload, RunTracePayload, WordTargetsPayload } from "@/lib/types";
@@ -18,6 +25,21 @@ type WorkspaceAction = "run-current" | "run-batch" | "word-targets";
 
 type ActionRedirectResponse = {
   redirectTo: string;
+};
+
+type WorkspacePrimaryActionModel = {
+  title: string;
+  summary: string;
+  action: ReactNode;
+  impactItems: ImpactItem[];
+};
+
+type WorkspacePrimaryActionParams = {
+  bookId: number;
+  currentTask: ChapterPayload | null;
+  productionReady: boolean;
+  actionBusy: WorkspaceAction | null;
+  runCurrentChapter: (chapter: ChapterPayload) => void;
 };
 
 export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
@@ -83,7 +105,7 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
     });
   }
 
-  async function runBatchProduction(event: React.FormEvent<HTMLFormElement>) {
+  async function runBatchProduction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await runAction("run-batch", async () => {
       const payload = await postJson<unknown>(`/api/books/${bookId}/chapters/run-batch`, {
@@ -97,7 +119,7 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
     });
   }
 
-  async function saveWordTargets(event: React.FormEvent<HTMLFormElement>) {
+  async function saveWordTargets(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await runAction("word-targets", async () => {
       const payload = await postJson<unknown>(`/api/books/${bookId}/word-targets`, {
@@ -155,112 +177,79 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
 
   const { book, chapters, latestCanon, runTraces, volumePlans } = state.data;
   const currentTask = currentChapterTask(chapters);
-  const currentTaskId = currentTask?.id ?? null;
   const productionReady = latestCanon !== null && book.status !== "draft";
   const recentTraces = [...runTraces].reverse().slice(0, 4);
+  const primaryAction = workspacePrimaryAction({
+    bookId,
+    currentTask,
+    productionReady,
+    actionBusy,
+    runCurrentChapter: (chapter) => void runCurrentChapter(chapter),
+  });
 
   return (
-    <section className="workbench-page book-workspace-page" aria-labelledby="book-workspace-title">
-      <div className="workbench-hero book-workspace-hero">
-        <p className="eyebrow">Project Workspace</p>
-        <h1 id="book-workspace-title">{book.title}</h1>
-        <p className="book-workspace-meta">
-          {book.genre} · {book.audience} · {statusLabel(book.status)}
-        </p>
-        <p className="lede">{book.premise ?? "这个项目还没有记录核心承诺，下一步可以先补齐故事前提。"}</p>
-      </div>
+    <section className="workbench-page book-workspace-page" aria-label={book.title}>
+      <ProjectIdentityBar
+        eyebrow="Project"
+        title={book.title}
+        meta={[
+          { label: "题材", value: book.genre },
+          { label: "读者", value: book.audience },
+          { label: "状态", value: statusLabel(book.status) },
+          { label: "Canon", value: latestCanon ? `v${latestCanon.version}` : "尚未定盘" },
+        ]}
+        actions={
+          <div className="book-workspace-identity-note">
+            <p className="book-workspace-meta">
+              {book.genre} · {book.audience} · {statusLabel(book.status)}
+            </p>
+            <p className="lede">{book.premise ?? "这个项目还没有记录核心承诺，下一步可以先补齐故事前提。"}</p>
+          </div>
+        }
+      />
 
-      <div className="content-grid workspace-focus-layout">
-        <aside className="workbench-panel">
-          <p className="eyebrow">Project Pulse</p>
-          <h2>项目状态</h2>
-          <dl className="book-workspace-facts">
-            <div>
-              <dt>章节</dt>
-              <dd>{chapters.length}</dd>
-            </div>
-            <div>
-              <dt>卷纲</dt>
-              <dd>{volumePlans.length}</dd>
-            </div>
-            <div>
-              <dt>定盘版本</dt>
-              <dd>{latestCanon ? `v${latestCanon.version}` : "未生成"}</dd>
-            </div>
-          </dl>
-        </aside>
+      <PrimaryActionPanel
+        eyebrow="Current"
+        title={primaryAction.title}
+        summary={<p>{primaryAction.summary}</p>}
+        action={primaryAction.action}
+        impact={<ImpactPanel embedded title="影响预览" items={primaryAction.impactItems} />}
+      />
 
-        <main className="workspace-focus-card workbench-panel">
-          <section className="workspace-current-task" aria-labelledby="current-task-title">
-            <div>
-              <p className="eyebrow">Current Focus</p>
-              <h2 id="current-task-title">当前任务</h2>
-              {currentTask ? (
-                <>
-                  <strong>
-                    第 {currentTask.number} 章 · {currentTask.title}
-                  </strong>
-                  <p>{chapterStatusLabel(currentTask.status)}：{currentTask.summary || "等待补齐章节摘要。"}</p>
-                  {currentTask.status === "running" ? (
-                    <AiWaitingIndicator
-                      detail="AI 正在处理当前章节，完成后可进入章节页审阅结果。"
-                      label="章节生成中"
-                      variant="message"
-                    />
-                  ) : null}
-                </>
-              ) : (
-                <p>暂无待推进章节。可以先检查可信设定，再创建章节生产任务。</p>
-              )}
-            </div>
-            <div className="workspace-primary-action">
-              {currentTaskId !== null ? (
-                <a
-                  className="workbench-action-button workbench-action-button--secondary"
-                  href={`/chapters/${currentTaskId}`}
-                >
-                  打开当前章节
-                </a>
-              ) : null}
-              {productionReady && currentTaskId !== null && currentTask && canRunChapter(currentTask) ? (
-                <button
-                  className="workbench-action-button"
-                  disabled={actionBusy !== null}
-                  type="button"
-                  onClick={() => void runCurrentChapter(currentTask)}
-                >
-                  {actionBusy === "run-current" ? (
-                    <AiWaitingIndicator label="提交章节中..." variant="inline" />
-                  ) : (
-                    "运行当前章节"
-                  )}
-                </button>
-              ) : null}
-              <a className="workbench-action-button" href={`/books/${bookId}/state`}>
-                查看可信设定
-              </a>
-            </div>
-          </section>
+      <section className="guided-status-strip" aria-labelledby="canon-summary-title">
+        <div className="workspace-section-head">
+          <div>
+            <p className="eyebrow">Trusted State</p>
+            <h2 id="canon-summary-title">可信设定摘要</h2>
+          </div>
+          <a className="workbench-secondary-link" href={`/books/${bookId}/state`}>
+            查看可信设定
+          </a>
+        </div>
+        <div className="workspace-foundation-grid">
+          {canonSummaryCards(latestCanon?.content ?? {}).map((item) => (
+            <a className="workspace-snapshot-card" href={`/books/${bookId}/state`} key={item.label}>
+              <strong>{item.label}</strong>
+              <p>{item.value}</p>
+            </a>
+          ))}
+        </div>
+      </section>
 
-          <section className="workspace-foundation-panel" aria-labelledby="canon-summary-title">
-            <div className="workspace-section-head">
-              <div>
-                <p className="eyebrow">Trusted State</p>
-                <h2 id="canon-summary-title">可信设定摘要</h2>
-              </div>
-              <span>{latestCanon ? `Canon v${latestCanon.version}` : "尚未定盘"}</span>
-            </div>
-            <div className="workspace-foundation-grid">
-              {canonSummaryCards(latestCanon?.content ?? {}).map((item) => (
-                <article className="workspace-snapshot-card" key={item.label}>
-                  <strong>{item.label}</strong>
-                  <p>{item.value}</p>
-                </article>
-              ))}
-            </div>
-          </section>
+      <AdvancedDisclosure title="项目工具">
+        <div className="guided-tools-grid">
+          {actionError ? (
+            <section className="workspace-result-section workspace-result-section--alert" role="alert">
+              {actionError}
+            </section>
+          ) : null}
+          {actionStatus ? (
+            <section className="workspace-result-section workspace-result-section--success" role="status">
+              {actionStatus}
+            </section>
+          ) : null}
 
-          <section aria-labelledby="chapter-queue-title">
+          <section className="workspace-result-section" aria-labelledby="chapter-queue-title">
             <div className="workspace-section-head">
               <div>
                 <p className="eyebrow">Chapter Queue</p>
@@ -279,19 +268,6 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
               ))}
             </ol>
           </section>
-        </main>
-
-        <aside className="workspace-result-sidebar">
-          {actionError ? (
-            <section className="workspace-result-section workspace-result-section--alert" role="alert">
-              {actionError}
-            </section>
-          ) : null}
-          {actionStatus ? (
-            <section className="workspace-result-section workspace-result-section--success" role="status">
-              {actionStatus}
-            </section>
-          ) : null}
 
           <section className="workspace-result-section" aria-labelledby="workspace-actions-title">
             <p className="eyebrow">Controls</p>
@@ -396,19 +372,138 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
           <section className="workspace-result-section">
             <p className="eyebrow">Volume Plan</p>
             <h2>卷纲</h2>
-            {volumePlans.slice(0, 3).map((plan) => (
-              <article className="workspace-volume-plan" key={plan.id ?? plan.volumeNumber}>
-                <strong>
-                  第 {plan.volumeNumber} 卷 · {plan.title}
-                </strong>
-                <p>{plan.coreConflict}</p>
-              </article>
-            ))}
+            {volumePlans.length ? (
+              volumePlans.slice(0, 3).map((plan) => (
+                <article className="workspace-volume-plan" key={plan.id ?? plan.volumeNumber}>
+                  <strong>
+                    第 {plan.volumeNumber} 卷 · {plan.title}
+                  </strong>
+                  <p>{plan.coreConflict}</p>
+                </article>
+              ))
+            ) : (
+              <p>还没有卷纲。</p>
+            )}
           </section>
-        </aside>
-      </div>
+        </div>
+      </AdvancedDisclosure>
     </section>
   );
+}
+
+function workspacePrimaryAction({
+  bookId,
+  currentTask,
+  productionReady,
+  actionBusy,
+  runCurrentChapter,
+}: WorkspacePrimaryActionParams): WorkspacePrimaryActionModel {
+  if (!productionReady) {
+    return {
+      title: "继续推进项目",
+      summary: "可信设定还没有达到生产就绪状态，下一步应先调整并锁定可信设定。",
+      action: (
+        <a className="workbench-action-button" href={`/books/${bookId}/state`}>
+          调整可信设定
+        </a>
+      ),
+      impactItems: [
+        { label: "生产", value: "不会启动章节生产", tone: "warning" },
+        { label: "可信设定", value: "先补齐项目基础", tone: "neutral" },
+      ],
+    };
+  }
+
+  if (!currentTask) {
+    return {
+      title: "继续推进项目",
+      summary: "当前没有待推进章节，可以检查可信设定并准备下一批章节任务。",
+      action: (
+        <a className="workbench-action-button" href={`/books/${bookId}/state`}>
+          检查可信设定
+        </a>
+      ),
+      impactItems: [
+        { label: "章节", value: "没有待处理章节", tone: "neutral" },
+        { label: "生产", value: "不会启动章节生产", tone: "neutral" },
+      ],
+    };
+  }
+
+  const chapterId = currentTask.id ?? 0;
+  const chapterTitle = `第 ${currentTask.number} 章 · ${currentTask.title}`;
+
+  if (currentTask.status === "awaiting_review") {
+    return {
+      title: "继续推进项目",
+      summary: `${chapterTitle} 正在等待审阅，审核后才会写入可信设定。`,
+      action: (
+        <a className="workbench-action-button" href={`/chapters/${chapterId}`}>
+          打开章节审核
+        </a>
+      ),
+      impactItems: [
+        { label: "可信设定", value: "审核后才会写入", tone: "good" },
+        { label: "章节", value: chapterTitle, tone: "neutral" },
+      ],
+    };
+  }
+
+  if (currentTask.status === "running") {
+    return {
+      title: "继续推进项目",
+      summary: `${chapterTitle} 正在生成中，AI 正在处理候选正文。`,
+      action: (
+        <a className="workbench-action-button" href={`/chapters/${chapterId}`}>
+          查看生成进度
+        </a>
+      ),
+      impactItems: [
+        { label: "AI", value: "正在处理章节", tone: "neutral" },
+        { label: "可信设定", value: "暂不写入可信设定", tone: "warning" },
+      ],
+    };
+  }
+
+  if (canRunChapter(currentTask)) {
+    return {
+      title: "继续推进项目",
+      summary: `${chapterTitle} 已准备好生成候选正文。`,
+      action: (
+        <button
+          className="workbench-action-button"
+          disabled={actionBusy !== null}
+          type="button"
+          onClick={() => runCurrentChapter(currentTask)}
+        >
+          {actionBusy === "run-current" ? (
+            <AiWaitingIndicator label="提交章节中..." variant="inline" />
+          ) : (
+            "运行当前章节"
+          )}
+        </button>
+      ),
+      impactItems: [
+        { label: "正文", value: "生成候选正文", tone: "good" },
+        { label: "可信设定", value: "不会直接写入", tone: "warning" },
+        { label: "下一步", value: "进入章节审核", tone: "neutral" },
+      ],
+    };
+  }
+
+  return {
+    title: "继续推进项目",
+    summary: `${chapterTitle} 需要先回到章节页处理当前状态。`,
+    action: (
+      <a className="workbench-action-button" href={`/chapters/${chapterId}`}>
+        打开当前章节
+      </a>
+    ),
+    impactItems: [
+      { label: "章节", value: chapterStatusLabel(currentTask.status), tone: "neutral" },
+      { label: "可信设定", value: "等待章节完成后更新", tone: "neutral" },
+    ],
+  };
 }
 
 function parseBookResponse(payload: unknown): BookResponse | null {

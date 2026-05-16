@@ -13,24 +13,26 @@ test("renders book workspace details", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
-      Response.json(bookPayload({ includeTrace: true, includeVolumePlan: true })),
+      Response.json(bookPayload({ bookStatus: "canon_locked", includeTrace: true, includeVolumePlan: true })),
     ),
   );
 
   render(<BookWorkspacePage bookId={42} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  expect(screen.getByText("科幻 · 成人 · 草稿")).toBeInTheDocument();
-  expect(screen.getByText("领航员追查失落星港的真相。")).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "当前任务" })).toBeInTheDocument();
-  expect(screen.getAllByText("第 1 章 · 失落灯塔")).toHaveLength(2);
-  expect(screen.getByRole("heading", { name: "章节队列" })).toBeInTheDocument();
+  expect(screen.getByText("科幻")).toBeInTheDocument();
+  expect(screen.getByText("成人")).toBeInTheDocument();
+  expect(screen.getByText("可信设定已锁定")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "继续推进项目" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "查看生成进度" })).toHaveAttribute("href", "/chapters/8");
   expect(screen.getByRole("heading", { name: "可信设定摘要" })).toBeInTheDocument();
   expect(screen.getByText("灯塔会记录航线")).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "章节队列" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "项目工具" }));
+  expect(screen.getByRole("heading", { name: "章节队列" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "第 1 章 · 失落灯塔" })).toHaveAttribute("href", "/chapters/8");
   expect(screen.getByRole("heading", { name: "最近 AI 进度" })).toBeInTheDocument();
   expect(screen.getByText("chapter_draft")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "打开当前章节" })).toHaveAttribute("href", "/chapters/8");
-  expect(screen.getByRole("link", { name: "第 1 章 · 失落灯塔" })).toHaveAttribute("href", "/chapters/8");
   expect(screen.getByRole("link", { name: "质量中心" })).toHaveAttribute("href", "/books/42/quality");
   expect(screen.getByRole("link", { name: "导出 Markdown" })).toHaveAttribute("href", "/api/books/42/export.md");
   expect(screen.getByRole("link", { name: "导出 JSON" })).toHaveAttribute("href", "/api/books/42/export.json");
@@ -47,7 +49,8 @@ test("does not treat accepted chapters as the current task", async () => {
   render(<BookWorkspacePage bookId={42} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  expect(screen.getByText("暂无待推进章节。可以先检查可信设定，再创建章节生产任务。")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "调整可信设定" })).toHaveAttribute("href", "/books/42/state");
+  fireEvent.click(screen.getByRole("button", { name: "项目工具" }));
   expect(screen.getByText("已接受 · 1200 字")).toBeInTheDocument();
 });
 
@@ -62,6 +65,7 @@ test("workspace runs planned chapters and batch production through api actions",
   render(<BookWorkspacePage bookId={42} />);
 
   await waitFor(() => expect(screen.getByRole("button", { name: "运行当前章节" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "项目工具" }));
   fireEvent.click(screen.getByRole("button", { name: "运行当前章节" }));
 
   await waitFor(() =>
@@ -122,6 +126,7 @@ test("workspace hides production actions before trusted state is locked", async 
   await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
   expect(screen.queryByRole("button", { name: "运行当前章节" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "批量生产" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "项目工具" }));
   expect(screen.getByText("可信设定锁定后才能批量生产章节。")).toBeInTheDocument();
 });
 
@@ -136,7 +141,9 @@ test("workspace saves word targets through json api", async () => {
 
   render(<BookWorkspacePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByLabelText("全书目标字数")).toHaveValue(120000));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "项目工具" }));
+  expect(screen.getByLabelText("全书目标字数")).toHaveValue(120000);
   fireEvent.change(screen.getByLabelText("全书目标字数"), { target: { value: "300000" } });
   fireEvent.change(screen.getByLabelText("单章目标字数"), { target: { value: "3200" } });
   fireEvent.click(screen.getByLabelText("同步更新已有章节计划"));
@@ -169,6 +176,60 @@ test("aborts in-flight book fetch on unmount", () => {
   expect(signal?.aborted).toBe(false);
   unmount();
   expect(signal?.aborted).toBe(true);
+});
+
+test("workspace surfaces a single review action when a chapter awaits review", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "awaiting_review" })),
+    ),
+  );
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
+  expect(screen.getByRole("heading", { name: "继续推进项目" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "打开章节审核" })).toHaveAttribute("href", "/chapters/8");
+  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("审核后才会写入");
+  expect(screen.queryByRole("button", { name: "批量生产" })).not.toBeInTheDocument();
+});
+
+test("workspace points blocked draft projects to trusted state instead of production", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(bookPayload({ chapterStatus: "planned", includeLatestCanon: false })),
+    ),
+  );
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
+  expect(screen.getByRole("link", { name: "调整可信设定" })).toHaveAttribute("href", "/books/42/state");
+  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("不会启动章节生产");
+  expect(screen.queryByRole("button", { name: "运行当前章节" })).not.toBeInTheDocument();
+});
+
+test("workspace keeps project tools collapsed until requested", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "planned", includeTrace: true, includeVolumePlan: true })),
+    ),
+  );
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
+  expect(screen.queryByRole("button", { name: "批量生产" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("全书目标字数")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "项目工具" }));
+
+  expect(screen.getByRole("button", { name: "批量生产" })).toBeInTheDocument();
+  expect(screen.getByLabelText("全书目标字数")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "导出 Markdown" })).toHaveAttribute("href", "/api/books/42/export.md");
 });
 
 function bookPayload({
