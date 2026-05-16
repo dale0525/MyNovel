@@ -138,12 +138,29 @@ function candidatesForTitles(
     return [{}];
   }
 
+  const titleOptionSet = new Set(titleOptions);
+  const usedIndexes = new Set<number>();
+
   return titleOptions.map((title, index) => {
-    const titleMatch = candidateFields.find((candidate) => titleValue(candidate) === title);
-    const indexMatch = candidateFields[index];
-    if (titleMatch) {
-      return titleMatch;
+    const titleMatchIndex = candidateFields.findIndex((candidate, candidateIndex) => {
+      return !usedIndexes.has(candidateIndex) && titleValue(candidate) === title;
+    });
+    if (titleMatchIndex !== -1) {
+      usedIndexes.add(titleMatchIndex);
+      return candidateFields[titleMatchIndex];
     }
+
+    const indexMatch = candidateFields[index];
+    if (!indexMatch || usedIndexes.has(index)) {
+      return {};
+    }
+
+    const indexMatchTitle = titleValue(indexMatch);
+    if (indexMatchTitle && titleOptionSet.has(indexMatchTitle) && indexMatchTitle !== title) {
+      return {};
+    }
+
+    usedIndexes.add(index);
     return indexMatch ?? {};
   });
 }

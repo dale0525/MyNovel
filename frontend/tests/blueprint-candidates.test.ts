@@ -132,7 +132,7 @@ describe("normalizeBlueprintCandidates", () => {
     expect(candidates[0]).toMatchObject({
       index: 0,
       title: "长夜档案",
-      genre: "悬疑奇幻",
+      genre: "奇幻",
       audience: "成人",
       protagonist: "林既明 / 档案员",
       world: "借书支付记忆 / 逾期吞掉姓名",
@@ -211,5 +211,22 @@ describe("normalizeBlueprintCandidates", () => {
       genre: "错位题材",
     });
     expect(candidates[0].extras).toEqual({});
+  });
+
+  test("does not reuse a candidate that matches a later title", () => {
+    const candidates = normalizeBlueprintCandidates({
+      title_options: ["长夜档案", "禁书回声"],
+      genre: "全局奇幻",
+      candidates: [{ selected_title: "禁书回声", genre: "回声题材" }],
+    });
+
+    expect(candidates[0]).toMatchObject({
+      title: "长夜档案",
+      genre: "全局奇幻",
+    });
+    expect(candidates[1]).toMatchObject({
+      title: "禁书回声",
+      genre: "回声题材",
+    });
   });
 });
