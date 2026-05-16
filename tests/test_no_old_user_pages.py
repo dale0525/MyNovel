@@ -17,12 +17,15 @@ def test_no_send_html_user_route_remains() -> None:
 def test_old_renderer_modules_are_removed() -> None:
     removed_modules = [
         "blueprint_views.py",
+        "blueprint_review_views.py",
+        "canon_proposal_views.py",
         "chapter_review_views.py",
         "dev_views.py",
         "home_views.py",
         "import_views.py",
         "model_setup_views.py",
         "open_book_views.py",
+        "product_components.py",
         "product_views.py",
         "provider_config_server.py",
         "quality_views.py",
