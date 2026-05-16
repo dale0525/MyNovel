@@ -806,6 +806,15 @@ h1 {
   font-weight: 800;
 }
 
+.guided-decision-panel {
+  position: sticky;
+  top: 1rem;
+}
+
+.guided-decision-panel .impact-panel {
+  background: #fbfcf8;
+}
+
 @media (max-width: 720px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -851,5 +860,9 @@ h1 {
   .provider-submit-button,
   .workbench-action-button {
     width: 100%;
+  }
+
+  .guided-decision-panel {
+    position: static;
   }
 }

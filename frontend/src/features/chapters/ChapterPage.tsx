@@ -4,7 +4,11 @@ import {
   ChapterReviewActions,
   type ChapterReviewAction,
 } from "@/features/chapters/ChapterReviewActions";
-import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
+import {
+  ImpactPanel,
+  type ImpactItem,
+  ProjectIdentityBar,
+} from "@/components/guidance/GuidedPanels";
 import { ChapterStageBoard } from "@/features/chapters/ChapterStageBoard";
 import { ApiError, getJson, isAbortError, postJson } from "@/lib/api";
 import type { ChapterDetailPayload, ChapterResponse } from "@/lib/types";
@@ -135,24 +139,20 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
   const { book, chapter, siblingChapters, latestCanon, traces, stageSlots } = state.data;
 
   return (
-    <section className="workbench-page chapter-page" aria-labelledby="chapter-page-title">
-      <div className="workbench-hero chapter-hero">
-        <p className="eyebrow">Chapter Review</p>
-        <h1 id="chapter-page-title">{chapter.title}</h1>
-        <p className="book-workspace-meta">
-          {book.title} · 第 {chapter.number} 章 · {chapterStatusLabel(chapter.status)}
-        </p>
-        <p className="lede">{chapter.summary || "本章尚未形成摘要。"}</p>
-      </div>
+    <section className="workbench-page chapter-page" aria-label={chapter.title}>
+      <ProjectIdentityBar
+        eyebrow="Chapter Review"
+        title={chapter.title}
+        meta={[
+          { label: "项目", value: book.title },
+          { label: "章节", value: `第 ${chapter.number} 章` },
+          { label: "状态", value: chapterStatusLabel(chapter.status) },
+          { label: "Canon", value: latestCanon ? `v${latestCanon.version}` : "未连接可信设定" },
+        ]}
+        actions={<p className="lede">{chapter.summary || "本章尚未形成摘要。"}</p>}
+      />
 
       <ChapterStageBoard slots={stageSlots} traces={traces} />
-
-      {chapter.status === "running" ? (
-        <AiWaitingIndicator
-          detail="AI 正在执行章节规划、上下文检索、草稿、修订和审计流水线。"
-          label="章节生成中"
-        />
-      ) : null}
 
       {actionState.status === "success" ? (
         <p className="setup-message" role="status">
@@ -167,7 +167,7 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
 
       <div className="content-grid chapter-review-grid">
         <main className="chapter-review-main">
-          <ResultReport chapter={chapter} canonVersion={latestCanon?.version ?? null} />
+          <ImpactPanel title="章节结果" items={chapterResultItems(chapter)} />
           <section className="workbench-panel chapter-reader" aria-labelledby="chapter-text-title">
             <p className="eyebrow">Manuscript</p>
             <h2 id="chapter-text-title">章节正文</h2>
@@ -179,6 +179,9 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
           <ChapterReviewActions
             actionBusy={actionState.status === "submitting" ? actionState.action : null}
             chapter={chapter}
+            highRisk={hasHighRiskAudit(chapter)}
+            impactItems={chapterImpactItems(chapter)}
+            majorChange={hasMajorStateChange(chapter.stateDelta)}
             onAction={(action, body) => void submitAction(action, body)}
           />
           <section className="workspace-result-section">
@@ -201,53 +204,67 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
   );
 }
 
-function ResultReport({ chapter, canonVersion }: { chapter: ChapterDetailPayload; canonVersion: number | null }) {
+function chapterResultItems(chapter: ChapterDetailPayload): ImpactItem[] {
   const stateChanges = stateDeltaChanges(chapter.stateDelta);
   const auditIssues = auditReportIssues(chapter.auditReport);
+  const riskLevel = String(chapter.auditReport.risk_level ?? "未标注");
+  const highRisk = hasHighRiskAudit(chapter);
+  const majorChange = hasMajorStateChange(chapter.stateDelta);
 
-  return (
-    <section className="workbench-panel chapter-result-report" aria-labelledby="chapter-result-title">
-      <div className="workspace-section-head">
-        <div>
-          <p className="eyebrow">Result First</p>
-          <h2 id="chapter-result-title">结果报告</h2>
-        </div>
-        <span>{canonVersion ? `Canon v${canonVersion}` : "未连接可信设定"}</span>
-      </div>
+  return [
+    {
+      label: "正文",
+      value: chapter.finalText || chapter.revisedText || chapter.draftText ? "已生成" : "未生成",
+      tone: chapter.finalText || chapter.revisedText || chapter.draftText ? "good" : "warning",
+    },
+    {
+      label: "审计",
+      value: `${riskLevel} · ${auditIssues.length} 项`,
+      tone: highRisk ? "danger" : "neutral",
+    },
+    {
+      label: "状态变化",
+      value: `${stateChanges.length} 项`,
+      tone: stateChanges.length > 0 ? "warning" : "neutral",
+    },
+    {
+      label: "重大变化",
+      value: majorChange ? "需要确认" : "无",
+      tone: majorChange ? "danger" : "neutral",
+    },
+  ];
+}
 
-      <div className="chapter-result-cards">
-        <article>
-          <strong>状态变化</strong>
-          {stateChanges.length ? (
-            <ul>
-              {stateChanges.map((change, index) => (
-                <li key={index}>{formatChange(change)}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>还没有状态变化。</p>
-          )}
-        </article>
-        <article>
-          <strong>审计报告</strong>
-          {auditIssues.length || chapter.auditReport.risk_level ? (
-            <>
-              <p>风险级别：{String(chapter.auditReport.risk_level ?? "未标注")}</p>
-              {auditIssues.length ? (
-                <ul>
-                  {auditIssues.map((issue, index) => (
-                    <li key={index}>{formatIssue(issue)}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </>
-          ) : (
-            <p>还没有审计报告。</p>
-          )}
-        </article>
-      </div>
-    </section>
+function chapterImpactItems(chapter: ChapterDetailPayload): ImpactItem[] {
+  const changes = stateDeltaChanges(chapter.stateDelta);
+  if (changes.length === 0) {
+    return [{ label: "可信设定", value: "无状态变化", tone: "neutral" }];
+  }
+
+  return changes.slice(0, 4).map((change, index) => ({
+    label: String(change.target ?? `变化 ${index + 1}`),
+    value: String(change.change ?? "待写入"),
+    tone: isMajorChangeRecord(change) ? "danger" : "warning",
+  }));
+}
+
+function hasHighRiskAudit(chapter: ChapterDetailPayload): boolean {
+  if (chapter.auditReport.risk_level === "high") {
+    return true;
+  }
+  return auditReportIssues(chapter.auditReport).some(
+    (issue) => issue.severity === "high" && issue.resolved !== true,
   );
+}
+
+function hasMajorStateChange(stateDelta: Record<string, unknown>): boolean {
+  if (stateDelta.majorChange === true) {
+    return true;
+  }
+  if (Array.isArray(stateDelta.major_changes) && stateDelta.major_changes.length > 0) {
+    return true;
+  }
+  return stateDeltaChanges(stateDelta).some(isMajorChangeRecord);
 }
 
 function parseChapterResponse(payload: unknown): ChapterResponse | null {
@@ -263,7 +280,7 @@ function parseChapterResponse(payload: unknown): ChapterResponse | null {
 function isChapterDetail(value: unknown): value is ChapterDetailPayload {
   return (
     isRecord(value) &&
-    typeof value.id === "number" &&
+    (typeof value.id === "number" || value.id === null) &&
     typeof value.bookId === "number" &&
     typeof value.number === "number" &&
     typeof value.title === "string" &&
@@ -292,15 +309,8 @@ function auditReportIssues(auditReport: Record<string, unknown>): Record<string,
     : [];
 }
 
-function formatChange(change: Record<string, unknown>): string {
-  return [change.target, change.change].filter(Boolean).map(String).join("：") || JSON.stringify(change);
-}
-
-function formatIssue(issue: Record<string, unknown>): string {
-  const title = String(issue.title ?? "未命名问题");
-  const severity = issue.severity ? ` · ${String(issue.severity)}` : "";
-  const resolved = issue.resolved === true ? " · 已解决" : issue.resolved === false ? " · 未解决" : "";
-  return `${title}${severity}${resolved}`;
+function isMajorChangeRecord(change: Record<string, unknown>): boolean {
+  return change.major === true || change.severity === "major";
 }
 
 function chapterStatusLabel(status: string): string {
