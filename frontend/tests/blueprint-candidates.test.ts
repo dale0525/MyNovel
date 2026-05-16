@@ -160,4 +160,27 @@ describe("normalizeBlueprintCandidates", () => {
       goal: "找回记忆",
     });
   });
+
+  test("falls back to index-matched candidates when title keys are missing", () => {
+    const candidates = normalizeBlueprintCandidates({
+      title_options: ["长夜档案", "禁书回声"],
+      genre: "奇幻",
+      audience: "成人",
+      candidates: [{ genre: "候选A题材" }, { audience: "候选B读者" }],
+    });
+
+    expect(candidates).toHaveLength(2);
+    expect(candidates[0]).toMatchObject({
+      index: 0,
+      title: "长夜档案",
+      genre: "候选A题材",
+      audience: "成人",
+    });
+    expect(candidates[1]).toMatchObject({
+      index: 1,
+      title: "禁书回声",
+      genre: "奇幻",
+      audience: "候选B读者",
+    });
+  });
 });

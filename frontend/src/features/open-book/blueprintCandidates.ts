@@ -130,8 +130,16 @@ function candidatesForTitles(
     return [{}];
   }
 
-  return titleOptions.map((title) => {
-    return candidateFields.find((candidate) => titleValue(candidate) === title) ?? {};
+  return titleOptions.map((title, index) => {
+    const titleMatch = candidateFields.find((candidate) => titleValue(candidate) === title);
+    const indexMatch = candidateFields[index];
+    if (titleMatch) {
+      return titleMatch;
+    }
+    if (indexMatch && !titleValue(indexMatch)) {
+      return indexMatch;
+    }
+    return {};
   });
 }
 
