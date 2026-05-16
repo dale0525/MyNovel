@@ -37,6 +37,9 @@ export function ChapterReviewActions({
   const [repairNote, setRepairNote] = useState("");
   const [decisionNote, setDecisionNote] = useState("");
   const [allowMajorChanges, setAllowMajorChanges] = useState(false);
+  const canReviewStage = chapter.status === "awaiting_review" || chapter.status === "needs_revision";
+  const repairNoteTrimmed = repairNote.trim();
+  const stateDeltaSignature = JSON.stringify(chapter.stateDelta);
 
   useEffect(() => {
     setManualText(chapter.revisedText || chapter.draftText);
@@ -44,7 +47,7 @@ export function ChapterReviewActions({
 
   useEffect(() => {
     setAllowMajorChanges(false);
-  }, [chapter.id, chapter.status, majorChange]);
+  }, [chapter.id, chapter.status, majorChange, chapter.updatedAt, stateDeltaSignature]);
 
   const busy = actionBusy !== null;
   const approveDisabled = busy || (majorChange && !allowMajorChanges);
@@ -87,7 +90,10 @@ export function ChapterReviewActions({
               className="chapter-action-form"
               onSubmit={(event) => {
                 event.preventDefault();
-                onAction("repair", { reviewerNote: repairNote });
+                if (!repairNoteTrimmed) {
+                  return;
+                }
+                onAction("repair", { reviewerNote: repairNoteTrimmed });
               }}
             >
               <label>
@@ -98,7 +104,7 @@ export function ChapterReviewActions({
                   placeholder="说明希望 AI 重点修订的问题"
                 />
               </label>
-              <button className="workbench-action-button" disabled={busy} type="submit">
+              <button className="workbench-action-button" disabled={busy || !repairNoteTrimmed} type="submit">
                 {actionBusy === "repair" ? (
                   <AiWaitingIndicator label="提交修复中..." variant="inline" />
                 ) : (
@@ -153,32 +159,34 @@ export function ChapterReviewActions({
       ) : null}
 
       <AdvancedDisclosure title="高级审核工具">
-        <form
-          className="chapter-action-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onAction("edit", { revisedText: manualText, reviewerNote: manualNote });
-          }}
-        >
-          <label>
-            手动修正文
-            <textarea value={manualText} onChange={(event) => setManualText(event.target.value)} />
-          </label>
-          <label>
-            修正说明
-            <input value={manualNote} onChange={(event) => setManualNote(event.target.value)} />
-          </label>
-          <button className="workbench-secondary-button" disabled={busy} type="submit">
-            {actionBusy === "edit" ? "保存中..." : "保存手动修正"}
-          </button>
-        </form>
-
-        {!highRisk ? (
+        {canReviewStage ? (
           <form
             className="chapter-action-form"
             onSubmit={(event) => {
               event.preventDefault();
-              onAction("repair", { reviewerNote: repairNote });
+              onAction("edit", { revisedText: manualText, reviewerNote: manualNote });
+            }}
+          >
+            <label>
+              手动修正文
+              <textarea value={manualText} onChange={(event) => setManualText(event.target.value)} />
+            </label>
+            <label>
+              修正说明
+              <input value={manualNote} onChange={(event) => setManualNote(event.target.value)} />
+            </label>
+            <button className="workbench-secondary-button" disabled={busy} type="submit">
+              {actionBusy === "edit" ? "保存中..." : "保存手动修正"}
+            </button>
+          </form>
+        ) : null}
+
+        {canReviewStage && !highRisk ? (
+          <form
+            className="chapter-action-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onAction("repair", { reviewerNote: repairNoteTrimmed });
             }}
           >
             <label>
