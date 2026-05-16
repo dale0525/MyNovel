@@ -1,3 +1,5 @@
+import math
+
 from sqlmodel import Session
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
@@ -74,7 +76,9 @@ def test_model_retrieval_ranks_by_cosine_similarity(tmp_path) -> None:
     assert results[0].score > results[1].score
 
 
-def test_model_retrieval_ignores_different_embedding_model(tmp_path) -> None:
+def test_model_retrieval_falls_back_to_lexical_when_model_candidates_unavailable(
+    tmp_path,
+) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
     with Session(engine) as session:
@@ -96,7 +100,76 @@ def test_model_retrieval_ignores_different_embedding_model(tmp_path) -> None:
             embedding_model="new",
         )
 
-    assert results == []
+    assert [result.source_id for result in results] == ["old"]
+    assert results[0].metadata["embedding_model"] == "old"
+
+
+def test_retrieval_budget_skips_oversized_context_and_keeps_later_small_context(
+    tmp_path,
+) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        index_text(
+            session,
+            book.id,
+            "note",
+            "long",
+            "符号" * 20,
+            embedding_vector=[1.0, 0.0],
+            embedding_model="embedding-test",
+        )
+        index_text(
+            session,
+            book.id,
+            "note",
+            "small",
+            "短符号",
+            embedding_vector=[0.9, 0.1],
+            embedding_model="embedding-test",
+        )
+
+        results = retrieve_book_context(
+            session,
+            book.id,
+            "符号",
+            query_embedding=[1.0, 0.0],
+            embedding_model="embedding-test",
+            top_k=2,
+            character_budget=4,
+        )
+
+    assert [result.source_id for result in results] == ["small"]
+
+
+def test_index_text_stores_invalid_embedding_vector_as_lexical(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    invalid_vectors = [[True], [], [math.nan], [math.inf]]
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        entries = [
+            index_text(
+                session,
+                book.id,
+                "note",
+                f"invalid-{index}",
+                "符号发热",
+                embedding_vector=invalid_vector,
+                embedding_model="embedding-test",
+                embedding_error="upstream embedding failed",
+            )
+            for index, invalid_vector in enumerate(invalid_vectors)
+        ]
+
+        for entry in entries:
+            assert entry.metadata_["embedding_kind"] == "lexical"
+            assert entry.metadata_["embedding_error"] == "upstream embedding failed"
+            assert "embedding_model" not in entry.metadata_
+            assert isinstance(entry.embedding, dict)
+            assert "符号" in entry.embedding
 
 
 def test_accepted_chapter_updates_structured_state_and_rebuildable_index(tmp_path) -> None:

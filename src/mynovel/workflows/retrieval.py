@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass
-from math import sqrt
+from math import isfinite, sqrt
 from typing import Any
 
 from sqlmodel import Session
@@ -16,6 +16,7 @@ from mynovel.domain.repositories import (
 
 DEFAULT_RETRIEVAL_TOP_K = 10
 DEFAULT_RETRIEVAL_CHARACTER_BUDGET = 10000
+INVALID_EMBEDDING_VECTOR_ERROR = "Invalid embedding vector."
 
 
 @dataclass(frozen=True)
@@ -48,8 +49,8 @@ def index_text(
         session.delete(entry)
 
     entry_metadata = dict(metadata or {})
-    if embedding_vector is not None and embedding_model:
-        vector = [float(value) for value in embedding_vector]
+    vector = _numeric_vector(embedding_vector)
+    if vector is not None and embedding_model:
         embedding: Any = vector
         entry_metadata.update(
             {
@@ -61,8 +62,10 @@ def index_text(
     else:
         embedding = dict(_token_counts(clean_text))
         entry_metadata["embedding_kind"] = "lexical"
-        if embedding_error:
+        if embedding_error or embedding_vector is not None:
             entry_metadata["embedding_error"] = embedding_error
+            if not entry_metadata["embedding_error"]:
+                entry_metadata["embedding_error"] = INVALID_EMBEDDING_VECTOR_ERROR
 
     vector_entry = VectorEntry(
         book_id=book_id,
@@ -115,23 +118,40 @@ def retrieve_book_context(
 ) -> list[RetrievedContext]:
     query_vector = _numeric_vector(query_embedding)
     if query_vector and embedding_model:
-        return _retrieve_model_context(
+        model_contexts = _model_context_candidates(
             session,
             book_id,
             query_vector,
             embedding_model,
-            top_k,
-            character_budget,
         )
+        if model_contexts:
+            return _apply_retrieval_bounds(model_contexts, top_k, character_budget)
 
+    return _retrieve_lexical_context(session, book_id, query, top_k, character_budget)
+
+
+def _retrieve_lexical_context(
+    session: Session,
+    book_id: int,
+    query: str,
+    top_k: int,
+    character_budget: int,
+) -> list[RetrievedContext]:
     query_counts = _token_counts(query.strip())
     contexts: list[RetrievedContext] = []
-    for entry in search_book_context(session, book_id, query, limit=top_k):
+    scored_entries: list[tuple[float, VectorEntry]] = []
+    for entry in list_vector_entries_for_book(session, book_id):
+        score = _score_entry(query_counts, entry)
+        if score > 0:
+            scored_entries.append((score, entry))
+
+    scored_entries.sort(key=lambda item: (-item[0], item[1].created_at, item[1].id or 0))
+    for score, entry in scored_entries:
         contexts.append(
             RetrievedContext(
                 source_type=entry.source_type,
                 source_id=entry.source_id,
-                score=_score_entry(query_counts, entry),
+                score=score,
                 text=entry.text,
                 metadata=dict(entry.metadata_ or {}),
             )
@@ -139,13 +159,11 @@ def retrieve_book_context(
     return _apply_retrieval_bounds(contexts, top_k, character_budget)
 
 
-def _retrieve_model_context(
+def _model_context_candidates(
     session: Session,
     book_id: int,
     query_vector: list[float],
     embedding_model: str,
-    top_k: int,
-    character_budget: int,
 ) -> list[RetrievedContext]:
     scored_contexts: list[RetrievedContext] = []
     for entry in list_vector_entries_for_book(session, book_id):
@@ -169,7 +187,7 @@ def _retrieve_model_context(
         )
 
     scored_contexts.sort(key=lambda context: -context.score)
-    return _apply_retrieval_bounds(scored_contexts, top_k, character_budget)
+    return scored_contexts
 
 
 def _apply_retrieval_bounds(
@@ -187,7 +205,7 @@ def _apply_retrieval_bounds(
             break
         next_total = used_characters + len(context.text)
         if next_total > character_budget:
-            break
+            continue
         bounded.append(context)
         used_characters = next_total
     return bounded
@@ -200,7 +218,10 @@ def _numeric_vector(value: Any) -> list[float] | None:
     for item in value:
         if isinstance(item, bool) or not isinstance(item, int | float):
             return None
-        vector.append(float(item))
+        number = float(item)
+        if not isfinite(number):
+            return None
+        vector.append(number)
     return vector
 
 
