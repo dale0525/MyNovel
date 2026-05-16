@@ -663,7 +663,9 @@ test("BootstrapGate routes configured book path to the project workspace", async
   );
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  expect(screen.getByText("科幻 · 成人 · 草稿")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "基本信息" })).toBeInTheDocument();
+  expect(screen.getByText("科幻")).toBeInTheDocument();
+  expect(screen.getByText("成人")).toBeInTheDocument();
   expect(screen.getByText("领航员追查失落星港的真相。")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "项目" })).toHaveClass("is-active");
   expect(fetchMock).toHaveBeenCalledWith("/api/books/42", expect.anything());

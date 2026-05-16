@@ -60,8 +60,8 @@ export function ChapterReviewActions({
   return (
     <section className="chapter-review-actions guided-decision-panel workbench-panel" aria-labelledby="chapter-actions-title">
       <div>
-        <p className="eyebrow">Human Review</p>
-        <h2 id="chapter-actions-title">审核决策</h2>
+        <p className="eyebrow">Operation</p>
+        <h2 id="chapter-actions-title">章节操作</h2>
       </div>
 
       {chapter.status === "planned" || (chapter.status === "needs_revision" && !showRepairPanel) ? (

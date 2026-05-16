@@ -54,6 +54,7 @@ def test_book_workspace_returns_chapters_canon_traces_and_volume_plans(tmp_path:
             "status": "running",
             "summary": "领航员发现星港残影。",
             "wordCount": 1200,
+            "volumeNumber": None,
             "reviewerNote": "补强悬念。",
             "updatedAt": response.body["chapters"][0]["updatedAt"],
         }
@@ -266,6 +267,29 @@ def test_canon_proposal_auto_complete_stream_uses_first_missing_unlocked_section
     assert list(response.events) == [{"type": "done"}]
     assert captured["target_section"] == "characters"
     assert captured["instruction"] == CANON_PROPOSAL_COMPLETION_INSTRUCTION
+
+
+def test_volume_outline_generate_stream_route_maps_to_workflow(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    book_id = _create_workspace_fixture(db_path)
+    captured: dict[str, object] = {}
+
+    def fake_stream(db_path_arg: Path, book_id_arg: int):
+        captured["db_path"] = db_path_arg
+        captured["book_id"] = book_id_arg
+        yield {"type": "done", "book": {"id": book_id_arg}}
+
+    monkeypatch.setattr("mynovel.api_routes.stream_generate_volume_outline", fake_stream)
+
+    response = dispatch_api_post_stream(
+        f"/api/books/{book_id}/volume-outline/generate-stream",
+        {},
+        db_path,
+    )
+
+    assert response is not None
+    assert list(response.events) == [{"type": "done", "book": {"id": book_id}}]
+    assert captured == {"db_path": db_path, "book_id": book_id}
 
 
 def test_canon_proposal_lock_parses_false_string_as_false(tmp_path: Path) -> None:

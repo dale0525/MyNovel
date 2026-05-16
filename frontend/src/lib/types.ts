@@ -25,6 +25,7 @@ export type ChapterPayload = {
   status: string;
   summary: string;
   wordCount: number;
+  volumeNumber?: number | null;
   reviewerNote: string | null;
   updatedAt: string | null;
 };

@@ -5,12 +5,9 @@ import {
   type ChapterReviewAction,
 } from "@/features/chapters/ChapterReviewActions";
 import {
-  AdvancedDisclosure,
-  ImpactPanel,
   type ImpactItem,
   ProjectIdentityBar,
 } from "@/components/guidance/GuidedPanels";
-import { ChapterStageBoard } from "@/features/chapters/ChapterStageBoard";
 import { ApiError, getJson, isAbortError, postJson, postJsonLineStream } from "@/lib/api";
 import { type LlmStreamEvent, nextStreamSnippets, streamEventPreview } from "@/lib/streaming";
 import type { ChapterDetailPayload, ChapterResponse } from "@/lib/types";
@@ -180,7 +177,7 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
     );
   }
 
-  const { book, chapter, siblingChapters, latestCanon, traces, stageSlots } = state.data;
+  const { book, chapter, latestCanon } = state.data;
 
   return (
     <section className="workbench-page chapter-page" aria-label={chapter.title}>
@@ -196,8 +193,6 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
         actions={<p className="lede">{chapter.summary || "本章尚未形成摘要。"}</p>}
       />
 
-      <ChapterStageBoard slots={stageSlots} traces={traces} />
-
       {actionState.status === "success" ? (
         <p className="setup-message" role="status">
           {actionState.message}
@@ -209,76 +204,25 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
         </p>
       ) : null}
 
-      <div className="content-grid chapter-review-grid">
-        <main className="chapter-review-main">
-          <ImpactPanel title="章节结果" items={chapterResultItems(chapter)} />
-          <ChapterReviewDetails chapter={chapter} />
-          <section className="workbench-panel chapter-reader" aria-labelledby="chapter-text-title">
-            <p className="eyebrow">Manuscript</p>
-            <h2 id="chapter-text-title">章节正文</h2>
-            <div className="chapter-text-body">{chapter.finalText || chapter.revisedText || chapter.draftText || "正文尚未生成。"}</div>
-          </section>
-        </main>
-
-        <aside className="chapter-review-sidebar">
-          <ChapterReviewActions
-            actionBusy={actionState.status === "submitting" ? actionState.action : null}
-            chapter={chapter}
-            highRisk={hasHighRiskAudit(chapter)}
-            impactItems={chapterImpactItems(chapter)}
-            majorChange={hasMajorStateChange(chapter.stateDelta)}
-            onAction={(action, body) => void submitAction(action, body)}
-            streamSnippets={actionState.status === "submitting" ? actionState.streamSnippets : []}
-          />
-          <section className="workspace-result-section">
-            <p className="eyebrow">Chapter Queue</p>
-            <h2>相邻章节</h2>
-            <ol className="workspace-mini-list">
-              {siblingChapters.map((item) => (
-                <li key={item.id ?? item.number}>
-                  <strong>
-                    第 {item.number} 章 · {item.title}
-                  </strong>
-                  <span>{chapterStatusLabel(item.status)}</span>
-                </li>
-              ))}
-            </ol>
-          </section>
-        </aside>
-      </div>
+      <main className="chapter-operation-flow">
+        <ChapterReviewActions
+          actionBusy={actionState.status === "submitting" ? actionState.action : null}
+          chapter={chapter}
+          highRisk={hasHighRiskAudit(chapter)}
+          impactItems={chapterImpactItems(chapter)}
+          majorChange={hasMajorStateChange(chapter.stateDelta)}
+          onAction={(action, body) => void submitAction(action, body)}
+          streamSnippets={actionState.status === "submitting" ? actionState.streamSnippets : []}
+        />
+        <section className="workbench-panel chapter-reader" aria-labelledby="chapter-text-title">
+          <p className="eyebrow">Manuscript</p>
+          <h2 id="chapter-text-title">章节正文</h2>
+          <div className="chapter-text-body">{chapter.finalText || chapter.revisedText || chapter.draftText || "正文尚未生成。"}</div>
+        </section>
+        <ChapterReviewDetails chapter={chapter} />
+      </main>
     </section>
   );
-}
-
-function chapterResultItems(chapter: ChapterDetailPayload): ImpactItem[] {
-  const stateChanges = stateDeltaChanges(chapter.stateDelta);
-  const auditIssues = auditReportIssues(chapter.auditReport);
-  const riskLevel = String(chapter.auditReport.risk_level ?? "未标注");
-  const highRisk = hasHighRiskAudit(chapter);
-  const majorChange = hasMajorStateChange(chapter.stateDelta);
-
-  return [
-    {
-      label: "正文",
-      value: chapter.finalText || chapter.revisedText || chapter.draftText ? "已生成" : "未生成",
-      tone: chapter.finalText || chapter.revisedText || chapter.draftText ? "good" : "warning",
-    },
-    {
-      label: "审计",
-      value: `${riskLevel} · ${auditIssues.length} 项`,
-      tone: highRisk ? "danger" : "neutral",
-    },
-    {
-      label: "状态变化",
-      value: `${stateChanges.length} 项`,
-      tone: stateChanges.length > 0 ? "warning" : "neutral",
-    },
-    {
-      label: "重大变化",
-      value: majorChange ? "需要确认" : "无",
-      tone: majorChange ? "danger" : "neutral",
-    },
-  ];
 }
 
 function chapterImpactItems(chapter: ChapterDetailPayload): ImpactItem[] {
@@ -298,40 +242,40 @@ function ChapterReviewDetails({ chapter }: { chapter: ChapterDetailPayload }) {
   const auditIssues = auditReportIssues(chapter.auditReport);
   const changes = stateDeltaChanges(chapter.stateDelta);
 
-  if (auditIssues.length === 0 && changes.length === 0) {
-    return null;
-  }
-
   return (
-    <AdvancedDisclosure title="审核明细">
-      <div className="chapter-review-details">
+    <div className="chapter-review-details">
+      <section className="workbench-panel" aria-labelledby="chapter-revision-notes-title">
+        <p className="eyebrow">Revision</p>
+        <h2 id="chapter-revision-notes-title">修正意见</h2>
         {auditIssues.length > 0 ? (
-          <section aria-label="审计问题">
-            <h3>审计问题</h3>
-            <ol className="chapter-detail-list">
-              {auditIssues.map((issue, index) => (
-                <li key={`${String(issue.title ?? "issue")}-${index}`}>
-                  {auditIssueSummary(issue, index)}
-                </li>
-              ))}
-            </ol>
-          </section>
-        ) : null}
+          <ol className="chapter-detail-list">
+            {auditIssues.map((issue, index) => (
+              <li key={`${String(issue.title ?? "issue")}-${index}`}>
+                {auditIssueSummary(issue, index)}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p>暂无修正意见。</p>
+        )}
+      </section>
 
+      <section className="workbench-panel" aria-labelledby="chapter-state-delta-title">
+        <p className="eyebrow">Canon Delta</p>
+        <h2 id="chapter-state-delta-title">设定变动</h2>
         {changes.length > 0 ? (
-          <section aria-label="设定变化">
-            <h3>设定变化</h3>
-            <ol className="chapter-detail-list chapter-detail-list--changes">
-              {changes.map((change, index) => (
-                <li key={`${String(change.target ?? "change")}-${index}`}>
-                  {stateChangeSummary(change, index)}
-                </li>
-              ))}
-            </ol>
-          </section>
-        ) : null}
-      </div>
-    </AdvancedDisclosure>
+          <ol className="chapter-detail-list chapter-detail-list--changes">
+            {changes.map((change, index) => (
+              <li key={`${String(change.target ?? "change")}-${index}`}>
+                {stateChangeSummary(change, index)}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p>暂无设定变动。</p>
+        )}
+      </section>
+    </div>
   );
 }
 

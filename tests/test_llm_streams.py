@@ -11,6 +11,7 @@ from mynovel.domain.repositories import (
 )
 from mynovel.llm_streams import (
     stream_create_open_book_blueprint,
+    stream_generate_volume_outline,
     stream_revise_blueprint,
     stream_run_chapter,
 )
@@ -60,6 +61,47 @@ class FakeChapterStreamModel:
             "revise": "莉拉离开村庄，雾气在谷口低伏。她掌心的符号忽然发热，远处也亮起同样的微光。",
         }[stage]
         assert response_format == ("text" if stage in {"draft", "revise"} else "json")
+        midpoint = max(1, len(payload) // 2)
+        yield payload[:midpoint]
+        yield payload[midpoint:]
+
+
+class FakeVolumeOutlineStreamModel:
+    model = "卷纲模型"
+
+    def stream_complete(self, stage: str, messages, response_format: str):
+        assert stage == "volume_outline"
+        assert messages
+        assert response_format == "json"
+        payload = """
+        {
+          "volumes": [
+            {
+              "volume_number": 1,
+              "title": "旧王朝回声",
+              "core_conflict": "莉拉必须确认符号与旧王朝的关系。",
+              "pacing_curve": ["离乡", "追索", "卷末揭露"],
+              "payoff_distribution": ["确认符号来源"],
+              "key_turns": ["离开村庄", "进入遗迹"],
+              "commitments": ["每章推进一枚符号"],
+              "chapters": [
+                {
+                  "number": 1,
+                  "title": "符号发热",
+                  "goal": "莉拉发现第一枚符号回应远方遗迹。",
+                  "ending_hook": "远处亮起第二枚符号",
+                  "must_write": ["离开村庄", "符号发热"]
+                },
+                {
+                  "number": 2,
+                  "title": "雾谷旧路",
+                  "goal": "莉拉沿旧路找到遗迹入口。"
+                }
+              ]
+            }
+          ]
+        }
+        """
         midpoint = max(1, len(payload) // 2)
         yield payload[:midpoint]
         yield payload[midpoint:]
@@ -134,6 +176,32 @@ def test_stream_run_chapter_yields_model_chunks_and_returns_fresh_chapter(tmp_pa
     assert chapter.status == ChapterStatus.AWAITING_REVIEW
 
 
+def test_stream_generate_volume_outline_yields_chunks_and_persists_plan(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    book_id = _create_locked_book(db_path)
+
+    events = list(
+        stream_generate_volume_outline(
+            db_path,
+            book_id,
+            model_client=FakeVolumeOutlineStreamModel(),
+        )
+    )
+
+    assert events[0]["type"] == "started"
+    assert any(event["type"] == "chunk" and "旧王朝回声" in event["text"] for event in events)
+    done = events[-1]
+    assert done["type"] == "done"
+    assert done["book"]["volumePlans"][0]["title"] == "旧王朝回声"
+    assert done["book"]["chapters"][0]["title"] == "符号发热"
+    assert done["book"]["chapters"][0]["volumeNumber"] == 1
+
+    with Session(create_engine_for_path(db_path)) as session:
+        chapters = list_chapters_for_book(session, book_id)
+    assert chapters[0].plan["volume_number"] == 1
+    assert chapters[0].plan["goal"] == "莉拉发现第一枚符号回应远方遗迹。"
+
+
 def _save_succeeded_blueprint(db_path: Path) -> int:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
@@ -151,6 +219,14 @@ def _save_succeeded_blueprint(db_path: Path) -> int:
 
 
 def _create_locked_book_chapter(db_path: Path) -> int:
+    book_id = _create_locked_book(db_path)
+    with Session(create_engine_for_path(db_path)) as session:
+        chapter = list_chapters_for_book(session, book_id)[0]
+        assert chapter.id is not None
+        return chapter.id
+
+
+def _create_locked_book(db_path: Path) -> int:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
@@ -176,9 +252,8 @@ def _create_locked_book_chapter(db_path: Path) -> int:
             lock_foundation=False,
         )
         lock_canon_foundation(session, book.id)
-        chapter = list_chapters_for_book(session, book.id)[0]
-        assert chapter.id is not None
-        return chapter.id
+        assert book.id is not None
+        return book.id
 
 
 def _valid_blueprint_json() -> str:

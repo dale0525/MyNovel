@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlmodel import Session
 
-from mynovel.api_serializers import blueprint_payload, chapter_review_payload
+from mynovel.api_serializers import blueprint_payload, book_detail_payload, chapter_review_payload
 from mynovel.blueprint_content import public_blueprint_content
 from mynovel.blueprint_jobs import reset_blueprint_for_retry
 from mynovel.blueprint_revision import create_revision_blueprint_job, revision_notes_from_form
@@ -33,6 +33,7 @@ from mynovel.workflows.open_book_blueprint import (
     create_blueprint_job,
     parse_blueprint_json,
 )
+from mynovel.workflows.volume_planning import generate_volume_outline
 from mynovel.word_targets import book_idea_from_form
 
 StreamEvent = dict[str, Any]
@@ -311,6 +312,36 @@ def stream_run_chapter_batch(
     yield from _events_from_worker(worker)
 
 
+def stream_generate_volume_outline(
+    db_path: Path,
+    book_id: int,
+    *,
+    model_client=None,
+    provider_config: ProviderConfig | None = None,
+) -> Iterator[StreamEvent]:
+    def worker(emit: EmitEvent) -> None:
+        emit({"type": "started", "message": "AI 已开始生成卷纲。"})
+        with Session(create_engine_for_path(db_path)) as session:
+            generate_volume_outline(
+                session,
+                book_id,
+                model_client=_eventing_volume_client(db_path, model_client, provider_config, emit),
+                model_name=_model_name(model_client, provider_config),
+            )
+        payload = book_detail_payload(db_path, book_id)
+        if payload is None:
+            raise ValueError("Book does not exist.")
+        emit(
+            {
+                "type": "done",
+                "message": "卷纲已生成。",
+                "book": payload,
+            }
+        )
+
+    yield from _events_from_worker(worker)
+
+
 def _stream_blueprint_job(
     db_path: Path,
     blueprint_id: int,
@@ -421,6 +452,25 @@ def _eventing_chapter_client(
             "revise": "正在修订正文。",
             "word_count_patch": "正在修补字数。",
         },
+    )
+
+
+def _eventing_volume_client(
+    db_path: Path,
+    model_client,
+    provider_config: ProviderConfig | None,
+    emit: EmitEvent,
+):
+    source_client = model_client
+    if source_client is None:
+        provider_config = provider_config or _load_provider_config(db_path)
+        if not is_provider_config_complete(provider_config):
+            return None
+        source_client = OpenAIStreamingCompleteClient(provider_config, temperature=0.35)
+    return EventingCompleteClient(
+        source_client,
+        emit,
+        stage_labels={"volume_outline": "正在生成卷纲与章节规划。"},
     )
 
 

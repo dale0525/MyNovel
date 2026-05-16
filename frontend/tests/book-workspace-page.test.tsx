@@ -9,7 +9,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("renders book workspace details", async () => {
+test("renders the simplified project workspace sections", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
@@ -20,25 +20,26 @@ test("renders book workspace details", async () => {
   render(<BookWorkspacePage bookId={42} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
+  expect(screen.getByRole("heading", { name: "基本信息" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "项目设定" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "设定" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "卷纲列表" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "章节列表" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "批量操作" })).toBeInTheDocument();
   expect(screen.getByText("科幻")).toBeInTheDocument();
   expect(screen.getByText("成人")).toBeInTheDocument();
   expect(screen.getByText("可信设定已锁定")).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "继续推进项目" })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "查看生成进度" })).toHaveAttribute("href", "/chapters/8");
-  expect(screen.getByRole("heading", { name: "可信设定摘要" })).toBeInTheDocument();
   expect(screen.getByText("灯塔会记录航线")).toBeInTheDocument();
-  expect(screen.queryByRole("heading", { name: "章节队列" })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "项目工具" }));
-  expect(screen.getByRole("heading", { name: "章节队列" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "打开设定" })).toHaveAttribute("href", "/books/42/state");
   expect(screen.getByRole("link", { name: "第 1 章 · 失落灯塔" })).toHaveAttribute("href", "/chapters/8");
-  expect(screen.getByRole("heading", { name: "最近 AI 进度" })).toBeInTheDocument();
-  expect(screen.getByText("chapter_draft")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "质量中心" })).toHaveAttribute("href", "/books/42/quality");
-  expect(screen.getByRole("link", { name: "导出 Markdown" })).toHaveAttribute("href", "/api/books/42/export.md");
-  expect(screen.getByRole("link", { name: "导出 JSON" })).toHaveAttribute("href", "/api/books/42/export.json");
+  expect(screen.queryByRole("heading", { name: "继续推进项目" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "影响预览" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "最近 AI 进度" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "质量中心" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "导出 Markdown" })).not.toBeInTheDocument();
 });
 
-test("does not treat accepted chapters as the current task", async () => {
+test("keeps accepted chapters in their volume list without a current-task panel", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
@@ -49,18 +50,16 @@ test("does not treat accepted chapters as the current task", async () => {
   render(<BookWorkspacePage bookId={42} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  expect(screen.getByRole("link", { name: "调整可信设定" })).toHaveAttribute("href", "/books/42/state");
-  fireEvent.click(screen.getByRole("button", { name: "项目工具" }));
+  expect(screen.getByRole("link", { name: "第 1 章 · 已完成灯塔" })).toHaveAttribute("href", "/chapters/8");
   expect(screen.getByText("已接受 · 1200 字")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "运行当前章节" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "调整可信设定" })).not.toBeInTheDocument();
 });
 
-test("workspace runs planned chapters and batch production through api actions", async () => {
+test("runs batch production through the project batch action", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "planned" })))
-    .mockResolvedValueOnce(
-      streamResponse([{ type: "chunk", text: "正在生成草稿" }, { type: "done", chapterId: 8, redirectTo: "/chapters/8" }]),
-    )
     .mockResolvedValueOnce(
       streamResponse([{ type: "chunk", text: "正在批量推进章节" }, { type: "done", chapterId: 9, redirectTo: "/chapters/9" }]),
     );
@@ -68,22 +67,9 @@ test("workspace runs planned chapters and batch production through api actions",
 
   render(<BookWorkspacePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "运行当前章节" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "项目工具" }));
-  fireEvent.click(screen.getByRole("button", { name: "运行当前章节" }));
-
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/chapters/8/run-stream",
-      expect.objectContaining({ method: "POST" }),
-    ),
-  );
-  expect(screen.getByRole("status")).toHaveTextContent("正在生成草稿");
-  expect(window.location.pathname).toBe("/chapters/8");
-
-  window.history.pushState(null, "", "/books/42");
-  fireEvent.change(screen.getByLabelText("批量章节数"), { target: { value: "3" } });
-  fireEvent.click(screen.getByRole("button", { name: "批量生产" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "批量生成" })).toBeInTheDocument());
+  fireEvent.change(screen.getByLabelText("生成章节数"), { target: { value: "3" } });
+  fireEvent.click(screen.getByRole("button", { name: "批量生成" }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
@@ -94,31 +80,32 @@ test("workspace runs planned chapters and batch production through api actions",
       }),
     ),
   );
+  expect(screen.getByRole("status")).toHaveTextContent("正在批量推进章节");
   expect(window.location.pathname).toBe("/chapters/9");
 });
 
-test("workspace renders animated AI waiting state while current chapter run is pending", async () => {
+test("shows animated waiting state while batch production is pending", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "planned" })))
     .mockImplementationOnce(
       () =>
         new Promise<Response>(() => {
-          // Keep the chapter run request pending so the waiting state stays visible.
+          // Keep the batch request pending so the waiting state stays visible.
         }),
     );
   vi.stubGlobal("fetch", fetchMock);
 
   render(<BookWorkspacePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "运行当前章节" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "运行当前章节" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "批量生成" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "批量生成" }));
 
-  await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("提交章节中..."));
-  expect(screen.getByRole("button", { name: /提交章节中/ })).toBeDisabled();
+  await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("提交批量中..."));
+  expect(screen.getByRole("button", { name: /提交批量中/ })).toBeDisabled();
 });
 
-test("workspace hides production actions before trusted state is locked", async () => {
+test("hides batch production before trusted state is locked", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
@@ -129,13 +116,11 @@ test("workspace hides production actions before trusted state is locked", async 
   render(<BookWorkspacePage bookId={42} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  expect(screen.queryByRole("button", { name: "运行当前章节" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "批量生产" })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "项目工具" }));
-  expect(screen.getByText("可信设定锁定后才能批量生产章节。")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "批量生成" })).not.toBeInTheDocument();
+  expect(screen.getByText("可信设定锁定后才能批量生成章节。")).toBeInTheDocument();
 });
 
-test("workspace saves word targets through json api", async () => {
+test("saves word targets through the project settings form", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(bookPayload()))
@@ -147,7 +132,6 @@ test("workspace saves word targets through json api", async () => {
   render(<BookWorkspacePage bookId={42} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "项目工具" }));
   expect(screen.getByLabelText("全书目标字数")).toHaveValue(120000);
   fireEvent.change(screen.getByLabelText("全书目标字数"), { target: { value: "300000" } });
   fireEvent.change(screen.getByLabelText("单章目标字数"), { target: { value: "3200" } });
@@ -164,6 +148,108 @@ test("workspace saves word targets through json api", async () => {
     ),
   );
   expect(screen.getByText("目标字数已保存。")).toBeInTheDocument();
+});
+
+test("generates volume outline through streaming api and refreshes volume chapters", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(bookPayload({ bookStatus: "canon_locked", includeVolumePlan: false })))
+    .mockResolvedValueOnce(
+      streamResponse([
+        { type: "chunk", text: "正在规划卷纲" },
+        { type: "done", book: bookPayload({ bookStatus: "canon_locked", includeVolumePlan: true, chapterTitle: "灯塔回声" }) },
+      ]),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "让 AI 生成卷纲" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "让 AI 生成卷纲" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/books/42/volume-outline/generate-stream",
+      expect.objectContaining({ method: "POST" }),
+    ),
+  );
+  expect(screen.getAllByRole("status").some((item) => item.textContent?.includes("正在规划卷纲"))).toBe(true);
+  await waitFor(() => expect(screen.getByText("第 1 卷 · 星港卷")).toBeInTheDocument());
+  expect(screen.getByRole("link", { name: "第 1 章 · 灯塔回声" })).toHaveAttribute("href", "/chapters/8");
+});
+
+test("groups chapters under the volume recorded in their chapter plan", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(
+        bookPayload({
+          bookStatus: "canon_locked",
+          chapterNumber: 12,
+          chapterVolumeNumber: 1,
+          includeVolumePlan: true,
+        }),
+      ),
+    ),
+  );
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByText("第 1 卷 · 星港卷")).toBeInTheDocument());
+  expect(screen.getByRole("link", { name: "第 12 章 · 失落灯塔" })).toHaveAttribute("href", "/chapters/8");
+});
+
+test("shows animated waiting state while volume outline generation is pending", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(bookPayload({ bookStatus: "canon_locked", includeVolumePlan: false })))
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>(() => {
+          // Keep the volume outline request pending so the waiting state stays visible.
+        }),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "让 AI 生成卷纲" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "让 AI 生成卷纲" }));
+
+  await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("生成卷纲中..."));
+  expect(screen.getByRole("button", { name: /生成卷纲中/ })).toBeDisabled();
+});
+
+test("keeps project sections visible when batch action fails", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "planned" })))
+    .mockResolvedValueOnce(Response.json({ error: { message: "批量生成失败。" } }, { status: 500 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "批量生成" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "批量生成" }));
+
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("批量生成失败。"));
+  expect(screen.getByRole("heading", { name: "章节列表" })).toBeInTheDocument();
+});
+
+test("avoids unsafe chapter links when planned chapters have no id", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(bookPayload({ bookStatus: "canon_locked", chapterId: null, chapterStatus: "planned" })),
+    ),
+  );
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
+  expect(screen.getByText("第 1 章 · 失落灯塔")).toBeInTheDocument();
+  expect(screen.queryAllByRole("link").map((link) => link.getAttribute("href"))).not.toContain("/chapters/0");
+  expect(screen.queryByRole("button", { name: "运行当前章节" })).not.toBeInTheDocument();
 });
 
 test("aborts in-flight book fetch on unmount", () => {
@@ -183,128 +269,11 @@ test("aborts in-flight book fetch on unmount", () => {
   expect(signal?.aborted).toBe(true);
 });
 
-test("workspace surfaces a single review action when a chapter awaits review", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () =>
-      Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "awaiting_review" })),
-    ),
-  );
-
-  render(<BookWorkspacePage bookId={42} />);
-
-  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  expect(screen.getByRole("heading", { name: "继续推进项目" })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "打开章节审核" })).toHaveAttribute("href", "/chapters/8");
-  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("审核后才会写入");
-  expect(screen.queryByRole("button", { name: "批量生产" })).not.toBeInTheDocument();
-});
-
-test("workspace points blocked draft projects to trusted state instead of production", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () =>
-      Response.json(bookPayload({ chapterStatus: "planned", includeLatestCanon: false })),
-    ),
-  );
-
-  render(<BookWorkspacePage bookId={42} />);
-
-  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  expect(screen.getByRole("link", { name: "调整可信设定" })).toHaveAttribute("href", "/books/42/state");
-  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("不会启动章节生产");
-  expect(screen.queryByRole("button", { name: "运行当前章节" })).not.toBeInTheDocument();
-});
-
-test("workspace keeps project tools collapsed until requested", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () =>
-      Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "planned", includeTrace: true, includeVolumePlan: true })),
-    ),
-  );
-
-  render(<BookWorkspacePage bookId={42} />);
-
-  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  expect(screen.queryByRole("button", { name: "批量生产" })).not.toBeInTheDocument();
-  expect(screen.queryByLabelText("全书目标字数")).not.toBeInTheDocument();
-
-  fireEvent.click(screen.getByRole("button", { name: "项目工具" }));
-
-  expect(screen.getByRole("button", { name: "批量生产" })).toBeInTheDocument();
-  expect(screen.getByLabelText("全书目标字数")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "导出 Markdown" })).toHaveAttribute("href", "/api/books/42/export.md");
-});
-
-test("workspace checks trusted state when production-ready projects have no current task", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () =>
-      Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "accepted" })),
-    ),
-  );
-
-  render(<BookWorkspacePage bookId={42} />);
-
-  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  expect(screen.getByRole("link", { name: "检查可信设定" })).toHaveAttribute("href", "/books/42/state");
-  expect(screen.queryByRole("button", { name: "运行当前章节" })).not.toBeInTheDocument();
-});
-
-test("workspace runs needs-revision chapters through the primary action", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () =>
-      Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "needs_revision" })),
-    ),
-  );
-
-  render(<BookWorkspacePage bookId={42} />);
-
-  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  expect(screen.getByRole("button", { name: "运行当前章节" })).toBeInTheDocument();
-  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("生成候选正文");
-  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("不会直接写入");
-  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("进入章节审核");
-});
-
-test("workspace avoids unsafe chapter actions when the current task has no id", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () =>
-      Response.json(bookPayload({ bookStatus: "canon_locked", chapterId: null, chapterStatus: "planned" })),
-    ),
-  );
-
-  render(<BookWorkspacePage bookId={42} />);
-
-  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  expect(screen.getByRole("link", { name: "检查可信设定" })).toHaveAttribute("href", "/books/42/state");
-  expect(screen.queryAllByRole("link").map((link) => link.getAttribute("href"))).not.toContain("/chapters/0");
-  expect(screen.queryByRole("button", { name: "运行当前章节" })).not.toBeInTheDocument();
-  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("章节条目不完整");
-});
-
-test("workspace shows primary action errors without opening project tools", async () => {
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValueOnce(Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "planned" })))
-    .mockResolvedValueOnce(Response.json({ error: { message: "章节运行失败。" } }, { status: 500 }));
-  vi.stubGlobal("fetch", fetchMock);
-
-  render(<BookWorkspacePage bookId={42} />);
-
-  await waitFor(() => expect(screen.getByRole("button", { name: "运行当前章节" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "运行当前章节" }));
-
-  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("章节运行失败。"));
-  expect(screen.queryByRole("heading", { name: "章节队列" })).not.toBeInTheDocument();
-});
-
 function bookPayload({
   bookStatus = "draft",
   chapterId = 8,
+  chapterNumber = 1,
+  chapterVolumeNumber,
   chapterStatus = "running",
   chapterTitle = "失落灯塔",
   chapterSummary = "领航员发现星港残影。",
@@ -316,6 +285,8 @@ function bookPayload({
 }: {
   bookStatus?: string;
   chapterId?: number | null;
+  chapterNumber?: number;
+  chapterVolumeNumber?: number | null;
   chapterStatus?: string;
   chapterTitle?: string;
   chapterSummary?: string;
@@ -342,13 +313,14 @@ function bookPayload({
       {
         id: chapterId,
         bookId: 42,
-        number: 1,
+        number: chapterNumber,
         title: chapterTitle,
         status: chapterStatus,
         summary: chapterSummary,
         wordCount: 1200,
         reviewerNote: null,
         updatedAt: "2026-05-16T00:00:00+00:00",
+        ...(chapterVolumeNumber !== undefined ? { volumeNumber: chapterVolumeNumber } : {}),
       },
     ],
     latestCanon: includeLatestCanon

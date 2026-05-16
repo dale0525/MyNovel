@@ -10,13 +10,7 @@ const navItems = [
   { label: "工作台", href: "/", activePaths: ["/"] },
   { label: "开书", href: "/books/new", activePaths: ["/books/new"] },
   { label: "导入", href: "/books/import", activePaths: ["/books/import"] },
-  { label: "项目", href: "/", activePaths: ["/books/:id"], bookHref: (bookId: number) => `/books/${bookId}` },
-  {
-    label: "可信设定",
-    href: "/",
-    activePaths: ["/books/:id/state"],
-    bookHref: (bookId: number) => `/books/${bookId}/state`,
-  },
+  { label: "项目", href: "/", activePaths: ["/books/:id", "/books/:id/state"], bookHref: (bookId: number) => `/books/${bookId}` },
   {
     label: "质量",
     href: "/",

@@ -8,17 +8,15 @@ afterEach(() => {
   cleanup();
 });
 
-test("trusted state nav keeps the current book context", () => {
+test("project nav keeps the current book context and trusted state is project-local", () => {
   render(
     <AppShell activePath="/books/:id/state" currentPath="/books/42/state">
       <div>content</div>
     </AppShell>,
   );
 
-  expect(screen.getByRole("link", { name: "可信设定" })).toHaveAttribute(
-    "href",
-    "/books/42/state",
-  );
+  expect(screen.getByRole("link", { name: "项目" })).toHaveAttribute("href", "/books/42");
+  expect(screen.queryByRole("link", { name: "可信设定" })).not.toBeInTheDocument();
 });
 
 test("navigation does not expose review placeholder links", () => {

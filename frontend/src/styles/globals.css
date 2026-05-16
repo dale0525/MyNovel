@@ -833,6 +833,10 @@ h1 {
   font-weight: 800;
 }
 
+.chapter-major-change-toggle input[type="checkbox"] {
+  width: auto;
+}
+
 .guided-decision-panel {
   position: sticky;
   top: 1rem;

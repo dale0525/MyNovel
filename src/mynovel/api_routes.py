@@ -37,6 +37,7 @@ from mynovel.canon_proposal_server import (
 from mynovel.chapter_server import queue_chapter_batch_run, queue_chapter_repair, queue_chapter_run
 from mynovel.llm_streams import (
     stream_create_open_book_blueprint,
+    stream_generate_volume_outline,
     stream_repair_chapter,
     stream_retry_blueprint,
     stream_revise_blueprint,
@@ -186,6 +187,11 @@ def dispatch_api_post_stream(
 ) -> ApiStreamResponse | ApiResponse | None:
     if path == "/api/open-book/stream":
         return ApiStreamResponse(stream_create_open_book_blueprint(db_path, body))
+    volume_outline_action = _parse_book_volume_outline_action_api_path(path)
+    if volume_outline_action is not None:
+        book_id, action = volume_outline_action
+        if action == "generate-stream":
+            return ApiStreamResponse(stream_generate_volume_outline(db_path, book_id))
     blueprint_action = _parse_blueprint_action_api_path(path)
     if blueprint_action is not None:
         blueprint_id, action = blueprint_action
@@ -344,6 +350,17 @@ def _parse_book_canon_proposal_action_api_path(path: str) -> tuple[int, str] | N
 def _parse_book_chapter_action_api_path(path: str) -> tuple[int, str] | None:
     parts = path.strip("/").split("/")
     if len(parts) != 5 or parts[:2] != ["api", "books"] or parts[3] != "chapters":
+        return None
+    try:
+        book_id = int(parts[2])
+    except ValueError:
+        book_id = 0
+    return book_id, parts[4]
+
+
+def _parse_book_volume_outline_action_api_path(path: str) -> tuple[int, str] | None:
+    parts = path.strip("/").split("/")
+    if len(parts) != 5 or parts[:2] != ["api", "books"] or parts[3] != "volume-outline":
         return None
     try:
         book_id = int(parts[2])

@@ -88,6 +88,7 @@ def chapter_payload(chapter: Chapter) -> dict[str, Any]:
         "status": chapter.status.value,
         "summary": chapter.summary,
         "wordCount": chapter.word_count,
+        "volumeNumber": _chapter_volume_number(chapter.plan),
         "reviewerNote": chapter.reviewer_note,
         "updatedAt": _isoformat(chapter.updated_at),
     }
@@ -107,6 +108,15 @@ def chapter_detail_payload(chapter: Chapter) -> dict[str, Any]:
         }
     )
     return payload
+
+
+def _chapter_volume_number(plan: dict[str, Any]) -> int | None:
+    value = plan.get("volume_number", plan.get("volumeNumber"))
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def chapter_stage_slots(chapter: Chapter) -> list[dict[str, Any]]:
