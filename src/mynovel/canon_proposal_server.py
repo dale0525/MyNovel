@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Any
 
 from sqlmodel import Session
 
+from mynovel.api_serializers import trusted_state_payload
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import CanonProposalRevision, CanonProposalRevisionStatus
 from mynovel.domain.repositories import (
@@ -25,10 +27,12 @@ from mynovel.workflows.canon_proposal import (
     complete_canon_proposal_revision_job,
     content_hash,
     create_canon_proposal_revision,
+    create_canon_proposal_revision_from_response,
     create_canon_proposal_revision_job,
     discard_canon_proposal_revision,
     locks_hash,
     mark_canon_proposal_revision_failed,
+    prepare_canon_proposal_revision,
     section_locks_for_book,
     set_canon_proposal_section_lock,
 )
@@ -68,6 +72,23 @@ class OpenAICanonProposalModelClient:
             )
         )
         return _extract_chat_content(response)
+
+    def stream_complete(
+        self,
+        stage: str,
+        messages: list[dict[str, str]],
+        response_format: str,
+    ) -> Iterator[str]:
+        extra: dict[str, Any] = {}
+        if response_format == "json":
+            extra["response_format"] = {"type": "json_object"}
+        request = ChatRequest(
+            model=self.model,
+            messages=messages,
+            temperature=0.2,
+            extra=extra,
+        )
+        yield from self.client.stream_chat_content(request)
 
 
 def is_canon_proposal_post_path(path: str) -> bool:
@@ -151,6 +172,86 @@ def handle_create_canon_proposal_revision(
     return CanonProposalServerResponse(
         redirect_to=f"/books/{book_id or 0}/state?revision_id={revision_id}#canon-revision-job"
     )
+
+
+def stream_revise_and_apply_canon_proposal(
+    form: dict[str, str],
+    db_path: Path,
+    model_client=None,
+) -> Iterator[dict[str, Any]]:
+    book_id = _parse_int(form.get("book_id"))
+    target_section = form.get("target_section", "")
+    instruction = form.get("instruction", "")
+    if not instruction.strip():
+        yield _stream_failed("Canon proposal revision instruction is required.")
+        return
+
+    try:
+        client = model_client if model_client is not None else _model_client_from_db(db_path)
+        engine = create_engine_for_path(db_path)
+        create_db_and_tables(engine)
+        with Session(engine) as session:
+            draft = prepare_canon_proposal_revision(
+                session,
+                book_id,
+                target_section,
+                instruction,
+            )
+    except ValueError as error:
+        yield _stream_failed(str(error))
+        return
+    except Exception as error:  # noqa: BLE001
+        yield _stream_failed(str(error))
+        return
+
+    yield {
+        "type": "started",
+        "message": "AI 已开始修改设定。",
+        "targetSection": target_section,
+    }
+
+    raw_parts: list[str] = []
+    try:
+        stream_complete = getattr(client, "stream_complete", None)
+        if callable(stream_complete):
+            for chunk in stream_complete("canon_proposal_revision", draft.messages, "json"):
+                if not isinstance(chunk, str) or not chunk:
+                    continue
+                raw_parts.append(chunk)
+                yield {"type": "chunk", "text": chunk}
+        else:
+            raw_response = client.complete("canon_proposal_revision", draft.messages, "json")
+            raw_parts.append(raw_response)
+            yield {"type": "chunk", "text": raw_response}
+
+        raw_response = "".join(raw_parts)
+        yield {"type": "applying", "message": "正在写入设定。"}
+        with Session(engine) as session:
+            revision = create_canon_proposal_revision_from_response(
+                session,
+                draft,
+                raw_response,
+            )
+            applied_revision = apply_canon_proposal_revision(
+                session,
+                draft.book_id,
+                revision.id or 0,
+            )
+    except ValueError as error:
+        yield _stream_failed(str(error))
+        return
+    except Exception as error:  # noqa: BLE001
+        yield _stream_failed(str(error))
+        return
+
+    state_payload = trusted_state_payload(db_path, draft.book_id)
+    yield {
+        "type": "done",
+        "message": "AI 修改已写入设定。",
+        "revisionId": applied_revision.id,
+        "targetSection": applied_revision.target_section,
+        "state": state_payload,
+    }
 
 
 def _handle_create_canon_proposal_revision_inline(
@@ -322,6 +423,13 @@ def _bad_request(error: ValueError) -> CanonProposalServerResponse:
 
 def _bad_gateway(error: Exception) -> CanonProposalServerResponse:
     return CanonProposalServerResponse(body=str(error), status=HTTPStatus.BAD_GATEWAY)
+
+
+def _stream_failed(message: str) -> dict[str, str]:
+    return {
+        "type": "failed",
+        "message": message or "AI 修改失败。",
+    }
 
 
 def _extract_chat_content(response: dict[str, Any]) -> str:

@@ -316,7 +316,7 @@ test("chapter review actions call edit repair approve and export endpoints", asy
     .fn()
     .mockResolvedValueOnce(Response.json(chapterPayload()))
     .mockResolvedValueOnce(Response.json(chapterPayload({ revisedText: "人工修正文。" })))
-    .mockResolvedValueOnce(Response.json(chapterPayload({ revisedText: "人工修正文。" }), { status: 202 }))
+    .mockResolvedValueOnce(streamResponse([{ type: "done", chapter: chapterPayload({ revisedText: "人工修正文。" }) }]))
     .mockResolvedValueOnce(Response.json(chapterPayload({ status: "accepted" })));
   vi.stubGlobal("fetch", fetchMock);
 
@@ -337,7 +337,7 @@ test("chapter review actions call edit repair approve and export endpoints", asy
   fireEvent.click(screen.getByRole("button", { name: "让 AI 修复" }));
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/chapters/12/repair",
+      "/api/chapters/12/repair-stream",
       expect.objectContaining({ method: "POST" }),
     ),
   );
@@ -353,15 +353,16 @@ test("chapter review actions call edit repair approve and export endpoints", asy
 });
 
 test("renders animated AI waiting state while repair request is pending", async () => {
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      streamController = controller;
+    },
+  });
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(chapterPayload({ riskLevel: "high" })))
-    .mockImplementationOnce(
-      () =>
-        new Promise<Response>(() => {
-          // Keep the repair request pending so the waiting state stays visible.
-        }),
-    );
+    .mockResolvedValueOnce(new Response(stream));
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ChapterPage chapterId={12} />);
@@ -371,6 +372,8 @@ test("renders animated AI waiting state while repair request is pending", async 
   fireEvent.click(screen.getByRole("button", { name: "让 AI 修订" }));
 
   await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("提交修复中..."));
+  pushStreamEvent(streamController, { type: "chunk", text: "正在补强结尾冲突" });
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("正在补强结尾冲突"));
   expect(screen.getByRole("button", { name: /提交修复中/ })).toBeDisabled();
 });
 
@@ -378,7 +381,7 @@ test("high-risk AI revision requires a trimmed instruction", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(chapterPayload({ riskLevel: "high" })))
-    .mockResolvedValueOnce(Response.json(chapterPayload({ status: "running" }), { status: 202 }));
+    .mockResolvedValueOnce(streamResponse([{ type: "done", chapter: chapterPayload({ status: "running" }) }]));
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ChapterPage chapterId={12} />);
@@ -397,7 +400,7 @@ test("high-risk AI revision requires a trimmed instruction", async () => {
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/chapters/12/repair",
+      "/api/chapters/12/repair-stream",
       expect.objectContaining({
         body: JSON.stringify({ reviewerNote: "补强结尾。" }),
         method: "POST",
@@ -410,7 +413,7 @@ test("needs revision with high risk can submit trimmed AI repair", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(chapterPayload({ status: "needs_revision", riskLevel: "high" })))
-    .mockResolvedValueOnce(Response.json(chapterPayload({ status: "running" }), { status: 202 }));
+    .mockResolvedValueOnce(streamResponse([{ type: "done", chapter: chapterPayload({ status: "running" }) }]));
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ChapterPage chapterId={12} />);
@@ -430,7 +433,7 @@ test("needs revision with high risk can submit trimmed AI repair", async () => {
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/chapters/12/repair",
+      "/api/chapters/12/repair-stream",
       expect.objectContaining({
         body: JSON.stringify({ reviewerNote: "重写冲突段落。" }),
         method: "POST",
@@ -443,7 +446,7 @@ test("rejects action responses without chapter payload", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(chapterPayload()))
-    .mockResolvedValueOnce(Response.json({ chapterId: 12, redirectTo: "/chapters/12" }, { status: 202 }));
+    .mockResolvedValueOnce(streamResponse([{ type: "done", chapterId: 12, redirectTo: "/chapters/12" }]));
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ChapterPage chapterId={12} />);
@@ -461,7 +464,9 @@ test("run action enters running state from the action response", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(chapterPayload({ status: "planned" })))
-    .mockResolvedValueOnce(Response.json(chapterPayload({ status: "running" })));
+    .mockResolvedValueOnce(
+      streamResponse([{ type: "chunk", text: "正在生成草稿" }, { type: "done", chapter: chapterPayload({ status: "running" }) }]),
+    );
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ChapterPage chapterId={12} />);
@@ -471,10 +476,24 @@ test("run action enters running state from the action response", async () => {
 
   await waitFor(() => expect(screen.getByText("运行中")).toBeInTheDocument());
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/chapters/12/run",
+    "/api/chapters/12/run-stream",
     expect.objectContaining({ method: "POST" }),
   );
 });
+
+function pushStreamEvent(
+  controller: ReadableStreamDefaultController<Uint8Array> | null,
+  event: Record<string, unknown>,
+) {
+  if (!controller) {
+    throw new Error("Stream controller was not initialized.");
+  }
+  controller.enqueue(new TextEncoder().encode(`${JSON.stringify(event)}\n`));
+}
+
+function streamResponse(events: Array<Record<string, unknown>>): Response {
+  return new Response(events.map((event) => JSON.stringify(event)).join("\n"));
+}
 
 function chapterPayload({
   status = "awaiting_review",

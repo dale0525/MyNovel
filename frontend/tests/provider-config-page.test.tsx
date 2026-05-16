@@ -476,8 +476,8 @@ test("BootstrapGate rerenders route after open-book submit navigation", async ()
   window.history.pushState(null, "", "/books/new");
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const path = String(input);
-    if (path === "/api/open-book") {
-      return Response.json({ blueprintId: 9, redirectTo: "/blueprints/9" }, { status: 202 });
+    if (path === "/api/open-book/stream") {
+      return streamResponse([{ type: "done", blueprintId: 9, redirectTo: "/blueprints/9" }]);
     }
     if (path === "/api/blueprints/9") {
       return Response.json({
@@ -533,8 +533,8 @@ test("BootstrapGate rerenders route after blueprint revision navigation", async 
         },
       });
     }
-    if (path === "/api/blueprints/3/revise") {
-      return Response.json({ blueprintId: 4, redirectTo: "/blueprints/4" }, { status: 202 });
+    if (path === "/api/blueprints/3/revise-stream") {
+      return streamResponse([{ type: "done", blueprintId: 4, redirectTo: "/blueprints/4" }]);
     }
     if (path === "/api/blueprints/4") {
       return Response.json({
@@ -592,8 +592,8 @@ test("BootstrapGate refetches blueprint after same-route retry navigation", asyn
         },
       });
     }
-    if (path === "/api/blueprints/3/retry") {
-      return Response.json({ blueprintId: 3, redirectTo: "/blueprints/3" }, { status: 202 });
+    if (path === "/api/blueprints/3/retry-stream") {
+      return streamResponse([{ type: "done", blueprintId: 3, redirectTo: "/blueprints/3" }]);
     }
     return Response.json({}, { status: 404 });
   });
@@ -704,4 +704,8 @@ function fillRequiredFields(overrides: Partial<ProviderConfigDraft> = {}) {
       target: { value: values.embeddingModel },
     });
   }
+}
+
+function streamResponse(events: Array<Record<string, unknown>>): Response {
+  return new Response(events.map((event) => JSON.stringify(event)).join("\n"));
 }

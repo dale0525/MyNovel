@@ -33,7 +33,7 @@ export function AppShell({ activePath, currentPath = window.location.pathname, c
     <div className="app-shell">
       <aside className="app-shell__sidebar">
         <a className="app-shell__brand" href="/">
-          <span>MyNovel</span>
+          <span>长篇创作</span>
           <strong>创作中枢</strong>
         </a>
         <nav className="app-shell__nav" aria-label="主导航">

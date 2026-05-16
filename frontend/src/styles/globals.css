@@ -632,6 +632,18 @@ h1 {
   box-shadow: 0 1.25rem 2.5rem rgb(53 99 66 / 0.24);
 }
 
+.stream-action-row {
+  display: grid;
+  grid-template-columns: max-content minmax(13rem, 24rem);
+  gap: 0.65rem;
+  align-items: center;
+  max-width: 100%;
+}
+
+.stream-action-row .workbench-action-button {
+  min-inline-size: 9rem;
+}
+
 .open-book-form,
 .blueprint-actions,
 .blueprint-content {
@@ -855,6 +867,10 @@ h1 {
   }
 
   .workbench-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stream-action-row {
     grid-template-columns: 1fr;
   }
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
-from mynovel.api_routes import dispatch_api_get, dispatch_api_post
+from mynovel.api_routes import dispatch_api_get, dispatch_api_post, dispatch_api_post_stream
 from mynovel.canon_proposal_server import CanonProposalServerResponse
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import (
@@ -234,6 +234,36 @@ def test_canon_proposal_auto_complete_revise_uses_first_missing_unlocked_section
 
     assert response.status == HTTPStatus.ACCEPTED
     assert response.body["redirectTo"] == f"/books/{book_id}/state?revisionId=9"
+    assert captured["target_section"] == "characters"
+    assert captured["instruction"] == CANON_PROPOSAL_COMPLETION_INSTRUCTION
+
+
+def test_canon_proposal_auto_complete_stream_uses_first_missing_unlocked_section(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    book_id = _create_workspace_fixture(db_path)
+    captured: dict[str, str] = {}
+
+    def fake_stream(form: dict[str, str], db_path_arg: Path):
+        assert db_path_arg == db_path
+        captured.update(form)
+        yield {"type": "done"}
+
+    monkeypatch.setattr(
+        "mynovel.api_routes.stream_revise_and_apply_canon_proposal",
+        fake_stream,
+    )
+
+    response = dispatch_api_post_stream(
+        f"/api/books/{book_id}/canon-proposals/revise-stream",
+        {"autoComplete": True},
+        db_path,
+    )
+
+    assert response is not None
+    assert list(response.events) == [{"type": "done"}]
     assert captured["target_section"] == "characters"
     assert captured["instruction"] == CANON_PROPOSAL_COMPLETION_INSTRUCTION
 

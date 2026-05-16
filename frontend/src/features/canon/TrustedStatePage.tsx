@@ -1,19 +1,12 @@
-import { useEffect, useState } from "react";
+import { ChevronDown, Lock, Unlock } from "lucide-react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
-import {
-  AdvancedDisclosure,
-  ImpactPanel,
-  type ImpactItem,
-  ProjectIdentityBar,
-} from "@/components/guidance/GuidedPanels";
-import { getJson, isAbortError, postJson } from "@/lib/api";
+import { ProjectIdentityBar } from "@/components/guidance/GuidedPanels";
+import { getJson, isAbortError, postJson, postJsonLineStream } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
-import type {
-  CanonProposalRevisionPayload,
-  CanonSectionPayload,
-  TrustedStateResponse,
-} from "@/lib/types";
+import { streamPreviewLine } from "@/lib/streaming";
+import type { CanonSectionPayload, TrustedStateResponse } from "@/lib/types";
 
 type TrustedState =
   | { status: "loading"; data: null; error: null }
@@ -24,13 +17,35 @@ type TrustedStatePageProps = {
   bookId: number;
 };
 
-type CanonAction = "apply" | "discard" | "revise" | "auto-complete";
+type CanonAction = "global-revise" | "section-revise" | "lock" | "next";
 
 type ActionState =
-  | { status: "idle"; message: null; action: null }
-  | { status: "submitting"; message: null; action: CanonAction }
-  | { status: "success"; message: string; action: null }
-  | { status: "error"; message: string; action: null };
+  | { status: "idle"; message: null; action: null; targetSection: null }
+  | {
+      status: "submitting";
+      message: null;
+      action: CanonAction;
+      targetSection: string | null;
+      streamSnippets: string[];
+    }
+  | { status: "success"; message: string; action: CanonAction; targetSection: string | null }
+  | { status: "error"; message: string; action: CanonAction; targetSection: string | null };
+
+const idleAction: ActionState = {
+  status: "idle",
+  message: null,
+  action: null,
+  targetSection: null,
+};
+
+type CanonRevisionStreamEvent = {
+  type: "started" | "chunk" | "applying" | "done" | "failed";
+  text?: string;
+  message?: string;
+  state?: unknown;
+};
+
+const hiddenCanonSectionKeys = new Set(["state_history"]);
 
 export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
   const [state, setState] = useState<TrustedState>({
@@ -38,170 +53,281 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
     data: null,
     error: null,
   });
-  const [selectedSectionKey, setSelectedSectionKey] = useState("");
-  const [instruction, setInstruction] = useState("");
-  const [actionState, setActionState] = useState<ActionState>({
-    status: "idle",
-    message: null,
-    action: null,
-  });
+  const [globalInstruction, setGlobalInstruction] = useState("");
+  const [sectionInstructions, setSectionInstructions] = useState<Record<string, string>>({});
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set());
+  const [actionState, setActionState] = useState<ActionState>(idleAction);
 
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-    const query = window.location.search;
-    setState({ status: "loading", data: null, error: null });
-
-    getJson<unknown>(`/api/books/${bookId}/state${query}`, { signal: controller.signal })
-      .then((payload) => {
+  const loadTrustedState = useCallback(
+    async (signal?: AbortSignal, options: { quiet?: boolean; query?: string } = {}) => {
+      if (!options.quiet) {
+        setState({ status: "loading", data: null, error: null });
+      }
+      const query = options.query ?? window.location.search;
+      try {
+        const payload = await getJson<unknown>(`/api/books/${bookId}/state${query}`, { signal });
         const parsed = parseTrustedState(payload);
-        if (!cancelled) {
-          if (parsed) {
-            setState({ status: "ready", data: parsed, error: null });
-            const firstEditable = parsed.canonSections.find(
-              (section) => section.editable && !section.locked,
-            );
-            setSelectedSectionKey(firstEditable?.key ?? parsed.canonSections[0]?.key ?? "");
-          } else {
-            setState({ status: "error", data: null, error: "可信设定数据格式无效。" });
-          }
+        if (parsed) {
+          setState({ status: "ready", data: parsed, error: null });
+          return;
         }
-      })
-      .catch((error: unknown) => {
+        setState({ status: "error", data: null, error: "设定数据格式无效。" });
+      } catch (error: unknown) {
         if (isAbortError(error)) {
           return;
         }
-        if (!cancelled) {
-          setState({
-            status: "error",
-            data: null,
-            error: error instanceof Error ? error.message : "可信设定加载失败。",
-          });
-        }
-      });
+        setState({
+          status: "error",
+          data: null,
+          error: errorMessage(error, "设定加载失败。"),
+        });
+      }
+    },
+    [bookId],
+  );
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadTrustedState(controller.signal);
     return () => {
-      cancelled = true;
       controller.abort();
     };
-  }, [bookId]);
+  }, [loadTrustedState]);
 
-  async function applyRevision() {
-    const revisionId = state.status === "ready" ? state.data.selectedRevision?.id : null;
-    if (typeof revisionId !== "number") {
-      return;
+  useEffect(() => {
+    if (state.status !== "ready" || state.data.selectedRevision?.status !== "running") {
+      return undefined;
     }
-    setActionState({ status: "submitting", message: null, action: "apply" });
-    try {
-      await postJson(`/api/books/${bookId}/canon-proposals/apply`, { revisionId });
-      setActionState({ status: "success", message: "已应用修订。", action: null });
-      navigateTo(`/books/${bookId}/state`);
-    } catch (error) {
-      setActionState({
-        status: "error",
-        message: errorMessage(error, "应用修订失败。"),
-        action: null,
-      });
-    }
-  }
+    const timer = window.setTimeout(() => {
+      void loadTrustedState(undefined, { quiet: true });
+    }, 2500);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [loadTrustedState, state]);
 
-  async function discardRevision() {
-    const revisionId = state.status === "ready" ? state.data.selectedRevision?.id : null;
-    if (typeof revisionId !== "number") {
-      return;
+  const globalTarget = useMemo(() => {
+    if (state.status !== "ready") {
+      return null;
     }
-    setActionState({ status: "submitting", message: null, action: "discard" });
-    try {
-      await postJson(`/api/books/${bookId}/canon-proposals/discard`, { revisionId });
-      setActionState({ status: "success", message: "已放弃修订。", action: null });
-      navigateTo(`/books/${bookId}/state`);
-    } catch (error) {
-      setActionState({
-        status: "error",
-        message: errorMessage(error, "放弃修订失败。"),
-        action: null,
-      });
-    }
-  }
+    return revisionTargetSection(state.data.canonSections, state.data.readiness.missingSections);
+  }, [state]);
 
-  async function reviseState(event: React.FormEvent<HTMLFormElement>) {
+  async function reviseAllCanon(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const selectedSection =
-      state.status === "ready"
-        ? state.data.canonSections.find((section) => section.key === selectedSectionKey)
-        : null;
-    const trimmedInstruction = instruction.trim();
+    if (state.status !== "ready" || actionState.status === "submitting" || !globalTarget) {
+      return;
+    }
+    const trimmedInstruction = globalInstruction.trim();
+    if (trimmedInstruction.length === 0) {
+      await requestCanonAutoCompletion("global-revise", globalTarget.key);
+      return;
+    }
+    await requestCanonRevision(globalTarget.key, trimmedInstruction, "global-revise");
+  }
+
+  async function reviseSection(section: CanonSectionPayload, event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedInstruction = (sectionInstructions[section.key] ?? "").trim();
     if (
       actionState.status === "submitting" ||
-      !selectedSection ||
-      selectedSection.locked ||
-      !selectedSection.editable ||
+      section.locked ||
+      !section.editable ||
       trimmedInstruction.length === 0
     ) {
       return;
     }
-    await requestCanonRevision(selectedSection.key, trimmedInstruction, "revise");
+    await requestCanonRevision(section.key, trimmedInstruction, "section-revise");
   }
 
-  async function autoCompleteCanon() {
-    if (state.status !== "ready" || actionState.status === "submitting") {
-      return;
-    }
-    const targetSection = autoCompleteTargetSection(
-      state.data.canonSections,
-      state.data.readiness.missingSections,
-    );
-    if (!targetSection) {
-      return;
-    }
-    setActionState({ status: "submitting", message: null, action: "auto-complete" });
-    try {
-      const response = await postJson<{ redirectTo?: string }>(
-        `/api/books/${bookId}/canon-proposals/revise`,
-        { autoComplete: true },
-      );
-      setActionState({ status: "success", message: "已提交修订任务。", action: null });
-      if (response.redirectTo) {
-        navigateTo(response.redirectTo);
-      }
-    } catch (error) {
-      setActionState({
-        status: "error",
-        message: errorMessage(error, "提交修订失败。"),
-        action: null,
-      });
-    }
+  async function requestCanonAutoCompletion(action: "global-revise", targetSection: string) {
+    await requestCanonRevisionStream({ autoComplete: true }, action, targetSection);
   }
 
   async function requestCanonRevision(
     targetSection: string,
     revisionInstruction: string,
-    action: "revise" | "auto-complete",
+    action: "global-revise" | "section-revise",
   ) {
-    setActionState({ status: "submitting", message: null, action });
+    await requestCanonRevisionStream(
+      { targetSection, instruction: revisionInstruction },
+      action,
+      targetSection,
+    );
+  }
+
+  async function requestCanonRevisionStream(
+    body: Record<string, unknown>,
+    action: "global-revise" | "section-revise",
+    targetSection: string,
+  ) {
+    let completed = false;
+    setActionState({ status: "submitting", message: null, action, targetSection, streamSnippets: [] });
     try {
-      const response = await postJson<{ redirectTo?: string }>(
-        `/api/books/${bookId}/canon-proposals/revise`,
-        { targetSection, instruction: revisionInstruction },
+      await postJsonLineStream<CanonRevisionStreamEvent>(
+        `/api/books/${bookId}/canon-proposals/revise-stream`,
+        body,
+        async (event) => {
+          if (event.type === "chunk") {
+            appendStreamSnippet(action, targetSection, event.text ?? "");
+            return;
+          }
+          if (event.type === "applying") {
+            appendStreamSnippet(action, targetSection, event.message ?? "");
+            return;
+          }
+          if (event.type === "failed") {
+            throw new Error(event.message || "AI 修改失败。");
+          }
+          if (event.type !== "done") {
+            return;
+          }
+          completed = true;
+          const parsed = parseTrustedState(event.state);
+          if (parsed) {
+            setState({ status: "ready", data: parsed, error: null });
+          } else {
+            await loadTrustedState(undefined, { quiet: true, query: "" });
+          }
+          setActionState({
+            status: "success",
+            message: event.message || "AI 修改已写入设定。",
+            action,
+            targetSection,
+          });
+        },
       );
-      setActionState({ status: "success", message: "已提交修订任务。", action: null });
-      if (response.redirectTo) {
-        navigateTo(response.redirectTo);
+      if (!completed) {
+        throw new Error("AI 修改没有返回结果。");
       }
     } catch (error) {
       setActionState({
         status: "error",
-        message: errorMessage(error, "提交修订失败。"),
-        action: null,
+        message: errorMessage(error, "提交修改失败。"),
+        action,
+        targetSection,
       });
     }
   }
 
+  function appendStreamSnippet(
+    action: "global-revise" | "section-revise",
+    targetSection: string,
+    text: string,
+  ) {
+    const snippet = streamPreviewLine(text);
+    if (!snippet) {
+      return;
+    }
+    setActionState((current) => {
+      if (
+        current.status !== "submitting" ||
+        current.action !== action ||
+        current.targetSection !== targetSection
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        streamSnippets: [...current.streamSnippets, snippet].slice(-2),
+      };
+    });
+  }
+
+  async function toggleSectionLock(section: CanonSectionPayload) {
+    if (state.status !== "ready" || actionState.status === "submitting") {
+      return;
+    }
+    const nextLocked = !section.locked;
+    setActionState({
+      status: "submitting",
+      message: null,
+      action: "lock",
+      targetSection: section.key,
+      streamSnippets: [],
+    });
+    try {
+      const payload = await postJson<unknown>(`/api/books/${bookId}/canon-proposals/lock`, {
+        section: section.key,
+        locked: nextLocked,
+      });
+      const parsed = parseTrustedState(payload);
+      if (parsed) {
+        setState({ status: "ready", data: parsed, error: null });
+      } else {
+        await loadTrustedState(undefined, { quiet: true });
+      }
+      setActionState({
+        status: "success",
+        message: nextLocked ? "已锁定该设定。" : "已解锁该设定。",
+        action: "lock",
+        targetSection: section.key,
+      });
+    } catch (error) {
+      setActionState({
+        status: "error",
+        message: errorMessage(error, "锁定状态修改失败。"),
+        action: "lock",
+        targetSection: section.key,
+      });
+    }
+  }
+
+  async function lockAndContinue() {
+    if (state.status !== "ready" || actionState.status === "submitting") {
+      return;
+    }
+    if (!state.data.readiness.complete) {
+      setActionState({
+        status: "error",
+        message: "必须先修正不满足硬性设定要求的内容，才能下一步。",
+        action: "next",
+        targetSection: null,
+      });
+      return;
+    }
+    setActionState({
+      status: "submitting",
+      message: null,
+      action: "next",
+      targetSection: null,
+      streamSnippets: [],
+    });
+    try {
+      const response = await postJson<{ redirectTo?: string }>(`/api/books/${bookId}/state/lock`, {});
+      setActionState({ status: "success", message: "已锁定全部设定。", action: "next", targetSection: null });
+      navigateTo(response.redirectTo ?? `/books/${bookId}`);
+    } catch (error) {
+      setActionState({
+        status: "error",
+        message: errorMessage(error, "锁定设定失败。"),
+        action: "next",
+        targetSection: null,
+      });
+    }
+  }
+
+  function updateSectionInstruction(sectionKey: string, value: string) {
+    setSectionInstructions((current) => ({ ...current, [sectionKey]: value }));
+  }
+
+  function toggleExpandedSection(sectionKey: string) {
+    setExpandedSections((current) => {
+      const next = new Set(current);
+      if (next.has(sectionKey)) {
+        next.delete(sectionKey);
+      } else {
+        next.add(sectionKey);
+      }
+      return next;
+    });
+  }
+
   if (state.status === "loading") {
     return (
-      <section className="workbench-page" aria-labelledby="trusted-state-title">
+      <section className="workbench-page canon-page" aria-label="设定">
         <div className="workbench-panel" role="status">
-          正在加载可信设定...
+          正在加载设定...
         </div>
       </section>
     );
@@ -209,12 +335,12 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
 
   if (state.status === "error") {
     return (
-      <section className="workbench-page" aria-labelledby="trusted-state-title">
+      <section className="workbench-page canon-page" aria-labelledby="trusted-state-title">
         <div className="workbench-panel workbench-panel--alert" role="alert">
-          <h1 id="trusted-state-title">可信设定加载失败</h1>
+          <h1 id="trusted-state-title">设定加载失败</h1>
           <p>{state.error}</p>
           <a className="workbench-action-button" href={`/books/${bookId}`}>
-            返回项目页
+            返回项目
           </a>
         </div>
       </section>
@@ -222,205 +348,312 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
   }
 
   const { book, canonSections, readiness, selectedRevision } = state.data;
-  const selectedSection = canonSections.find((section) => section.key === selectedSectionKey) ?? null;
-  const selectedSectionBlocked = !selectedSection || selectedSection.locked || !selectedSection.editable;
+  const visibleCanonSections = canonSections.filter((section) => !hiddenCanonSectionKeys.has(section.key));
   const submittingAction = actionState.status === "submitting" ? actionState.action : null;
-  const completionTarget = autoCompleteTargetSection(canonSections, readiness.missingSections);
-  const reviseDisabled =
-    selectedSectionBlocked || submittingAction !== null || instruction.trim().length === 0;
-
-  function selectSection(sectionKey: string) {
-    if (selectedSectionKey !== sectionKey) {
-      setInstruction("");
-      setActionState({ status: "idle", message: null, action: null });
-    }
-    setSelectedSectionKey(sectionKey);
-  }
 
   return (
-    <section className="workbench-page canon-gate-layout" aria-label="可信设定">
+    <section className="workbench-page canon-page" aria-label="设定">
       <ProjectIdentityBar
-        eyebrow="Trusted State"
-        title="可信设定"
+        eyebrow="项目身份"
+        title="设定"
         meta={[
-          { label: "项目", value: book.title },
+          { label: "作品", value: book.title },
+          { label: "类型", value: book.genre || "未填写" },
           { label: "状态", value: statusLabel(book.status) },
-          { label: "完整度", value: readiness.complete ? "已完整" : "待补全" },
         ]}
       />
 
-      {actionState.status === "success" ? (
-        <p className="setup-message" role="status">
-          {actionState.message}
-        </p>
-      ) : null}
-      {actionState.status === "error" ? (
-        <p className="setup-message" role="alert">
-          {actionState.message}
-        </p>
-      ) : null}
-
-      <div className="guided-canon-grid">
-        <main className="workbench-panel canon-gate-main">
-          <section
-            className={readiness.complete ? "canon-completion-gate trusted" : "canon-completion-gate"}
+      <main className="canon-centered-flow">
+        <section className="workbench-panel canon-global-revision" aria-label="整体修改">
+          <form
+            className="canon-revision-form canon-global-revision__form"
+            onSubmit={(event) => void reviseAllCanon(event)}
           >
-            <div className="canon-completion-gate__header">
-              <h2>{readiness.complete ? "可信设定已完整" : "可信设定仍需补全"}</h2>
-              {!readiness.complete && completionTarget ? (
+            <label className="canon-revision-label" htmlFor="canon-global-instruction">
+              全部设定修改意见
+            </label>
+            <div className="canon-revision-control">
+              <textarea
+                id="canon-global-instruction"
+                value={globalInstruction}
+                onChange={(event) => setGlobalInstruction(event.target.value)}
+                placeholder="留空时，AI 会优先补齐缺口"
+              />
+              <div className="canon-revision-control__actions">
                 <button
-                  className="workbench-action-button canon-completion-gate__action"
-                  disabled={submittingAction !== null}
-                  type="button"
-                  onClick={() => void autoCompleteCanon()}
+                  className="workbench-action-button canon-global-revision__button"
+                  disabled={submittingAction !== null || !globalTarget}
+                  type="submit"
                 >
-                  {submittingAction === "auto-complete" ? (
-                    <AiWaitingIndicator label="自动补全中..." variant="inline" />
+                  {submittingAction === "global-revise" ? (
+                    <AiWaitingIndicator label="提交修订中..." variant="inline" />
                   ) : (
-                    "AI 自动补全"
+                    "让 AI 修改全部设定"
                   )}
                 </button>
-              ) : null}
-            </div>
-            {readiness.messages.length ? (
-              <ul>
-                {readiness.messages.map((message) => (
-                  <li key={message}>{message}</li>
-                ))}
-              </ul>
-            ) : (
-              <p>当前没有阻塞项。</p>
-            )}
-          </section>
-
-          <CanonSectionMap
-            sections={canonSections}
-            selectedSectionKey={selectedSectionKey}
-            onSelect={selectSection}
-          />
-
-          <AdvancedDisclosure title="完整设定内容">
-            <section className="detail-state-sections" aria-label="可信设定分区">
-              {canonSections.map((section) => (
-                <article className="canon-section-panel data-card" id={section.anchor} key={section.key}>
-                  <header className="canon-section-head">
-                    <div>
-                      <p className="eyebrow">{section.key}</p>
-                      <h2>{section.label}</h2>
-                    </div>
-                    <span className={section.locked ? "status-pill trusted" : "status-pill pending"}>
-                      {section.locked ? "已锁定" : "可修订"}
-                    </span>
-                  </header>
-                  <CanonSectionContent section={section} />
-                </article>
-              ))}
-            </section>
-          </AdvancedDisclosure>
-        </main>
-
-        <aside className="completion-aside guided-canon-aside">
-          <section>
-            <p className="eyebrow">Revision Request</p>
-            <h2>生成修订预览</h2>
-            <form className="canon-revision-form" onSubmit={(event) => void reviseState(event)}>
-              <p className="canon-revision-target">
-                当前分区：{selectedSection?.label ?? "未选择"}
-              </p>
-              <label>
-                修订意图
-                <textarea
-                  disabled={selectedSectionBlocked || submittingAction !== null}
-                  value={instruction}
-                  onChange={(event) => setInstruction(event.target.value)}
-                  placeholder="说明你希望 AI 如何调整这个分区"
+                <InlineActionFeedback
+                  actionState={actionState}
+                  action="global-revise"
+                  targetSection={globalTarget?.key ?? null}
                 />
-              </label>
-              <button
-                className="workbench-action-button"
-                disabled={reviseDisabled}
-                type="submit"
-              >
-                {submittingAction === "revise" ? (
-                  <AiWaitingIndicator label="提交修订中..." variant="inline" />
-                ) : (
-                  "生成修订预览"
-                )}
-              </button>
-            </form>
-          </section>
-          <ImpactPanel title="影响预览" items={selectedSectionImpact(selectedSection)} />
-          <RevisionPreview
-            revision={selectedRevision}
-            submittingAction={submittingAction}
-            onApply={() => void applyRevision()}
-            onDiscard={() => void discardRevision()}
-          />
-        </aside>
-      </div>
+              </div>
+            </div>
+          </form>
+        </section>
+
+        <section className="canon-section-rows" aria-label="设定列表">
+          {visibleCanonSections.map((section) => (
+            <CanonSectionRow
+              actionState={actionState}
+              expanded={expandedSections.has(section.key)}
+              instruction={sectionInstructions[section.key] ?? ""}
+              key={section.key}
+              readiness={readiness}
+              revisionStatus={selectedRevision?.targetSection === section.key ? selectedRevision.status : null}
+              section={section}
+              onInstructionChange={updateSectionInstruction}
+              onLockToggle={() => void toggleSectionLock(section)}
+              onRevisionSubmit={(event) => void reviseSection(section, event)}
+              onToggle={() => toggleExpandedSection(section.key)}
+            />
+          ))}
+        </section>
+
+        <section className="workbench-panel canon-next-step" aria-label="下一步">
+          <div className="canon-next-step__status" aria-hidden="true">
+            <span className={readiness.complete ? "canon-step-light is-ready" : "canon-step-light"} />
+            <strong>{readiness.complete ? "可以进入下一步" : `${readiness.messages.length || readiness.missingSections.length} 处待修正`}</strong>
+          </div>
+          <div className="canon-next-step__actions">
+            <button
+              className="workbench-action-button canon-next-step__button"
+              disabled={submittingAction !== null}
+              onClick={() => void lockAndContinue()}
+              type="button"
+            >
+              {submittingAction === "next" ? <AiWaitingIndicator label="锁定中..." variant="inline" /> : "下一步"}
+            </button>
+            <InlineActionFeedback actionState={actionState} action="next" targetSection={null} />
+          </div>
+        </section>
+      </main>
     </section>
   );
 }
 
-function autoCompleteTargetSection(
+function InlineActionFeedback({
+  actionState,
+  action,
+  targetSection,
+}: {
+  actionState: ActionState;
+  action: CanonAction;
+  targetSection: string | null;
+}) {
+  if (
+    actionState.status === "submitting" &&
+    actionState.action === action &&
+    actionState.targetSection === targetSection &&
+    actionState.streamSnippets.length > 0
+  ) {
+    return (
+      <div className="canon-stream-feedback" role="status">
+        {actionState.streamSnippets.map((snippet, index) => (
+          <span key={`${snippet}-${index}`}>{snippet}</span>
+        ))}
+      </div>
+    );
+  }
+  if (
+    (actionState.status !== "success" && actionState.status !== "error") ||
+    actionState.action !== action ||
+    actionState.targetSection !== targetSection
+  ) {
+    return null;
+  }
+  if (actionState.status === "success") {
+    return (
+      <p className="canon-inline-feedback" role="status">
+        {actionState.message}
+      </p>
+    );
+  }
+  return (
+    <p className="canon-inline-feedback is-error" role="alert">
+      {actionState.message}
+    </p>
+  );
+}
+
+function CanonSectionRow({
+  actionState,
+  expanded,
+  instruction,
+  readiness,
+  revisionStatus,
+  section,
+  onInstructionChange,
+  onLockToggle,
+  onRevisionSubmit,
+  onToggle,
+}: {
+  actionState: ActionState;
+  expanded: boolean;
+  instruction: string;
+  readiness: TrustedStateResponse["readiness"];
+  revisionStatus: string | null;
+  section: CanonSectionPayload;
+  onInstructionChange: (sectionKey: string, value: string) => void;
+  onLockToggle: () => void;
+  onRevisionSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onToggle: () => void;
+}) {
+  const summary = sectionSummary(section, readiness);
+  const sectionLabel = sectionDisplayName(section.key, section.label);
+  const sectionStatus = sectionStatusLabel(section, readiness);
+  const missingHardRequirement = readiness.missingSections.includes(section.key);
+  const isSubmitting = actionState.status === "submitting";
+  const sectionSubmitting =
+    isSubmitting && actionState.action === "section-revise" && actionState.targetSection === section.key;
+  const lockSubmitting = isSubmitting && actionState.action === "lock" && actionState.targetSection === section.key;
+  const revisionDisabled = isSubmitting || section.locked || !section.editable || instruction.trim().length === 0;
+  const detailsId = `canon-section-${section.key}`;
+  const instructionId = `canon-section-${section.key}-instruction`;
+
+  return (
+    <article className={expanded ? "canon-section-row is-expanded" : "canon-section-row"}>
+      <header className="canon-section-row__header">
+        <button
+          aria-controls={detailsId}
+          aria-expanded={expanded}
+          aria-label={summary}
+          className="canon-section-row__summary"
+          onClick={onToggle}
+          type="button"
+        >
+          <span className="canon-section-row__headline" aria-hidden="true">
+            <strong>{sectionLabel}</strong>
+            <span>{sectionItemCount(section.content)} 条</span>
+            <span>{sectionStatus}</span>
+          </span>
+          <ChevronDown aria-hidden="true" className="canon-section-row__chevron" size={20} />
+        </button>
+        {!missingHardRequirement ? (
+          <div className="canon-section-row__actions">
+            <button
+              className={section.locked ? "canon-lock-button is-locked" : "canon-lock-button"}
+              disabled={isSubmitting}
+              onClick={onLockToggle}
+              type="button"
+            >
+              {section.locked ? <Unlock aria-hidden="true" size={18} /> : <Lock aria-hidden="true" size={18} />}
+              {lockSubmitting ? "处理中..." : `${section.locked ? "解锁" : "锁定"}${sectionLabel}`}
+            </button>
+            <InlineActionFeedback actionState={actionState} action="lock" targetSection={section.key} />
+          </div>
+        ) : null}
+      </header>
+
+      {expanded ? (
+        <div className="canon-section-row__details" id={detailsId}>
+          <CanonSectionContent section={section} />
+          <form className="canon-revision-form canon-section-row__form" onSubmit={onRevisionSubmit}>
+            <label className="canon-revision-label" htmlFor={instructionId}>
+              {sectionLabel}修改意见
+            </label>
+            <div className="canon-revision-control">
+              <textarea
+                disabled={isSubmitting || section.locked || !section.editable}
+                id={instructionId}
+                value={instruction}
+                onChange={(event) => onInstructionChange(section.key, event.target.value)}
+                placeholder={`${section.locked ? "解锁后" : "填写后"}让 AI 修改${sectionLabel}`}
+              />
+              <div className="canon-revision-control__actions">
+                <button className="workbench-action-button" disabled={revisionDisabled} type="submit">
+                  {sectionSubmitting ? (
+                    <AiWaitingIndicator label="提交修订中..." variant="inline" />
+                  ) : (
+                    `让 AI 修改${sectionLabel}`
+                  )}
+                </button>
+                <InlineActionFeedback
+                  actionState={actionState}
+                  action="section-revise"
+                  targetSection={section.key}
+                />
+                <SectionRevisionFeedback status={revisionStatus} />
+              </div>
+            </div>
+          </form>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function SectionRevisionFeedback({ status }: { status: string | null }) {
+  if (status === "running") {
+    return (
+      <AiWaitingIndicator
+        detail="结果返回后会自动刷新到这里。"
+        label="修订生成中"
+        variant="message"
+      />
+    );
+  }
+  if (status === "failed") {
+    return (
+      <p className="canon-inline-feedback is-error" role="alert">
+        修订生成失败
+      </p>
+    );
+  }
+  return null;
+}
+
+function CanonSectionContent({ section }: { section: CanonSectionPayload }) {
+  const lines = canonValueLines(section.content);
+  if (!lines.length) {
+    return <p className="canon-empty-content">暂无内容。</p>;
+  }
+  return (
+    <ul className="value-list canon-full-content">
+      {lines.map((item, index) => (
+        <li key={index}>{item}</li>
+      ))}
+    </ul>
+  );
+}
+
+function revisionTargetSection(
   sections: CanonSectionPayload[],
   missingSections: string[],
 ): CanonSectionPayload | null {
-  return (
-    missingSections
-      .map((sectionKey) => sections.find((section) => section.key === sectionKey) ?? null)
-      .find((section) => section !== null && section.editable && !section.locked) ?? null
-  );
+  const missingTarget = missingSections
+    .map((sectionKey) => sections.find((section) => section.key === sectionKey) ?? null)
+    .find((section) => section !== null && section.editable && !section.locked);
+  if (missingTarget) {
+    return missingTarget;
+  }
+  return sections.find((section) => section.editable && !section.locked) ?? null;
 }
 
-function CanonSectionMap({
-  sections,
-  selectedSectionKey,
-  onSelect,
-}: {
-  sections: CanonSectionPayload[];
-  selectedSectionKey: string;
-  onSelect: (sectionKey: string) => void;
-}) {
-  return (
-    <section className="canon-section-map" aria-label="可信设定分区地图">
-      {sections.map((section) => {
-        const selected = section.key === selectedSectionKey;
-        return (
-          <button
-            aria-pressed={selected}
-            className={selected ? "canon-section-tile is-selected" : "canon-section-tile"}
-            key={section.key}
-            onClick={() => onSelect(section.key)}
-            type="button"
-          >
-            <span className="canon-section-tile__key">{section.key}</span>
-            <strong>{section.label}</strong>
-            <span>{sectionItemCount(section.content)} 项</span>
-            <span className={section.locked ? "status-pill trusted" : "status-pill pending"}>
-              {section.locked ? "已锁定" : section.editable ? "可修订" : "不可修订"}
-            </span>
-          </button>
-        );
-      })}
-    </section>
-  );
+function sectionSummary(section: CanonSectionPayload, readiness: TrustedStateResponse["readiness"]): string {
+  return `${sectionDisplayName(section.key, section.label)} ${sectionItemCount(section.content)} 条 ${sectionStatusLabel(section, readiness)}`;
 }
 
-function selectedSectionImpact(section: CanonSectionPayload | null): ImpactItem[] {
-  if (!section) {
-    return [{ label: "分区", value: "未选择", tone: "warning" }];
+function sectionStatusLabel(section: CanonSectionPayload, readiness: TrustedStateResponse["readiness"]): string {
+  if (section.locked) {
+    return "已锁定";
   }
-  if (section.locked || !section.editable) {
-    return [
-      { label: "状态", value: "已锁定", tone: "warning" },
-      { label: "修订", value: "不可提交", tone: "danger" },
-    ];
+  if (!section.editable) {
+    return "不可修订";
   }
-  return [
-    { label: "提交结果", value: "只生成预览", tone: "neutral" },
-    { label: "应用", value: "确认后才覆盖", tone: "good" },
-  ];
+  if (readiness.missingSections.includes(section.key)) {
+    return "待修订";
+  }
+  return "已满足";
 }
 
 function sectionItemCount(content: unknown): number {
@@ -436,129 +669,6 @@ function sectionItemCount(content: unknown): number {
   return 1;
 }
 
-function RevisionPreview({
-  revision,
-  submittingAction,
-  onApply,
-  onDiscard,
-}: {
-  revision: CanonProposalRevisionPayload | null;
-  submittingAction: CanonAction | null;
-  onApply: () => void;
-  onDiscard: () => void;
-}) {
-  if (!revision) {
-    return null;
-  }
-  return (
-    <section className="canon-revision-preview" aria-labelledby="revision-preview-title">
-      <div className="canon-preview-head">
-        <div>
-          <p className="eyebrow">Revision Proposal</p>
-          <h2 id="revision-preview-title">变更预览</h2>
-          <p>{revision.summary || "AI 尚未生成摘要。"}</p>
-        </div>
-        <span className="status-pill pending">{revision.status}</span>
-      </div>
-
-      <RevisionPreviewActions
-        revision={revision}
-        submittingAction={submittingAction}
-        onApply={onApply}
-        onDiscard={onDiscard}
-      />
-
-      <div className="canon-preview-sections">
-        {Object.entries(revision.changedSections).map(([section, value]) => (
-          <article className="canon-preview-section" key={section}>
-            <header>
-              <h3>{section}</h3>
-              <span>将被替换</span>
-            </header>
-            <pre>{formatCanonValue(value)}</pre>
-          </article>
-        ))}
-      </div>
-
-      {revision.blockedSections.length ? (
-        <section>
-          <h3>blocked sections</h3>
-          <ul>
-            {revision.blockedSections.map((item, index) => (
-              <li key={index}>{formatBlockedSection(item)}</li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-    </section>
-  );
-}
-
-function RevisionPreviewActions({
-  revision,
-  submittingAction,
-  onApply,
-  onDiscard,
-}: {
-  revision: CanonProposalRevisionPayload;
-  submittingAction: CanonAction | null;
-  onApply: () => void;
-  onDiscard: () => void;
-}) {
-  if (revision.status === "running") {
-    return (
-      <AiWaitingIndicator
-        detail="模型正在生成可审阅的可信设定变更。"
-        label="修订生成中"
-        variant="message"
-      />
-    );
-  }
-  if (revision.status === "failed") {
-    return (
-      <p className="setup-message" role="alert">
-        修订生成失败
-      </p>
-    );
-  }
-  if (revision.status !== "pending") {
-    return null;
-  }
-  return (
-    <div className="canon-preview-actions">
-      <button
-        className="workbench-action-button"
-        disabled={submittingAction !== null}
-        onClick={onApply}
-        type="button"
-      >
-        {submittingAction === "apply" ? "应用中..." : "应用修订"}
-      </button>
-      <button
-        className="workbench-secondary-button"
-        disabled={submittingAction !== null}
-        onClick={onDiscard}
-        type="button"
-      >
-        {submittingAction === "discard" ? "放弃中..." : "放弃修订"}
-      </button>
-    </div>
-  );
-}
-
-function CanonSectionContent({ section }: { section: CanonSectionPayload }) {
-  if (!Array.isArray(section.content) || section.content.length === 0) {
-    return <p>暂无记录。</p>;
-  }
-  return (
-    <ul className="value-list">
-      {section.content.slice(0, 8).map((item, index) => (
-        <li key={index}>{shortValue(item)}</li>
-      ))}
-    </ul>
-  );
-}
-
 function parseTrustedState(payload: unknown): TrustedStateResponse | null {
   if (!isRecord(payload) || !isRecord(payload.book)) {
     return null;
@@ -569,28 +679,60 @@ function parseTrustedState(payload: unknown): TrustedStateResponse | null {
   return payload as TrustedStateResponse;
 }
 
-function formatBlockedSection(value: unknown): string {
-  if (isRecord(value)) {
-    return `${String(value.section ?? "unknown")}: ${String(value.reason ?? "blocked")}`;
+function canonValueLines(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => canonValueLines(item)).filter((item) => item.length > 0);
   }
-  return String(value);
-}
-
-function formatCanonValue(value: unknown): string {
-  return JSON.stringify(value, null, 2);
+  if (isRecord(value)) {
+    const values = Object.values(value);
+    if (!values.length) {
+      return [];
+    }
+    if (values.every((item) => !Array.isArray(item) && !isRecord(item))) {
+      return values.map(shortValue).filter(Boolean);
+    }
+    return values.flatMap((item) => canonValueLines(item)).filter((item) => item.length > 0);
+  }
+  const valueText = shortValue(value);
+  return valueText ? [valueText] : [];
 }
 
 function shortValue(value: unknown): string {
   if (typeof value === "string") {
     return value;
   }
-  if (isRecord(value)) {
-    return Object.values(value).map(shortValue).join(" · ");
+  if (typeof value === "number") {
+    return String(value);
+  }
+  if (typeof value === "boolean") {
+    return value ? "是" : "否";
   }
   if (value === null || value === undefined) {
-    return "暂无记录";
+    return "";
+  }
+  if (Array.isArray(value)) {
+    return value.map(shortValue).filter(Boolean).join("；");
+  }
+  if (isRecord(value)) {
+    return Object.values(value).map(shortValue).filter(Boolean).join("；");
   }
   return String(value);
+}
+
+function sectionDisplayName(sectionKey: string, fallback?: string): string {
+  const labels: Record<string, string> = {
+    accepted_chapters: "已接纳章节",
+    characters: "人物",
+    conflicts: "冲突",
+    factions: "势力",
+    locations: "地点",
+    resources: "资源",
+    state_history: "状态历史",
+    themes: "主题",
+    timeline: "时间线",
+    world_rules: "世界规则",
+  };
+  return fallback || labels[sectionKey] || "未命名设定";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -599,14 +741,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function statusLabel(status: string): string {
   const labels: Record<string, string> = {
+    canon_locked: "设定已锁定",
     draft: "草稿",
-    canon_locked: "可信设定已锁定",
-    producing: "生产中",
     paused: "暂停",
+    producing: "生产中",
   };
-  return labels[status] ?? status;
+  return labels[status] ?? "未知状态";
 }
 
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
+  if (!(error instanceof Error) || !error.message) {
+    return fallback;
+  }
+  const knownMessages: Record<string, string> = {
+    "Revision is still running.": "修订仍在生成中。",
+  };
+  return knownMessages[error.message] ?? (/[A-Za-z_]/.test(error.message) ? fallback : error.message);
 }

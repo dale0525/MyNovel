@@ -11,7 +11,8 @@ import {
   ProjectIdentityBar,
 } from "@/components/guidance/GuidedPanels";
 import { ChapterStageBoard } from "@/features/chapters/ChapterStageBoard";
-import { ApiError, getJson, isAbortError, postJson } from "@/lib/api";
+import { ApiError, getJson, isAbortError, postJson, postJsonLineStream } from "@/lib/api";
+import { type LlmStreamEvent, nextStreamSnippets, streamEventPreview } from "@/lib/streaming";
 import type { ChapterDetailPayload, ChapterResponse } from "@/lib/types";
 
 type ChapterPageState =
@@ -21,9 +22,15 @@ type ChapterPageState =
 
 type ActionState =
   | { status: "idle"; action: null; message: null }
-  | { status: "submitting"; action: ChapterReviewAction; message: null }
+  | { status: "submitting"; action: ChapterReviewAction; message: null; streamSnippets: string[] }
   | { status: "success"; action: null; message: string }
   | { status: "error"; action: null; message: string };
+
+type ChapterStreamEvent = LlmStreamEvent<{
+  chapter?: unknown;
+  chapterId?: number;
+  redirectTo?: string;
+} & Record<string, unknown>>;
 
 export function ChapterPage({ chapterId }: { chapterId: number }) {
   const [state, setState] = useState<ChapterPageState>({
@@ -91,14 +98,50 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
   }, [state]);
 
   async function submitAction(action: ChapterReviewAction, body: Record<string, unknown>) {
-    setActionState({ status: "submitting", action, message: null });
+    setActionState({ status: "submitting", action, message: null, streamSnippets: [] });
     try {
-      const payload = await postJson<unknown>(`/api/chapters/${chapterId}/${action}`, body);
-      const parsed = parseChapterResponse(payload);
-      if (!parsed) {
-        throw new Error("章节数据格式无效。");
+      if (action === "repair" || action === "run") {
+        let completed = false;
+        await postJsonLineStream<ChapterStreamEvent>(
+          `/api/chapters/${chapterId}/${action}-stream`,
+          body,
+          (streamEvent) => {
+            const snippet = streamEventPreview(streamEvent);
+            if (snippet) {
+              setActionState((current) => {
+                if (current.status !== "submitting" || current.action !== action) {
+                  return current;
+                }
+                return {
+                  ...current,
+                  streamSnippets: nextStreamSnippets(current.streamSnippets, snippet),
+                };
+              });
+            }
+            if (streamEvent.type === "failed") {
+              throw new Error(typeof streamEvent.message === "string" ? streamEvent.message : "章节动作失败。");
+            }
+            if (streamEvent.type === "done") {
+              completed = true;
+              const parsed = parseChapterResponse(streamEvent.chapter);
+              if (!parsed) {
+                throw new Error("章节数据格式无效。");
+              }
+              setState({ status: "ready", data: parsed, error: null });
+            }
+          },
+        );
+        if (!completed) {
+          throw new Error("章节动作没有返回结果。");
+        }
+      } else {
+        const payload = await postJson<unknown>(`/api/chapters/${chapterId}/${action}`, body);
+        const parsed = parseChapterResponse(payload);
+        if (!parsed) {
+          throw new Error("章节数据格式无效。");
+        }
+        setState({ status: "ready", data: parsed, error: null });
       }
-      setState({ status: "ready", data: parsed, error: null });
       setActionState({
         status: "success",
         action: null,
@@ -185,6 +228,7 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
             impactItems={chapterImpactItems(chapter)}
             majorChange={hasMajorStateChange(chapter.stateDelta)}
             onAction={(action, body) => void submitAction(action, body)}
+            streamSnippets={actionState.status === "submitting" ? actionState.streamSnippets : []}
           />
           <section className="workspace-result-section">
             <p className="eyebrow">Chapter Queue</p>

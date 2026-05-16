@@ -10,7 +10,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 from mynovel.api_errors import ApiResponse
-from mynovel.api_routes import dispatch_api_get, dispatch_api_post, read_api_json_body
+from mynovel.api_routes import (
+    ApiStreamResponse,
+    dispatch_api_get,
+    dispatch_api_post,
+    dispatch_api_post_stream,
+    read_api_json_body,
+)
 from mynovel.chapter_server import chapter_model_client_from_provider_config
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import ProviderConfig
@@ -105,6 +111,13 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if error is not None:
                 self._send_api_response(error)
                 return
+            stream_response = dispatch_api_post_stream(parsed.path, body, state.db_path)
+            if isinstance(stream_response, ApiStreamResponse):
+                self._send_stream_response(stream_response)
+                return
+            if isinstance(stream_response, ApiResponse):
+                self._send_api_response(stream_response)
+                return
             self._send_api_response(dispatch_api_post(parsed.path, body, state.db_path))
 
         def log_message(self, format: str, *args: Any) -> None:
@@ -133,6 +146,16 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
+
+        def _send_stream_response(self, response: ApiStreamResponse) -> None:
+            self.send_response(response.status)
+            self.send_header("Content-Type", response.content_type)
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            for event in response.events:
+                payload = json.dumps(event, ensure_ascii=False).encode("utf-8") + b"\n"
+                self.wfile.write(payload)
+                self.wfile.flush()
 
         def _send_static_response(self, response: StaticResponse) -> None:
             self.send_response(response.status)

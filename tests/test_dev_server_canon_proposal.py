@@ -10,6 +10,7 @@ from mynovel.canon_proposal_server import (
     handle_toggle_canon_proposal_section_lock,
     is_canon_proposal_post_path,
     load_pending_canon_proposal_revision_for_book,
+    stream_revise_and_apply_canon_proposal,
 )
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import (
@@ -46,6 +47,16 @@ class FakeCanonProposalModelClient:
 class FailingCanonProposalModelClient:
     def complete(self, stage: str, messages: list[dict[str, str]], response_format: str) -> str:
         raise RuntimeError("provider unavailable")
+
+
+class StreamingCanonProposalModelClient:
+    def stream_complete(self, stage: str, messages: list[dict[str, str]], response_format: str):
+        assert stage == "canon_proposal_revision"
+        assert messages
+        assert response_format == "json"
+        yield '{"target_section":"characters",'
+        yield '"changed_sections":{"characters":[{"name":"林烬","trait":"外冷内热"}]},'
+        yield '"blocked_sections":[],"summary":"已调整人物。","risks":[]}'
 
 
 def _create_draft_book_with_canon(db_path: Path) -> tuple[int, int]:
@@ -309,6 +320,45 @@ def test_create_canon_proposal_revision_returns_bad_gateway_for_model_failure(
 
     assert response.status == HTTPStatus.BAD_GATEWAY
     assert "provider unavailable" in response.body
+
+
+def test_stream_revise_and_apply_canon_proposal_yields_chunks_and_persists(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    book_id, _canon_id = _create_draft_book_with_canon(db_path)
+
+    events = list(
+        stream_revise_and_apply_canon_proposal(
+            {
+                "book_id": str(book_id),
+                "target_section": "characters",
+                "instruction": "主角改成外冷内热",
+            },
+            db_path,
+            model_client=StreamingCanonProposalModelClient(),
+        )
+    )
+
+    assert [event["type"] for event in events] == [
+        "started",
+        "chunk",
+        "chunk",
+        "chunk",
+        "applying",
+        "done",
+    ]
+    assert events[1]["text"] == '{"target_section":"characters",'
+    assert events[-1]["message"] == "AI 修改已写入设定。"
+    assert events[-1]["state"]["canonSections"][1]["content"] == [
+        {"name": "林烬", "trait": "外冷内热"}
+    ]
+
+    engine = create_engine_for_path(db_path)
+    with Session(engine) as session:
+        canon = session.exec(select(Canon).where(Canon.book_id == book_id)).first()
+        assert canon is not None
+        assert canon.content["characters"] == [{"name": "林烬", "trait": "外冷内热"}]
 
 
 def test_apply_and_discard_canon_proposal_revision_handlers(tmp_path: Path) -> None:

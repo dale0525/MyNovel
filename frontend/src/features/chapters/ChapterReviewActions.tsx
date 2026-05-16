@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { AiStreamFeedback } from "@/components/feedback/AiStreamFeedback";
 import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
 import {
   AdvancedDisclosure,
@@ -22,6 +23,7 @@ type ChapterReviewActionsProps = {
   impactItems: ImpactItem[];
   majorChange: boolean;
   onAction: (action: ChapterReviewAction, body: Record<string, unknown>) => void;
+  streamSnippets: string[];
 };
 
 export function ChapterReviewActions({
@@ -31,6 +33,7 @@ export function ChapterReviewActions({
   impactItems,
   majorChange,
   onAction,
+  streamSnippets,
 }: ChapterReviewActionsProps) {
   const [manualText, setManualText] = useState(chapter.revisedText || chapter.draftText);
   const [manualNote, setManualNote] = useState("");
@@ -62,18 +65,21 @@ export function ChapterReviewActions({
       </div>
 
       {chapter.status === "planned" || (chapter.status === "needs_revision" && !showRepairPanel) ? (
-        <button
-          className="workbench-action-button"
-          disabled={busy}
-          type="button"
-          onClick={() => onAction("run", {})}
-        >
-          {actionBusy === "run" ? (
-            <AiWaitingIndicator label="提交运行中..." variant="inline" />
-          ) : (
-            "运行本章"
-          )}
-        </button>
+        <>
+          <button
+            className="workbench-action-button"
+            disabled={busy}
+            type="button"
+            onClick={() => onAction("run", {})}
+          >
+            {actionBusy === "run" ? (
+              <AiWaitingIndicator label="提交运行中..." variant="inline" />
+            ) : (
+              "运行本章"
+            )}
+          </button>
+          <AiStreamFeedback snippets={actionBusy === "run" ? streamSnippets : []} />
+        </>
       ) : null}
 
       {chapter.status === "running" ? (
@@ -113,6 +119,7 @@ export function ChapterReviewActions({
                   "让 AI 修订"
                 )}
               </button>
+              <AiStreamFeedback snippets={actionBusy === "repair" ? streamSnippets : []} />
             </form>
           ) : (
             <>
@@ -208,6 +215,7 @@ export function ChapterReviewActions({
                 "让 AI 修复"
               )}
             </button>
+            <AiStreamFeedback snippets={actionBusy === "repair" ? streamSnippets : []} />
           </form>
         ) : null}
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { AiStreamFeedback } from "@/components/feedback/AiStreamFeedback";
 import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
 import {
   type BlueprintCandidateView,
@@ -7,8 +8,9 @@ import {
   normalizeBlueprintCandidates,
   summaryValue,
 } from "@/features/open-book/blueprintCandidates";
-import { ApiError, getJson, isAbortError, postJson } from "@/lib/api";
+import { ApiError, getJson, isAbortError, postJson, postJsonLineStream } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
+import { type LlmStreamEvent, nextStreamSnippets, streamEventPreview } from "@/lib/streaming";
 import type { BlueprintPayload, BlueprintResponse } from "@/lib/types";
 
 type BlueprintPageState =
@@ -22,6 +24,8 @@ type ActionResponse = {
   redirectTo?: string;
 };
 
+type BlueprintActionStreamEvent = LlmStreamEvent<ActionResponse & Record<string, unknown>>;
+
 export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
   const [state, setState] = useState<BlueprintPageState>({
     status: "loading",
@@ -32,6 +36,7 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [streamSnippets, setStreamSnippets] = useState<string[]>([]);
   const pendingActionRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -43,6 +48,7 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
     setSelectedCandidateIndex(0);
     setActionError(null);
     setPendingAction(null);
+    setStreamSnippets([]);
     pendingActionRef.current = null;
 
     async function loadBlueprint() {
@@ -92,13 +98,36 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
     pendingActionRef.current = action;
     setPendingAction(action);
     setActionError(null);
+    setStreamSnippets([]);
     try {
-      const response = await postJson<ActionResponse>(path, body);
-      if (response.redirectTo) {
-        navigateTo(response.redirectTo);
+      if (action === "retry" || action === "revise") {
+        let completed = false;
+        await postJsonLineStream<BlueprintActionStreamEvent>(path, body, (streamEvent) => {
+          const snippet = streamEventPreview(streamEvent);
+          if (snippet) {
+            setStreamSnippets((current) => nextStreamSnippets(current, snippet));
+          }
+          if (streamEvent.type === "failed") {
+            throw new Error(typeof streamEvent.message === "string" ? streamEvent.message : "操作失败。");
+          }
+          if (streamEvent.type === "done") {
+            completed = true;
+            if (typeof streamEvent.redirectTo === "string") {
+              navigateTo(streamEvent.redirectTo);
+            }
+          }
+        });
+        if (!completed) {
+          throw new Error("操作没有返回结果。");
+        }
+      } else {
+        const response = await postJson<ActionResponse>(path, body);
+        if (response.redirectTo) {
+          navigateTo(response.redirectTo);
+        }
       }
     } catch (error) {
-      setActionError(error instanceof ApiError ? error.message : "操作失败。");
+      setActionError(error instanceof ApiError || error instanceof Error ? error.message : "操作失败。");
     } finally {
       pendingActionRef.current = null;
       setPendingAction(null);
@@ -163,7 +192,7 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
           <button
             className="workbench-action-button"
             disabled={pendingAction !== null}
-            onClick={() => void runAction("retry", `/api/blueprints/${blueprintId}/retry`, {})}
+            onClick={() => void runAction("retry", `/api/blueprints/${blueprintId}/retry-stream`, {})}
             type="button"
           >
             {pendingAction === "retry" ? (
@@ -172,6 +201,7 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
               "重试生成"
             )}
           </button>
+          <AiStreamFeedback snippets={streamSnippets} />
         </div>
       )}
 
@@ -202,7 +232,7 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
                   })
                 }
                 onRevise={() =>
-                  void runAction("revise", `/api/blueprints/${blueprintId}/revise`, {
+                  void runAction("revise", `/api/blueprints/${blueprintId}/revise-stream`, {
                     revisionNotes,
                     selectedTitle: selectedCandidate.title,
                     selectedCandidateIndex: selectedCandidate.index,
@@ -211,6 +241,7 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
                 pendingAction={pendingAction}
                 revisionNotes={revisionNotes}
                 setRevisionNotes={setRevisionNotes}
+                streamSnippets={streamSnippets}
               />
             </div>
           ) : (
@@ -377,6 +408,7 @@ function DecisionPanel({
   pendingAction,
   revisionNotes,
   setRevisionNotes,
+  streamSnippets,
 }: {
   blueprint: BlueprintPayload;
   candidate: BlueprintCandidateView;
@@ -385,6 +417,7 @@ function DecisionPanel({
   pendingAction: string | null;
   revisionNotes: string;
   setRevisionNotes: (value: string) => void;
+  streamSnippets: string[];
 }) {
   const firstHooks = candidate.chapterDirections.slice(0, 3);
   const directionSummary = [
@@ -456,6 +489,7 @@ function DecisionPanel({
           "按意见重生成一版"
         )}
       </button>
+      <AiStreamFeedback snippets={streamSnippets} />
 
       <RawBlueprintDetails blueprint={blueprint} />
     </aside>

@@ -71,7 +71,7 @@ test("renders failed blueprint details and retries", async () => {
         }),
       }),
     )
-    .mockResolvedValueOnce(Response.json({ blueprintId: 3, redirectTo: "/blueprints/3" }, { status: 202 }));
+    .mockResolvedValueOnce(streamResponse([{ type: "chunk", text: "正在重新生成候选方向" }, { type: "done", blueprintId: 3, redirectTo: "/blueprints/3" }]));
   vi.stubGlobal("fetch", fetchMock);
 
   render(<BlueprintPage blueprintId={3} />);
@@ -80,7 +80,8 @@ test("renders failed blueprint details and retries", async () => {
   expect(screen.getByText("invalid json")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "重试生成" }));
 
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/blueprints/3/retry", expect.anything()));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("正在重新生成候选方向"));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/blueprints/3/retry-stream", expect.anything()));
 });
 
 test("renders succeeded blueprint candidate workspace and accept action", async () => {
@@ -231,11 +232,8 @@ test("blueprint id changes reset title selection revision notes and action error
         }),
       });
     }
-    if (path === "/api/blueprints/3/revise") {
-      return Response.json(
-        { error: { code: "revision_required", message: "请填写修订方向。", details: {} } },
-        { status: 400 },
-      );
+    if (path === "/api/blueprints/3/revise-stream") {
+      return streamResponse([{ type: "failed", message: "请填写修订方向。" }]);
     }
     return Response.json({}, { status: 404 });
   });
@@ -285,7 +283,7 @@ test("revision action sends selected candidate context", async () => {
         }),
       }),
     )
-    .mockResolvedValueOnce(Response.json({ blueprintId: 4, redirectTo: "/blueprints/4" }, { status: 202 }));
+    .mockResolvedValueOnce(streamResponse([{ type: "chunk", text: "正在重排前三章冲突" }, { type: "done", blueprintId: 4, redirectTo: "/blueprints/4" }]));
   vi.stubGlobal("fetch", fetchMock);
 
   render(<BlueprintPage blueprintId={3} />);
@@ -298,7 +296,7 @@ test("revision action sends selected candidate context", async () => {
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/blueprints/3/revise",
+      "/api/blueprints/3/revise-stream",
       expect.objectContaining({
         body: JSON.stringify({
           revisionNotes: "保留回声设定，但前三章冲突更强",
@@ -308,6 +306,7 @@ test("revision action sends selected candidate context", async () => {
       }),
     ),
   );
+  expect(screen.getByRole("status")).toHaveTextContent("正在重排前三章冲突");
 });
 
 test("renders old global-only blueprint fields as one candidate", async () => {
@@ -417,4 +416,8 @@ function blueprintPayload(overrides: Record<string, unknown> = {}) {
     errorMessage: null,
     ...overrides,
   };
+}
+
+function streamResponse(events: Array<Record<string, unknown>>): Response {
+  return new Response(events.map((event) => JSON.stringify(event)).join("\n"));
 }

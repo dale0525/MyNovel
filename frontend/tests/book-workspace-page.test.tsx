@@ -58,8 +58,12 @@ test("workspace runs planned chapters and batch production through api actions",
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "planned" })))
-    .mockResolvedValueOnce(Response.json({ chapterId: 8, redirectTo: "/chapters/8" }, { status: 202 }))
-    .mockResolvedValueOnce(Response.json({ chapterId: 9, redirectTo: "/chapters/9" }, { status: 202 }));
+    .mockResolvedValueOnce(
+      streamResponse([{ type: "chunk", text: "正在生成草稿" }, { type: "done", chapterId: 8, redirectTo: "/chapters/8" }]),
+    )
+    .mockResolvedValueOnce(
+      streamResponse([{ type: "chunk", text: "正在批量推进章节" }, { type: "done", chapterId: 9, redirectTo: "/chapters/9" }]),
+    );
   vi.stubGlobal("fetch", fetchMock);
 
   render(<BookWorkspacePage bookId={42} />);
@@ -70,10 +74,11 @@ test("workspace runs planned chapters and batch production through api actions",
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/chapters/8/run",
+      "/api/chapters/8/run-stream",
       expect.objectContaining({ method: "POST" }),
     ),
   );
+  expect(screen.getByRole("status")).toHaveTextContent("正在生成草稿");
   expect(window.location.pathname).toBe("/chapters/8");
 
   window.history.pushState(null, "", "/books/42");
@@ -82,7 +87,7 @@ test("workspace runs planned chapters and batch production through api actions",
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/books/42/chapters/run-batch",
+      "/api/books/42/chapters/run-batch-stream",
       expect.objectContaining({
         method: "POST",
         body: "{\"limit\":3}",
@@ -390,4 +395,8 @@ function bookPayload({
         ]
       : [],
   };
+}
+
+function streamResponse(events: Array<Record<string, unknown>>): Response {
+  return new Response(events.map((event) => JSON.stringify(event)).join("\n"));
 }

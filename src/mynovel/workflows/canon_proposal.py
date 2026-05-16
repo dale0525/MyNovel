@@ -43,6 +43,20 @@ class CanonProposalReadiness:
     messages: list[str]
 
 
+@dataclass(frozen=True)
+class CanonProposalRevisionDraft:
+    book_id: int
+    base_canon_version: int
+    base_content_hash: str
+    base_locks_hash: str
+    target_section: str
+    instruction: str
+    locks: dict[str, bool]
+    allowed_sections: list[str]
+    locked_sections: list[str]
+    messages: list[dict[str, str]]
+
+
 SECTION_REGISTRY = {
     "world_rules": CanonProposalSection("world_rules", "world", "世界规则"),
     "characters": CanonProposalSection("characters", "characters", "人物"),
@@ -155,6 +169,17 @@ def create_canon_proposal_revision(
     instruction: str,
     client: CanonProposalModelClient,
 ) -> CanonProposalRevision:
+    draft = prepare_canon_proposal_revision(session, book_id, target_section, instruction)
+    raw_response = client.complete("canon_proposal_revision", draft.messages, "json")
+    return create_canon_proposal_revision_from_response(session, draft, raw_response)
+
+
+def prepare_canon_proposal_revision(
+    session: Session,
+    book_id: int | None,
+    target_section: str,
+    instruction: str,
+) -> CanonProposalRevisionDraft:
     book, canon, locks, allowed_sections, locked_sections = _revision_context(
         session,
         book_id,
@@ -168,19 +193,45 @@ def create_canon_proposal_revision(
         allowed_sections,
         locked_sections,
     )
-    raw_response = client.complete("canon_proposal_revision", messages, "json")
-    payload = _parse_revision_payload(raw_response)
-    response_target_section = _validated_target_section(payload, target_section, locks)
-    changed_sections = _validated_changed_sections(payload, allowed_sections, locks)
-    revision = CanonProposalRevision(
+    return CanonProposalRevisionDraft(
         book_id=book.id or 0,
         base_canon_version=canon.version,
         base_content_hash=content_hash(canon.content),
         base_locks_hash=locks_hash(locks),
-        target_section=response_target_section,
+        target_section=target_section,
         instruction=instruction,
+        locks=locks,
         allowed_sections=allowed_sections,
         locked_sections=locked_sections,
+        messages=messages,
+    )
+
+
+def create_canon_proposal_revision_from_response(
+    session: Session,
+    draft: CanonProposalRevisionDraft,
+    raw_response: str,
+) -> CanonProposalRevision:
+    payload = _parse_revision_payload(raw_response)
+    response_target_section = _validated_target_section(
+        payload,
+        draft.target_section,
+        draft.locks,
+    )
+    changed_sections = _validated_changed_sections(
+        payload,
+        draft.allowed_sections,
+        draft.locks,
+    )
+    revision = CanonProposalRevision(
+        book_id=draft.book_id,
+        base_canon_version=draft.base_canon_version,
+        base_content_hash=draft.base_content_hash,
+        base_locks_hash=draft.base_locks_hash,
+        target_section=response_target_section,
+        instruction=draft.instruction,
+        allowed_sections=draft.allowed_sections,
+        locked_sections=draft.locked_sections,
         changed_sections=changed_sections,
         blocked_sections=_list_payload(payload.get("blocked_sections")),
         summary=str(payload.get("summary") or ""),

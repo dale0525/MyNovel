@@ -1,3 +1,5 @@
+import json
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
@@ -67,6 +69,22 @@ class OpenAICompatibleClient:
             response.raise_for_status()
             return response.json()
 
+    def stream_chat_content(self, request: ChatRequest) -> Iterator[str]:
+        payload = request.to_payload()
+        payload["stream"] = True
+        with httpx.Client(timeout=self.timeout) as client:
+            with client.stream(
+                "POST",
+                f"{self.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    content = _stream_content_delta(line)
+                    if content:
+                        yield content
+
     async def embeddings(self, request: EmbeddingRequest) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
@@ -86,3 +104,30 @@ class OpenAICompatibleClient:
             )
             response.raise_for_status()
             return response.json()
+
+
+def _stream_content_delta(line: str) -> str:
+    text = line.strip()
+    if not text:
+        return ""
+    if text.startswith("data:"):
+        text = text.removeprefix("data:").strip()
+    if text == "[DONE]":
+        return ""
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return ""
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    first = choices[0]
+    if not isinstance(first, dict):
+        return ""
+    delta = first.get("delta")
+    if isinstance(delta, dict) and isinstance(delta.get("content"), str):
+        return delta["content"]
+    message = first.get("message")
+    if isinstance(message, dict) and isinstance(message.get("content"), str):
+        return message["content"]
+    return ""

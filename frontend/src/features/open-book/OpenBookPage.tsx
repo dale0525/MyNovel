@@ -1,13 +1,17 @@
 import { useRef, useState } from "react";
 
+import { AiStreamFeedback } from "@/components/feedback/AiStreamFeedback";
 import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
-import { ApiError, postJson } from "@/lib/api";
+import { ApiError, postJsonLineStream } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
+import { type LlmStreamEvent, nextStreamSnippets, streamEventPreview } from "@/lib/streaming";
 
 type OpenBookResponse = {
   blueprintId: number;
   redirectTo: string;
 };
+
+type OpenBookStreamEvent = LlmStreamEvent<OpenBookResponse>;
 
 const ideaPresets = [
   "失意档案员重建禁书图书馆",
@@ -79,6 +83,7 @@ export function OpenBookPage() {
   const [constraints, setConstraints] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [streamSnippets, setStreamSnippets] = useState<string[]>([]);
   const isSubmittingRef = useRef(false);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -89,17 +94,37 @@ export function OpenBookPage() {
     isSubmittingRef.current = true;
     setError(null);
     setIsSubmitting(true);
+    setStreamSnippets([]);
     try {
-      const response = await postJson<OpenBookResponse>("/api/open-book", {
-        idea,
-        genre,
-        audience,
-        selling_points: sellingPoints,
-        constraints,
-      });
-      navigateTo(response.redirectTo);
+      let completed = false;
+      await postJsonLineStream<OpenBookStreamEvent>(
+        "/api/open-book/stream",
+        {
+          idea,
+          genre,
+          audience,
+          selling_points: sellingPoints,
+          constraints,
+        },
+        (streamEvent) => {
+          const snippet = streamEventPreview(streamEvent);
+          if (snippet) {
+            setStreamSnippets((current) => nextStreamSnippets(current, snippet));
+          }
+          if (streamEvent.type === "failed") {
+            throw new Error(typeof streamEvent.message === "string" ? streamEvent.message : "开书请求失败。");
+          }
+          if (streamEvent.type === "done") {
+            completed = true;
+            navigateTo(streamEvent.redirectTo);
+          }
+        },
+      );
+      if (!completed) {
+        throw new Error("开书请求没有返回结果。");
+      }
     } catch (submitError) {
-      setError(submitError instanceof ApiError ? submitError.message : "开书请求失败。");
+      setError(submitError instanceof ApiError || submitError instanceof Error ? submitError.message : "开书请求失败。");
     } finally {
       isSubmittingRef.current = false;
       setIsSubmitting(false);
@@ -172,9 +197,12 @@ export function OpenBookPage() {
           value={constraints}
         />
 
-        <button className="workbench-action-button" disabled={isSubmitting} type="submit">
-          {isSubmitting ? <AiWaitingIndicator label="生成中..." variant="inline" /> : "生成蓝图"}
-        </button>
+        <div className="stream-action-row">
+          <button className="workbench-action-button" disabled={isSubmitting} type="submit">
+            {isSubmitting ? <AiWaitingIndicator label="生成中..." variant="inline" /> : "生成蓝图"}
+          </button>
+          <AiStreamFeedback snippets={streamSnippets} />
+        </div>
       </form>
     </section>
   );

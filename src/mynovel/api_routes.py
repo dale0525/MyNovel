@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
 
+from mynovel import __version__
 from mynovel.api_errors import ApiResponse, api_error, invalid_json_response
 from mynovel.api_open_book import (
     accept_blueprint_json,
@@ -28,9 +30,19 @@ from mynovel.api_serializers import (
     style_asset_payload,
     trusted_state_payload,
 )
+from mynovel.canon_proposal_server import (
+    handle_create_canon_proposal_revision,
+    stream_revise_and_apply_canon_proposal,
+)
 from mynovel.chapter_server import queue_chapter_batch_run, queue_chapter_repair, queue_chapter_run
-from mynovel.canon_proposal_server import handle_create_canon_proposal_revision
-from mynovel import __version__
+from mynovel.llm_streams import (
+    stream_create_open_book_blueprint,
+    stream_repair_chapter,
+    stream_retry_blueprint,
+    stream_revise_blueprint,
+    stream_run_chapter,
+    stream_run_chapter_batch,
+)
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.repositories import (
     get_book,
@@ -65,6 +77,13 @@ from mynovel.workflows.quality_enhancement import (
 )
 from mynovel.word_targets import update_book_word_targets
 from sqlmodel import Session
+
+
+@dataclass(frozen=True)
+class ApiStreamResponse:
+    events: Iterable[dict[str, Any]]
+    status: HTTPStatus = HTTPStatus.OK
+    content_type: str = "application/x-ndjson; charset=utf-8"
 
 
 def dispatch_api_get(path: str, query: str, db_path: Path) -> ApiResponse:
@@ -158,6 +177,41 @@ def dispatch_api_post(path: str, body: dict[str, Any], db_path: Path) -> ApiResp
         chapter_id, action = chapter_action
         return _chapter_action_json(db_path, chapter_id, action, body)
     return api_error(HTTPStatus.NOT_FOUND, "not_found", "API route not found.")
+
+
+def dispatch_api_post_stream(
+    path: str,
+    body: dict[str, Any],
+    db_path: Path,
+) -> ApiStreamResponse | ApiResponse | None:
+    if path == "/api/open-book/stream":
+        return ApiStreamResponse(stream_create_open_book_blueprint(db_path, body))
+    blueprint_action = _parse_blueprint_action_api_path(path)
+    if blueprint_action is not None:
+        blueprint_id, action = blueprint_action
+        if action == "retry-stream":
+            return ApiStreamResponse(stream_retry_blueprint(db_path, blueprint_id))
+        if action == "revise-stream":
+            return ApiStreamResponse(stream_revise_blueprint(db_path, blueprint_id, body))
+    book_chapter_action = _parse_book_chapter_action_api_path(path)
+    if book_chapter_action is not None:
+        book_id, action = book_chapter_action
+        if action == "run-batch-stream":
+            return ApiStreamResponse(stream_run_chapter_batch(db_path, book_id, body))
+    chapter_action = _parse_chapter_action_api_path(path)
+    if chapter_action is not None:
+        chapter_id, action = chapter_action
+        if action == "run-stream":
+            return ApiStreamResponse(stream_run_chapter(db_path, chapter_id))
+        if action == "repair-stream":
+            return ApiStreamResponse(stream_repair_chapter(db_path, chapter_id, body))
+    canon_proposal_action = _parse_book_canon_proposal_action_api_path(path)
+    if canon_proposal_action is None:
+        return None
+    book_id, action = canon_proposal_action
+    if action != "revise-stream":
+        return None
+    return _revise_canon_proposal_stream_response(db_path, book_id, body)
 
 
 def read_api_json_body(
@@ -474,6 +528,25 @@ def _revise_canon_proposal_json(
         HTTPStatus.ACCEPTED,
         {"revisionId": revision_id, "redirectTo": redirect_to},
     )
+
+
+def _revise_canon_proposal_stream_response(
+    db_path: Path,
+    book_id: int,
+    body: dict[str, Any],
+) -> ApiStreamResponse | ApiResponse:
+    if _body_bool(body, "autoComplete", "auto_complete") is True:
+        form_response = _canon_proposal_auto_complete_form(db_path, book_id)
+        if isinstance(form_response, ApiResponse):
+            return form_response
+        form = form_response
+    else:
+        form = {
+            "book_id": str(book_id),
+            "target_section": str(body.get("targetSection") or body.get("target_section") or ""),
+            "instruction": str(body.get("instruction") or ""),
+        }
+    return ApiStreamResponse(stream_revise_and_apply_canon_proposal(form, db_path))
 
 
 def _canon_proposal_auto_complete_form(

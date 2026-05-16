@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { routeForPath } from "@/app/AppRoutes";
@@ -18,65 +18,123 @@ test("routes book state path to trusted state page", () => {
   expect(match.element).toEqual(<TrustedStatePage bookId={42} />);
 });
 
-test("renders canon sections locks revision changes and blocked sections", async () => {
+test("renders canon section rows without a separate revision preview", async () => {
   window.history.pushState(null, "", "/books/42/state?revisionId=7");
   vi.stubGlobal("fetch", vi.fn(async () => Response.json(trustedStatePayload())));
 
   render(<TrustedStatePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
-  expect(screen.getByText("世界规则")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "完整设定内容" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "设定" })).toBeInTheDocument());
+  expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+  expect(screen.queryByText("Trusted State")).not.toBeInTheDocument();
+  expect(screen.queryByText("Revision Request")).not.toBeInTheDocument();
+  expect(screen.queryByText("world_rules")).not.toBeInTheDocument();
+  expect(screen.queryByText("变化历史")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "世界规则 1 条 已锁定" })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "世界规则 1 条 已锁定" }));
+
   expect(screen.getByText("灯塔会记录航线")).toBeInTheDocument();
-  expect(screen.getAllByText("人物")).toHaveLength(2);
-  expect(screen.getAllByText("可修订")[0]).toBeInTheDocument();
-  expect(screen.getByText("变更预览")).toBeInTheDocument();
-  expect(screen.getByText("岑星")).toBeInTheDocument();
-  expect(screen.getAllByText("已锁定")[0]).toBeInTheDocument();
-  expect(screen.getByText("world_rules: 已锁定")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "解锁世界规则" })).toBeInTheDocument();
+  expect(screen.queryByText("可修订")).not.toBeInTheDocument();
+  expect(screen.queryByText("变更预览")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "应用修改" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "放弃修改" })).not.toBeInTheDocument();
+  expect(screen.queryByText("世界规则：已锁定")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "锁定人物" })).not.toBeInTheDocument();
 });
 
-test("apply discard and revise actions call canon proposal endpoints", async () => {
+test("global revise streams progress, writes canon, and refreshes without revision navigation", async () => {
+  window.history.pushState(null, "", "/books/42/state");
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      streamController = controller;
+    },
+  });
   const fetchMock = vi
     .fn()
-    .mockResolvedValueOnce(Response.json(trustedStatePayload()))
-    .mockResolvedValueOnce(Response.json({ revision: { ...trustedStatePayload().selectedRevision, status: "applied" } }))
-    .mockResolvedValueOnce(Response.json({ revision: { ...trustedStatePayload().selectedRevision, status: "discarded" } }))
-    .mockResolvedValueOnce(Response.json({ revisionId: 9, redirectTo: "/books/42/state?revisionId=9" }, { status: 202 }));
+    .mockResolvedValueOnce(Response.json(trustedStatePayload({ selectedRevision: false })))
+    .mockResolvedValueOnce(
+      new Response(stream, {
+        headers: { "Content-Type": "application/x-ndjson; charset=utf-8" },
+      }),
+    );
   vi.stubGlobal("fetch", fetchMock);
 
   render(<TrustedStatePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "应用修订" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "应用修订" }));
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/books/42/canon-proposals/apply",
-      expect.objectContaining({ method: "POST" }),
-    ),
-  );
-
-  fireEvent.click(screen.getByRole("button", { name: "放弃修订" }));
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/books/42/canon-proposals/discard",
-      expect.objectContaining({ method: "POST" }),
-    ),
-  );
-
-  fireEvent.click(screen.getByRole("button", { name: /人物/ }));
-  fireEvent.change(screen.getByLabelText("修订意图"), {
-    target: { value: "让人物动机更清晰" },
+  await waitFor(() => expect(screen.getByRole("heading", { name: "设定" })).toBeInTheDocument());
+  fireEvent.change(screen.getByLabelText("全部设定修改意见"), {
+    target: { value: "让主角动机和伏笔更清晰" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "生成修订预览" }));
+  const globalForm = screen.getByLabelText("全部设定修改意见").closest("form")!;
+  fireEvent.click(within(globalForm).getByRole("button", { name: "让 AI 修改全部设定" }));
+  await waitFor(() => expect(within(globalForm).getByTestId("ai-waiting-indicator")).toHaveTextContent("提交修订中..."));
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/books/42/canon-proposals/revise",
-      expect.objectContaining({ method: "POST" }),
+      "/api/books/42/canon-proposals/revise-stream",
+      expect.objectContaining({
+        method: "POST",
+        body: "{\"targetSection\":\"characters\",\"instruction\":\"让主角动机和伏笔更清晰\"}",
+      }),
     ),
+  );
+
+  pushStreamEvent(streamController, { type: "chunk", text: "正在梳理人物动机" });
+  await waitFor(() => expect(within(globalForm).getByRole("status")).toHaveTextContent("正在梳理人物动机"));
+  pushStreamEvent(streamController, { type: "chunk", text: "检查伏笔关系" });
+  pushStreamEvent(streamController, { type: "chunk", text: "准备写入设定" });
+  await waitFor(() => expect(within(globalForm).getByRole("status")).toHaveTextContent("检查伏笔关系"));
+  expect(within(globalForm).getByRole("status")).toHaveTextContent("准备写入设定");
+  expect(within(globalForm).getByRole("status")).not.toHaveTextContent("正在梳理人物动机");
+  pushStreamEvent(streamController, {
+    type: "done",
+    message: "AI 修改已写入设定。",
+    state: trustedStatePayload({ selectedRevision: false, characterTrait: "谨慎" }),
+  });
+  streamController?.close();
+
+  await waitFor(() =>
+    expect(within(globalForm).getByRole("status")).toHaveTextContent("AI 修改已写入设定。"),
+  );
+  expect(fetchMock).not.toHaveBeenCalledWith(
+    "/api/books/42/canon-proposals/apply",
+    expect.objectContaining({ method: "POST" }),
   );
   expect(window.location.pathname).toBe("/books/42/state");
-  expect(window.location.search).toBe("?revisionId=9");
+  expect(window.location.search).toBe("");
+
+  fireEvent.click(screen.getByRole("button", { name: "人物 1 条 待修订" }));
+  expect(screen.getByText("谨慎")).toBeInTheDocument();
+});
+
+test("canon revise hides pending revision status after hard requirements are met", async () => {
+  window.history.pushState(null, "", "/books/42/state");
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(trustedStatePayload({ selectedRevision: false })))
+    .mockResolvedValueOnce(
+      streamResponse([
+        {
+          type: "done",
+          message: "AI 修改已写入设定。",
+          state: trustedStatePayload({ complete: true, selectedRevision: false, characterTrait: "谨慎" }),
+        },
+      ]),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "人物 1 条 待修订" })).toBeInTheDocument());
+  fireEvent.change(screen.getByLabelText("全部设定修改意见"), {
+    target: { value: "补齐人物硬性设定" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "让 AI 修改全部设定" }));
+
+  await waitFor(() => expect(screen.queryByRole("button", { name: /待修订/ })).not.toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "人物 1 条 已满足" })).toBeInTheDocument();
 });
 
 test("renders animated AI waiting state while canon revise request is pending", async () => {
@@ -93,18 +151,18 @@ test("renders animated AI waiting state while canon revise request is pending", 
 
   render(<TrustedStatePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "生成修订预览" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: /人物/ }));
-  fireEvent.change(screen.getByLabelText("修订意图"), {
+  await waitFor(() => expect(screen.getByRole("button", { name: "人物 1 条 待修订" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "人物 1 条 待修订" }));
+  fireEvent.change(screen.getByLabelText("人物修改意见"), {
     target: { value: "让人物动机更清晰" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "生成修订预览" }));
+  fireEvent.click(screen.getByRole("button", { name: "让 AI 修改人物" }));
 
   await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("提交修订中..."));
   expect(screen.getByRole("button", { name: /提交修订中/ })).toBeDisabled();
 });
 
-test("running revision hides apply actions until preview is pending", async () => {
+test("running revision renders section-local waiting state without preview actions", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => Response.json(trustedStatePayload({ revisionStatus: "running" }))),
@@ -112,13 +170,17 @@ test("running revision hides apply actions until preview is pending", async () =
 
   render(<TrustedStatePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByText("修订生成中")).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole("button", { name: "人物 1 条 待修订" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "人物 1 条 待修订" }));
+
+  expect(screen.getByText("修订生成中")).toBeInTheDocument();
   expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("修订生成中");
-  expect(screen.queryByRole("button", { name: "应用修订" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "放弃修订" })).not.toBeInTheDocument();
+  expect(screen.queryByText("变更预览")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "应用修改" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "放弃修改" })).not.toBeInTheDocument();
 });
 
-test("failed revision hides apply actions and shows failure state", async () => {
+test("failed revision renders section-local failure state without preview actions", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => Response.json(trustedStatePayload({ revisionStatus: "failed" }))),
@@ -126,12 +188,16 @@ test("failed revision hides apply actions and shows failure state", async () => 
 
   render(<TrustedStatePage bookId={42} />);
 
+  await waitFor(() => expect(screen.getByRole("button", { name: "人物 1 条 待修订" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "人物 1 条 待修订" }));
+
   await waitFor(() => expect(screen.getByText("修订生成失败")).toBeInTheDocument());
-  expect(screen.queryByRole("button", { name: "应用修订" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "放弃修订" })).not.toBeInTheDocument();
+  expect(screen.queryByText("变更预览")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "应用修改" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "放弃修改" })).not.toBeInTheDocument();
 });
 
-test("canon proposal action errors render feedback and keep user on the page", async () => {
+test("canon proposal action errors render beside the clicked control", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(trustedStatePayload()))
@@ -150,32 +216,36 @@ test("canon proposal action errors render feedback and keep user on the page", a
 
   render(<TrustedStatePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "应用修订" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "应用修订" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "设定" })).toBeInTheDocument());
+  fireEvent.change(screen.getByLabelText("全部设定修改意见"), {
+    target: { value: "让主角动机更清晰" },
+  });
+  const globalForm = screen.getByLabelText("全部设定修改意见").closest("form")!;
+  fireEvent.click(within(globalForm).getByRole("button", { name: "让 AI 修改全部设定" }));
 
-  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Revision is still running."));
+  await waitFor(() => expect(within(globalForm).getByRole("alert")).toHaveTextContent("修订仍在生成中。"));
   expect(window.location.pathname).toBe("/");
 });
 
-test("trusted state uses a section map to select the revision target", async () => {
+test("trusted state expands section rows to submit a section revision", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(trustedStatePayload({ selectedRevision: false })))
-    .mockResolvedValueOnce(Response.json({ revisionId: 9, redirectTo: "/books/42/state?revisionId=9" }, { status: 202 }));
+    .mockResolvedValueOnce(streamResponse([{ type: "done", state: trustedStatePayload({ selectedRevision: false }) }]));
   vi.stubGlobal("fetch", fetchMock);
 
   render(<TrustedStatePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: /人物/ }));
-  fireEvent.change(screen.getByLabelText("修订意图"), {
+  await waitFor(() => expect(screen.getByRole("heading", { name: "设定" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "人物 1 条 待修订" }));
+  fireEvent.change(screen.getByLabelText("人物修改意见"), {
     target: { value: "让主角动机更清晰" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "生成修订预览" }));
+  fireEvent.click(screen.getByRole("button", { name: "让 AI 修改人物" }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/books/42/canon-proposals/revise",
+      "/api/books/42/canon-proposals/revise-stream",
       expect.objectContaining({
         method: "POST",
         body: "{\"targetSection\":\"characters\",\"instruction\":\"让主角动机更清晰\"}",
@@ -184,29 +254,28 @@ test("trusted state uses a section map to select the revision target", async () 
   );
 });
 
-test("trusted state can auto-complete missing canon with one action", async () => {
+test("trusted state section rows can toggle locks", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(trustedStatePayload({ selectedRevision: false })))
-    .mockResolvedValueOnce(Response.json({ revisionId: 9, redirectTo: "/books/42/state?revisionId=9" }, { status: 202 }));
+    .mockResolvedValueOnce(Response.json(trustedStatePayload({ selectedRevision: false, worldRulesLocked: false })));
   vi.stubGlobal("fetch", fetchMock);
 
   render(<TrustedStatePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "AI 自动补全" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "世界规则 1 条 已锁定" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "世界规则 1 条 已锁定" }));
+  fireEvent.click(screen.getByRole("button", { name: "解锁世界规则" }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/books/42/canon-proposals/revise",
+      "/api/books/42/canon-proposals/lock",
       expect.objectContaining({
         method: "POST",
-        body: "{\"autoComplete\":true}",
+        body: "{\"section\":\"world_rules\",\"locked\":false}",
       }),
     ),
   );
-  expect(window.location.pathname).toBe("/books/42/state");
-  expect(window.location.search).toBe("?revisionId=9");
 });
 
 test("trusted state blocks locked sections visually and disables revision submission", async () => {
@@ -214,37 +283,37 @@ test("trusted state blocks locked sections visually and disables revision submis
 
   render(<TrustedStatePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: /世界规则/ }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "设定" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "世界规则 1 条 已锁定" }));
 
-  expect(screen.getByLabelText("修订意图")).toBeDisabled();
-  expect(screen.getByRole("button", { name: "生成修订预览" })).toBeDisabled();
-  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("已锁定");
+  expect(screen.getByLabelText("世界规则修改意见")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "让 AI 修改世界规则" })).toBeDisabled();
 });
 
-test("trusted state hides apply until a pending revision preview exists", async () => {
+test("trusted state hides lock actions for sections that still miss hard requirements", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json(trustedStatePayload({ selectedRevision: false }))));
 
   render(<TrustedStatePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
-  expect(screen.queryByRole("button", { name: "应用修订" })).not.toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole("heading", { name: "设定" })).toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "人物 1 条 待修订" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "锁定人物" })).not.toBeInTheDocument();
 });
 
-test("trusted state keeps full section content in an advanced disclosure", async () => {
+test("trusted state keeps full section content in expanded rows", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json(trustedStatePayload())));
 
   render(<TrustedStatePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole("heading", { name: "设定" })).toBeInTheDocument());
   expect(screen.queryByText("灯塔会记录航线")).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: "完整设定内容" }));
+  fireEvent.click(screen.getByRole("button", { name: "世界规则 1 条 已锁定" }));
 
   expect(screen.getByText("灯塔会记录航线")).toBeInTheDocument();
 });
 
-test("trusted state clears revision intent when switching editable sections", async () => {
+test("trusted state keeps section revision intent isolated per row", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => Response.json(trustedStatePayload({ includeLocations: true, selectedRevision: false }))),
@@ -252,20 +321,20 @@ test("trusted state clears revision intent when switching editable sections", as
 
   render(<TrustedStatePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: /人物/ }));
-  fireEvent.change(screen.getByLabelText("修订意图"), {
+  await waitFor(() => expect(screen.getByRole("heading", { name: "设定" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "人物 1 条 待修订" }));
+  fireEvent.change(screen.getByLabelText("人物修改意见"), {
     target: { value: "让人物动机更清晰" },
   });
 
-  expect(screen.getByLabelText("修订意图")).toHaveValue("让人物动机更清晰");
-  expect(screen.getByRole("button", { name: "生成修订预览" })).toBeEnabled();
+  expect(screen.getByLabelText("人物修改意见")).toHaveValue("让人物动机更清晰");
+  expect(screen.getByRole("button", { name: "让 AI 修改人物" })).toBeEnabled();
 
-  fireEvent.click(screen.getByRole("button", { name: /地点/ }));
+  fireEvent.click(screen.getByRole("button", { name: "地点 1 条 已满足" }));
 
-  expect(screen.getByText("当前分区：地点")).toBeInTheDocument();
-  expect(screen.getByLabelText("修订意图")).toHaveValue("");
-  expect(screen.getByRole("button", { name: "生成修订预览" })).toBeDisabled();
+  expect(screen.getByLabelText("人物修改意见")).toHaveValue("让人物动机更清晰");
+  expect(screen.getByLabelText("地点修改意见")).toHaveValue("");
+  expect(screen.getByRole("button", { name: "让 AI 修改地点" })).toBeDisabled();
 });
 
 test("trusted state ignores forced submit for locked revision targets", async () => {
@@ -274,26 +343,88 @@ test("trusted state ignores forced submit for locked revision targets", async ()
 
   render(<TrustedStatePage bookId={42} />);
 
-  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: /世界规则/ }));
-  fireEvent.submit(screen.getByLabelText("修订意图").closest("form")!);
+  await waitFor(() => expect(screen.getByRole("heading", { name: "设定" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "世界规则 1 条 已锁定" }));
+  fireEvent.submit(screen.getByLabelText("世界规则修改意见").closest("form")!);
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   expect(fetchMock).not.toHaveBeenCalledWith(
-    "/api/books/42/canon-proposals/revise",
+    "/api/books/42/canon-proposals/revise-stream",
     expect.objectContaining({ method: "POST" }),
   );
+});
+
+function pushStreamEvent(
+  controller: ReadableStreamDefaultController<Uint8Array> | null,
+  event: Record<string, unknown>,
+) {
+  if (!controller) {
+    throw new Error("Stream controller was not initialized.");
+  }
+  controller.enqueue(new TextEncoder().encode(`${JSON.stringify(event)}\n`));
+}
+
+function streamResponse(events: Array<Record<string, unknown>>): Response {
+  return new Response(events.map((event) => JSON.stringify(event)).join("\n"), {
+    headers: { "Content-Type": "application/x-ndjson; charset=utf-8" },
+  });
+}
+
+test("next step blocks incomplete canon and locks complete canon", async () => {
+  const incompleteFetch = vi.fn(async () => Response.json(trustedStatePayload({ selectedRevision: false })));
+  vi.stubGlobal("fetch", incompleteFetch);
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+
+  const nextStepRegion = screen.getByRole("region", { name: "下一步" });
+  expect(within(nextStepRegion).getByRole("alert")).toHaveTextContent("必须先修正");
+  expect(incompleteFetch).not.toHaveBeenCalledWith(
+    "/api/books/42/state/lock",
+    expect.objectContaining({ method: "POST" }),
+  );
+
+  cleanup();
+  window.history.pushState(null, "", "/");
+
+  const completeFetch = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(trustedStatePayload({ complete: true, selectedRevision: false })))
+    .mockResolvedValueOnce(Response.json({ redirectTo: "/books/42" }));
+  vi.stubGlobal("fetch", completeFetch);
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+
+  await waitFor(() =>
+    expect(completeFetch).toHaveBeenCalledWith(
+      "/api/books/42/state/lock",
+      expect.objectContaining({ method: "POST" }),
+    ),
+  );
+  expect(window.location.pathname).toBe("/books/42");
 });
 
 function trustedStatePayload({
   revisionStatus = "pending",
   selectedRevision = true,
   includeLocations = false,
+  complete = false,
+  worldRulesLocked = true,
+  characterTrait,
 }: {
   revisionStatus?: string;
   selectedRevision?: boolean;
   includeLocations?: boolean;
+  complete?: boolean;
+  worldRulesLocked?: boolean;
+  characterTrait?: string;
 } = {}) {
+  const character = characterTrait ? { name: "岑星", trait: characterTrait } : { name: "岑星" };
   const revision = {
     id: 7,
     bookId: 42,
@@ -326,7 +457,7 @@ function trustedStatePayload({
       version: 2,
       content: {
         world_rules: [{ rule: "灯塔会记录航线" }],
-        characters: [{ name: "岑星" }],
+        characters: [character],
         state_history: [],
         locations: [{ name: "白塔港" }],
       },
@@ -338,7 +469,7 @@ function trustedStatePayload({
         anchor: "world",
         label: "世界规则",
         editable: true,
-        locked: true,
+        locked: worldRulesLocked,
         content: [{ rule: "灯塔会记录航线" }],
       },
       {
@@ -347,7 +478,15 @@ function trustedStatePayload({
         label: "人物",
         editable: true,
         locked: false,
-        content: [{ name: "岑星" }],
+        content: [character],
+      },
+      {
+        key: "state_history",
+        anchor: "state-history",
+        label: "变化历史",
+        editable: false,
+        locked: true,
+        content: [],
       },
       ...(includeLocations
         ? [
@@ -363,12 +502,14 @@ function trustedStatePayload({
         : []),
     ],
     sectionLocks: {
-      world_rules: true,
+      world_rules: worldRulesLocked,
       characters: false,
       locations: false,
       state_history: true,
     },
-    readiness: { complete: false, missingSections: ["characters"], messages: ["人物至少 3 条"] },
+    readiness: complete
+      ? { complete: true, missingSections: [], messages: [] }
+      : { complete: false, missingSections: ["characters"], messages: ["人物至少 3 条"] },
     pendingRevisions: selectedRevision ? [revision] : [],
     selectedRevision: selectedRevision ? revision : null,
   };

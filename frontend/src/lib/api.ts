@@ -24,6 +24,8 @@ type ApiRequestOptions = {
   signal?: AbortSignal;
 };
 
+type JsonLineStreamHandler<T> = (event: T) => void | Promise<void>;
+
 export async function getJson<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   const init: RequestInit = {
     headers: { Accept: "application/json" },
@@ -33,6 +35,50 @@ export async function getJson<T>(path: string, options: ApiRequestOptions = {}):
   }
   const response = await fetch(path, init);
   return parseJsonResponse<T>(response);
+}
+
+export async function postJsonLineStream<T>(
+  path: string,
+  body: unknown,
+  onEvent: JsonLineStreamHandler<T>,
+  options: ApiRequestOptions = {},
+): Promise<void> {
+  const init: RequestInit = {
+    method: "POST",
+    headers: {
+      Accept: "application/x-ndjson, application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  };
+  if (options.signal) {
+    init.signal = options.signal;
+  }
+  const response = await fetch(path, init);
+  if (!response.ok) {
+    await parseJsonResponse<never>(response);
+    return;
+  }
+  if (!response.body) {
+    throw new ApiError("API 返回了空响应。", "empty_response", {}, null);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      await emitJsonLine(line, onEvent);
+    }
+    if (done) {
+      break;
+    }
+  }
+  await emitJsonLine(buffer, onEvent);
 }
 
 export async function postJson<T>(
@@ -102,4 +148,19 @@ function apiErrorBody(payload: unknown): ApiErrorBody {
     return {};
   }
   return payload as ApiErrorBody;
+}
+
+async function emitJsonLine<T>(line: string, onEvent: JsonLineStreamHandler<T>): Promise<void> {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return;
+  }
+  try {
+    await onEvent(JSON.parse(trimmed) as T);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new ApiError("API 返回了无效流式数据。", "invalid_stream_response", {}, trimmed);
+    }
+    throw error;
+  }
 }

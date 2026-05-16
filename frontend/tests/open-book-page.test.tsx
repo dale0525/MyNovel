@@ -11,9 +11,13 @@ afterEach(() => {
 });
 
 test("submits open book idea as JSON and follows API redirect", async () => {
-  const fetchMock = vi.fn(async () =>
-    Response.json({ blueprintId: 9, redirectTo: "/blueprints/9" }, { status: 202 }),
-  );
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      streamController = controller;
+    },
+  });
+  const fetchMock = vi.fn(async () => new Response(stream));
   vi.stubGlobal("fetch", fetchMock);
   window.history.pushState(null, "", "/books/new");
 
@@ -25,9 +29,15 @@ test("submits open book idea as JSON and follows API redirect", async () => {
   fireEvent.change(screen.getByLabelText("题材"), { target: { value: "奇幻" } });
   fireEvent.click(screen.getByRole("button", { name: "生成蓝图" }));
 
+  await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("生成中..."));
+  pushStreamEvent(streamController, { type: "chunk", text: "正在拆解卖点和开篇结构" });
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("正在拆解卖点和开篇结构"));
+  pushStreamEvent(streamController, { type: "done", blueprintId: 9, redirectTo: "/blueprints/9" });
+  streamController?.close();
+
   await waitFor(() => expect(window.location.pathname).toBe("/blueprints/9"));
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/open-book",
+    "/api/open-book/stream",
     expect.objectContaining({
       method: "POST",
       body: expect.stringContaining("失意档案员重建禁书图书馆"),
@@ -96,12 +106,7 @@ test("optional open book fields support blank values, presets, and custom text",
 test("renders API error message when open book submit fails", async () => {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () =>
-      Response.json(
-        { error: { code: "idea_required", message: "请先写下故事灵感。", details: {} } },
-        { status: 400 },
-      ),
-    ),
+    vi.fn(async () => streamResponse([{ type: "failed", message: "请先写下故事灵感。" }])),
   );
 
   render(<OpenBookPage />);
@@ -111,3 +116,17 @@ test("renders API error message when open book submit fails", async () => {
 
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("请先写下故事灵感。"));
 });
+
+function pushStreamEvent(
+  controller: ReadableStreamDefaultController<Uint8Array> | null,
+  event: Record<string, unknown>,
+) {
+  if (!controller) {
+    throw new Error("Stream controller was not initialized.");
+  }
+  controller.enqueue(new TextEncoder().encode(`${JSON.stringify(event)}\n`));
+}
+
+function streamResponse(events: Array<Record<string, unknown>>): Response {
+  return new Response(events.map((event) => JSON.stringify(event)).join("\n"));
+}

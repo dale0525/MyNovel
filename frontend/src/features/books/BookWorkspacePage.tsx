@@ -1,5 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 
+import { AiStreamFeedback } from "@/components/feedback/AiStreamFeedback";
 import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
 import {
   AdvancedDisclosure,
@@ -8,8 +9,9 @@ import {
   PrimaryActionPanel,
   ProjectIdentityBar,
 } from "@/components/guidance/GuidedPanels";
-import { ApiError, getJson, isAbortError, postJson } from "@/lib/api";
+import { ApiError, getJson, isAbortError, postJson, postJsonLineStream } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
+import { type LlmStreamEvent, nextStreamSnippets, streamEventPreview } from "@/lib/streaming";
 import type { BookPayload, BookResponse, ChapterPayload, RunTracePayload, WordTargetsPayload } from "@/lib/types";
 
 type BookWorkspaceState =
@@ -27,6 +29,8 @@ type ActionRedirectResponse = {
   redirectTo: string;
 };
 
+type WorkspaceStreamEvent = LlmStreamEvent<ActionRedirectResponse & Record<string, unknown>>;
+
 type WorkspacePrimaryActionModel = {
   title: string;
   summary: string;
@@ -39,6 +43,8 @@ type WorkspacePrimaryActionParams = {
   currentTask: ChapterPayload | null;
   productionReady: boolean;
   actionBusy: WorkspaceAction | null;
+  streamAction: WorkspaceAction | null;
+  streamSnippets: string[];
   runCurrentChapter: (chapter: ChapterPayload) => void;
 };
 
@@ -51,6 +57,8 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
   const [actionBusy, setActionBusy] = useState<WorkspaceAction | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [streamAction, setStreamAction] = useState<WorkspaceAction | null>(null);
+  const [streamSnippets, setStreamSnippets] = useState<string[]>([]);
   const [batchLimit, setBatchLimit] = useState(1);
   const [targetWordCount, setTargetWordCount] = useState(120000);
   const [chapterWordCount, setChapterWordCount] = useState(2800);
@@ -101,26 +109,16 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
       return;
     }
     await runAction("run-current", async () => {
-      const payload = await postJson<unknown>(`/api/chapters/${chapterId}/run`, {});
-      const response = parseActionRedirectResponse(payload);
-      if (!response) {
-        throw new Error("运行结果格式无效。");
-      }
-      navigateTo(response.redirectTo);
+      await runStreamingRedirect(`/api/chapters/${chapterId}/run-stream`, {});
     });
   }
 
   async function runBatchProduction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await runAction("run-batch", async () => {
-      const payload = await postJson<unknown>(`/api/books/${bookId}/chapters/run-batch`, {
+      await runStreamingRedirect(`/api/books/${bookId}/chapters/run-batch-stream`, {
         limit: batchLimit,
       });
-      const response = parseActionRedirectResponse(payload);
-      if (!response) {
-        throw new Error("批量生产结果格式无效。");
-      }
-      navigateTo(response.redirectTo);
     });
   }
 
@@ -147,6 +145,8 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
     setActionBusy(action);
     setActionError(null);
     setActionStatus(null);
+    setStreamAction(action);
+    setStreamSnippets([]);
     try {
       await callback();
     } catch (error) {
@@ -154,6 +154,30 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
     } finally {
       setActionBusy(null);
     }
+  }
+
+  async function runStreamingRedirect(path: string, body: Record<string, unknown>) {
+    let redirectTo: string | null = null;
+    await postJsonLineStream<WorkspaceStreamEvent>(path, body, (streamEvent) => {
+      const snippet = streamEventPreview(streamEvent);
+      if (snippet) {
+        setStreamSnippets((current) => nextStreamSnippets(current, snippet));
+      }
+      if (streamEvent.type === "failed") {
+        throw new Error(typeof streamEvent.message === "string" ? streamEvent.message : "操作失败。");
+      }
+      if (streamEvent.type === "done") {
+        const response = parseActionRedirectResponse(streamEvent);
+        if (!response) {
+          throw new Error("运行结果格式无效。");
+        }
+        redirectTo = response.redirectTo;
+      }
+    });
+    if (!redirectTo) {
+      throw new Error("操作没有返回结果。");
+    }
+    navigateTo(redirectTo);
   }
 
   if (state.status === "loading") {
@@ -189,6 +213,8 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
     currentTask,
     productionReady,
     actionBusy,
+    streamAction,
+    streamSnippets,
     runCurrentChapter: (chapter) => void runCurrentChapter(chapter),
   });
 
@@ -316,6 +342,7 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
                     "批量生产"
                   )}
                 </button>
+                <AiStreamFeedback snippets={streamAction === "run-batch" ? streamSnippets : []} />
               </form>
             ) : (
               <p>可信设定锁定后才能批量生产章节。</p>
@@ -405,6 +432,8 @@ function workspacePrimaryAction({
   currentTask,
   productionReady,
   actionBusy,
+  streamAction,
+  streamSnippets,
   runCurrentChapter,
 }: WorkspacePrimaryActionParams): WorkspacePrimaryActionModel {
   if (!productionReady) {
@@ -496,18 +525,21 @@ function workspacePrimaryAction({
       title: "继续推进项目",
       summary: `${chapterTitle} 已准备好生成候选正文。`,
       action: (
-        <button
-          className="workbench-action-button"
-          disabled={actionBusy !== null}
-          type="button"
-          onClick={() => runCurrentChapter(currentTask)}
-        >
-          {actionBusy === "run-current" ? (
-            <AiWaitingIndicator label="提交章节中..." variant="inline" />
-          ) : (
-            "运行当前章节"
-          )}
-        </button>
+        <div className="stream-action-row">
+          <button
+            className="workbench-action-button"
+            disabled={actionBusy !== null}
+            type="button"
+            onClick={() => runCurrentChapter(currentTask)}
+          >
+            {actionBusy === "run-current" ? (
+              <AiWaitingIndicator label="提交章节中..." variant="inline" />
+            ) : (
+              "运行当前章节"
+            )}
+          </button>
+          <AiStreamFeedback snippets={streamAction === "run-current" ? streamSnippets : []} />
+        </div>
       ),
       impactItems: [
         { label: "正文", value: "生成候选正文", tone: "good" },
