@@ -3,6 +3,7 @@ from sqlmodel import Session
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import BookStatus, BlueprintStatus, ChapterStatus, OpenBookBlueprint
 from mynovel.domain.repositories import get_latest_canon, list_chapters_for_book
+import mynovel.workflows.chapter_pipeline as chapter_pipeline
 from mynovel.workflows.chapter_pipeline import approve_chapter, run_chapter_pipeline
 from mynovel.workflows.open_book import create_draft_book_from_blueprint, lock_canon_foundation
 
@@ -199,6 +200,27 @@ def test_chapter_pipeline_adds_retrieved_context_from_embedding(tmp_path) -> Non
     retrieved = next_reviewed.context_package["retrieved_context"]
     assert retrieved
     assert {"source_type", "source_id", "score", "text"} <= set(retrieved[0])
+
+
+def test_chapter_pipeline_calls_lexical_retrieval_without_embedding_kwargs(
+    tmp_path, monkeypatch
+) -> None:
+    calls = []
+
+    def fake_retrieve_book_context(*args, **kwargs):
+        calls.append((args, kwargs))
+        return []
+
+    monkeypatch.setattr(chapter_pipeline, "retrieve_book_context", fake_retrieve_book_context)
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = list_chapters_for_book(session, book.id)[0]
+        run_chapter_pipeline(session, chapter.id, embedding_client=None)
+
+    assert calls
+    assert calls[0][1] == {}
 
 
 def _blueprint() -> OpenBookBlueprint:

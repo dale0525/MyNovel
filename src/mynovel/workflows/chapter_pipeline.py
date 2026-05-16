@@ -574,6 +574,9 @@ def _retrieved_context_for_chapter(
             embedding_model = client.model
         except Exception:  # noqa: BLE001
             query_embedding = embedding_model = None
+    if query_embedding is None or embedding_model is None:
+        contexts = retrieve_book_context(session, chapter.book_id, query)
+        return [_retrieved_context_payload(item) for item in contexts]
     contexts = retrieve_book_context(
         session,
         chapter.book_id,
