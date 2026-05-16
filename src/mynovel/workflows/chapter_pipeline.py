@@ -13,6 +13,8 @@ from mynovel.domain.repositories import (
     get_book,
     get_chapter,
     get_latest_canon,
+    get_provider_config,
+    get_provider_config_validation,
 )
 from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
 from mynovel.prompts.registry import load_prompt_by_id, render_prompt_messages
@@ -29,6 +31,7 @@ from mynovel.workflows.chapter_response_parsing import (
     normalize_state_delta,
     parse_json_stage_response,
 )
+from mynovel.workflows.embedding import TextEmbeddingClient, embedding_client_from_provider_config
 from mynovel.workflows.chapter_repair import (
     RepairRequest,
     apply_word_count_patch_bounded,
@@ -164,6 +167,8 @@ def approve_chapter(
     chapter_id: int,
     reviewer_note: str | None = None,
     allow_major_changes: bool = False,
+    *,
+    embedding_client: TextEmbeddingClient | None = None,
 ) -> Chapter:
     chapter = _required_chapter(session, chapter_id)
     latest = get_latest_canon(session, chapter.book_id)
@@ -194,7 +199,15 @@ def approve_chapter(
             metadata_={"chapter": chapter.number, "trusted_state_version": trusted_state_version},
         )
     )
-    _index_accepted_chapter(session, chapter, updated_content, trusted_state_version)
+    if embedding_client is None:
+        embedding_client = _embedding_client_from_session(session)
+    _index_accepted_chapter(
+        session,
+        chapter,
+        updated_content,
+        trusted_state_version,
+        embedding_client,
+    )
     session.commit()
     session.refresh(chapter)
     return chapter
@@ -771,6 +784,7 @@ def _index_accepted_chapter(
     chapter: Chapter,
     trusted_state: dict[str, Any],
     trusted_state_version: int,
+    embedding_client: TextEmbeddingClient | None,
 ) -> None:
     chapter_text = "\n".join(
         part
@@ -780,6 +794,10 @@ def _index_accepted_chapter(
             chapter.final_text,
         )
         if part
+    )
+    embedding_vector, embedding_model, embedding_error = _embedding_for_index(
+        embedding_client,
+        chapter_text,
     )
     index_text(
         session,
@@ -792,11 +810,18 @@ def _index_accepted_chapter(
             "chapter": chapter.number,
             "trusted_state_version": trusted_state_version,
         },
+        embedding_vector=embedding_vector,
+        embedding_model=embedding_model,
+        embedding_error=embedding_error,
         commit=False,
     )
 
     state_text = _trusted_state_index_text(chapter, trusted_state)
     if state_text:
+        embedding_vector, embedding_model, embedding_error = _embedding_for_index(
+            embedding_client,
+            state_text,
+        )
         index_text(
             session,
             book_id=chapter.book_id,
@@ -808,8 +833,30 @@ def _index_accepted_chapter(
                 "chapter": chapter.number,
                 "trusted_state_version": trusted_state_version,
             },
+            embedding_vector=embedding_vector,
+            embedding_model=embedding_model,
+            embedding_error=embedding_error,
             commit=False,
         )
+
+
+def _embedding_client_from_session(session: Session) -> TextEmbeddingClient | None:
+    return embedding_client_from_provider_config(
+        get_provider_config(session),
+        get_provider_config_validation(session),
+    )
+
+
+def _embedding_for_index(
+    client: TextEmbeddingClient | None,
+    text: str,
+) -> tuple[list[float] | None, str | None, str | None]:
+    if client is None:
+        return None, None, None
+    try:
+        return client.embed_text(text), client.model, None
+    except Exception as error:  # noqa: BLE001
+        return None, None, str(error) or type(error).__name__
 
 
 def _trusted_state_index_text(chapter: Chapter, trusted_state: dict[str, Any]) -> str:

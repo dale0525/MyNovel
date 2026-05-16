@@ -10,6 +10,20 @@ from mynovel.workflows.open_book import create_draft_book_from_blueprint
 from mynovel.workflows.retrieval import index_text, retrieve_book_context, search_book_context
 
 
+class FakeEmbeddingClient:
+    model = "embedding-test"
+
+    def __init__(self, failures: bool = False) -> None:
+        self.failures = failures
+        self.inputs: list[str] = []
+
+    def embed_text(self, text: str) -> list[float]:
+        self.inputs.append(text)
+        if self.failures:
+            raise RuntimeError("embedding unavailable")
+        return [float(len(text)), 1.0]
+
+
 def test_local_retrieval_index_ranks_matching_context(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
@@ -235,6 +249,52 @@ def test_index_text_stores_invalid_embedding_vector_as_lexical(tmp_path) -> None
             assert "embedding_model" not in entry.metadata_
             assert isinstance(entry.embedding, dict)
             assert "符号" in entry.embedding
+
+
+def test_accepted_chapter_index_uses_embedding_client(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    embedder = FakeEmbeddingClient()
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = run_chapter_pipeline(session, _first_chapter_id(session, book.id))
+        chapter.state_delta = {
+            "chapter": 1,
+            "changes": [{"type": "地点", "target": "幽谷石门", "change": "首次开启"}],
+        }
+        session.add(chapter)
+        session.commit()
+        approve_chapter(session, chapter.id, embedding_client=embedder)
+        entries = list_vector_entries_for_book(session, book.id)
+
+    assert len(embedder.inputs) == 2
+    assert all(entry.metadata_["embedding_kind"] == "model" for entry in entries)
+    assert all(entry.metadata_["embedding_model"] == "embedding-test" for entry in entries)
+    assert all(isinstance(entry.embedding, list) for entry in entries)
+
+
+def test_accepted_chapter_index_falls_back_when_embedding_fails(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = run_chapter_pipeline(session, _first_chapter_id(session, book.id))
+        chapter.state_delta = {
+            "chapter": 1,
+            "changes": [{"type": "地点", "target": "幽谷石门", "change": "首次开启"}],
+        }
+        session.add(chapter)
+        session.commit()
+        accepted = approve_chapter(
+            session,
+            chapter.id,
+            embedding_client=FakeEmbeddingClient(failures=True),
+        )
+        entries = list_vector_entries_for_book(session, book.id)
+
+    assert accepted.status.value == "accepted"
+    assert all(entry.metadata_["embedding_kind"] == "lexical" for entry in entries)
+    assert all("embedding unavailable" in entry.metadata_["embedding_error"] for entry in entries)
 
 
 def test_accepted_chapter_updates_structured_state_and_rebuildable_index(tmp_path) -> None:
