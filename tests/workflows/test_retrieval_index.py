@@ -5,7 +5,7 @@ from mynovel.domain.models import BlueprintStatus, OpenBookBlueprint
 from mynovel.domain.repositories import list_vector_entries_for_book
 from mynovel.workflows.chapter_pipeline import approve_chapter, run_chapter_pipeline
 from mynovel.workflows.open_book import create_draft_book_from_blueprint
-from mynovel.workflows.retrieval import index_text, search_book_context
+from mynovel.workflows.retrieval import index_text, retrieve_book_context, search_book_context
 
 
 def test_local_retrieval_index_ranks_matching_context(tmp_path) -> None:
@@ -35,6 +35,68 @@ def test_local_retrieval_index_ranks_matching_context(tmp_path) -> None:
 
     assert results[0].source_id == "symbol"
     assert "符号" in results[0].text
+
+
+def test_model_retrieval_ranks_by_cosine_similarity(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        index_text(
+            session,
+            book.id,
+            "note",
+            "symbol",
+            "符号发热",
+            embedding_vector=[1.0, 0.0],
+            embedding_model="embedding-test",
+        )
+        index_text(
+            session,
+            book.id,
+            "note",
+            "market",
+            "普通草药",
+            embedding_vector=[0.0, 1.0],
+            embedding_model="embedding-test",
+        )
+
+        results = retrieve_book_context(
+            session,
+            book.id,
+            "符号",
+            query_embedding=[0.9, 0.1],
+            embedding_model="embedding-test",
+            top_k=2,
+        )
+
+    assert [result.source_id for result in results] == ["symbol", "market"]
+    assert results[0].score > results[1].score
+
+
+def test_model_retrieval_ignores_different_embedding_model(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        index_text(
+            session,
+            book.id,
+            "note",
+            "old",
+            "旧模型",
+            embedding_vector=[1.0, 0.0],
+            embedding_model="old",
+        )
+        results = retrieve_book_context(
+            session,
+            book.id,
+            "旧模型",
+            query_embedding=[1.0, 0.0],
+            embedding_model="new",
+        )
+
+    assert results == []
 
 
 def test_accepted_chapter_updates_structured_state_and_rebuildable_index(tmp_path) -> None:
