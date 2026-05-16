@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from "react";
 
+import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
 import {
   getProviderConfig,
   providerConfigResponseFromError,
@@ -192,7 +193,7 @@ export function ProviderConfigPage({
       {validation ? <ValidationResults draft={draft} validation={validation} /> : null}
 
       <button className="provider-submit-button" disabled={isSubmitting} type="submit">
-        {isSubmitting ? "正在测试..." : "测试并保存配置"}
+        {isSubmitting ? <AiWaitingIndicator label="正在测试..." variant="inline" /> : "测试并保存配置"}
       </button>
       {canContinueAfterSave ? (
         <button

@@ -35,6 +35,28 @@ test("submits open book idea as JSON and follows API redirect", async () => {
   );
 });
 
+test("renders animated AI waiting state while open-book submit is pending", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      () =>
+        new Promise<Response>(() => {
+          // Keep the request pending so the waiting state stays visible.
+        }),
+    ),
+  );
+
+  render(<OpenBookPage />);
+
+  fireEvent.change(screen.getByLabelText("故事灵感"), {
+    target: { value: "失意档案员重建禁书图书馆" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "生成蓝图" }));
+
+  await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("生成中..."));
+  expect(screen.getByRole("button", { name: /生成中/ })).toBeDisabled();
+});
+
 test("optional open book fields support blank values, presets, and custom text", () => {
   render(<OpenBookPage />);
 

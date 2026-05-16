@@ -77,6 +77,30 @@ test("apply discard and revise actions call canon proposal endpoints", async () 
   expect(window.location.search).toBe("?revisionId=9");
 });
 
+test("renders animated AI waiting state while canon revise request is pending", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(trustedStatePayload()))
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>(() => {
+          // Keep the revise request pending so the waiting state stays visible.
+        }),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "生成修订预览" })).toBeInTheDocument());
+  fireEvent.change(screen.getByLabelText("修订指令"), {
+    target: { value: "让人物动机更清晰" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "生成修订预览" }));
+
+  await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("提交修订中..."));
+  expect(screen.getByRole("button", { name: /提交修订中/ })).toBeDisabled();
+});
+
 test("running revision hides apply actions until preview is pending", async () => {
   vi.stubGlobal(
     "fetch",
@@ -86,6 +110,7 @@ test("running revision hides apply actions until preview is pending", async () =
   render(<TrustedStatePage bookId={42} />);
 
   await waitFor(() => expect(screen.getByText("修订生成中")).toBeInTheDocument());
+  expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("修订生成中");
   expect(screen.queryByRole("button", { name: "应用修订" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "放弃修订" })).not.toBeInTheDocument();
 });

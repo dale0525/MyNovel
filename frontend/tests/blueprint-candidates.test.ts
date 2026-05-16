@@ -52,7 +52,7 @@ describe("normalizeBlueprintCandidates", () => {
       title: "禁书回声",
       genre: "奇幻",
       audience: "悬疑推理读者",
-      protagonist: "沈回声 / 修复师",
+      protagonist: { name: "沈回声", role: "修复师" },
     });
     expect(candidates[1].chapterDirections[0]).toEqual({
       number: 1,
@@ -103,6 +103,30 @@ describe("normalizeBlueprintCandidates", () => {
     });
   });
 
+  test("returns no candidates when content has no selectable title", () => {
+    expect(normalizeBlueprintCandidates({})).toEqual([]);
+    expect(normalizeBlueprintCandidates({ genre: "奇幻", central_conflict: "追查禁书。" })).toEqual([]);
+  });
+
+  test("preserves structured protagonist and world objects for detail rendering", () => {
+    const candidates = normalizeBlueprintCandidates({
+      title_options: ["长夜档案"],
+      protagonist: { name: "林既明", identity: "档案员", hidden_cost: "每次借书都会忘记一人" },
+      world: { summary: "禁书会吞噬记忆", taboo: "不能翻到第七页" },
+    });
+
+    expect(candidates[0].protagonist).toEqual({
+      name: "林既明",
+      identity: "档案员",
+      hidden_cost: "每次借书都会忘记一人",
+    });
+    expect(candidates[0].world).toEqual({
+      summary: "禁书会吞噬记忆",
+      taboo: "不能翻到第七页",
+    });
+    expect(summaryValue(candidates[0].protagonist)).toBe("林既明 / 档案员");
+  });
+
   test("normalizes title-option candidates with aliases and renderable helper values", () => {
     const candidates = normalizeBlueprintCandidates({
       title_options: ["长夜档案", "禁书回声", "灰塔借阅证"],
@@ -134,8 +158,8 @@ describe("normalizeBlueprintCandidates", () => {
       title: "长夜档案",
       genre: "奇幻",
       audience: "成人",
-      protagonist: "林既明 / 档案员",
-      world: "借书支付记忆 / 逾期吞掉姓名",
+      protagonist: { name: "林既明", identity: "档案员" },
+      world: { rules: ["借书支付记忆", "逾期吞掉姓名"] },
     });
     expect(candidates[1]).toMatchObject({
       index: 1,

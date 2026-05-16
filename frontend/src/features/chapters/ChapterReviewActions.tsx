@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
 import type { ChapterDetailPayload } from "@/lib/types";
 
 export type ChapterReviewAction =
@@ -40,7 +41,11 @@ export function ChapterReviewActions({ chapter, actionBusy, onAction }: ChapterR
           type="button"
           onClick={() => onAction("run", {})}
         >
-          {actionBusy === "run" ? "提交中..." : "运行本章"}
+          {actionBusy === "run" ? (
+            <AiWaitingIndicator label="提交运行中..." variant="inline" />
+          ) : (
+            "运行本章"
+          )}
         </button>
       ) : null}
 
@@ -80,7 +85,11 @@ export function ChapterReviewActions({ chapter, actionBusy, onAction }: ChapterR
           />
         </label>
         <button className="workbench-secondary-button" disabled={actionBusy !== null} type="submit">
-          {actionBusy === "repair" ? "提交中..." : "让 AI 修复"}
+          {actionBusy === "repair" ? (
+            <AiWaitingIndicator label="提交修复中..." variant="inline" />
+          ) : (
+            "让 AI 修复"
+          )}
         </button>
       </form>
 

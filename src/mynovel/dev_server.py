@@ -29,18 +29,24 @@ DEFAULT_DB_PATH = Path(".mynovel/dev.sqlite")
 @dataclass(frozen=True)
 class DevServerState:
     db_path: Path
+    frontend_origin: str | None = None
 
 
 def build_health_payload(db_path: Path) -> dict[str, str]:
     return {"status": "ok", "database": display_path(db_path)}
 
 
-def run_server(host: str, port: int, db_path: Path) -> None:
+def run_server(
+    host: str,
+    port: int,
+    db_path: Path,
+    frontend_origin: str | None = None,
+) -> None:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     remove_legacy_placeholder_data(engine)
 
-    state = DevServerState(db_path=db_path)
+    state = DevServerState(db_path=db_path, frontend_origin=frontend_origin)
     server = ThreadingHTTPServer((host, port), _make_handler(state))
     actual_host = host
     actual_port = server.server_port
@@ -60,9 +66,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
+    parser.add_argument("--frontend-origin", default=None)
     args = parser.parse_args(argv)
 
-    run_server(args.host, args.port, args.db)
+    run_server(args.host, args.port, args.db, args.frontend_origin)
 
 
 def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
@@ -76,6 +83,15 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             if route == "api":
                 self._send_api_response(
                     dispatch_api_get(parsed.path, parsed.query, state.db_path)
+                )
+                return
+            if state.frontend_origin is not None:
+                self._send_redirect(
+                    _frontend_redirect_location(
+                        state.frontend_origin,
+                        parsed.path,
+                        parsed.query,
+                    )
                 )
                 return
             self._send_static_response(resolve_spa_response(parsed.path, frontend_dist_path()))
@@ -125,7 +141,20 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(response.body)
 
+        def _send_redirect(self, location: str) -> None:
+            self.send_response(HTTPStatus.TEMPORARY_REDIRECT)
+            self.send_header("Location", location)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
     return DevRequestHandler
+
+
+def _frontend_redirect_location(frontend_origin: str, path: str, query: str) -> str:
+    location = f"{frontend_origin.rstrip('/')}{path or '/'}"
+    if query:
+        return f"{location}?{query}"
+    return location
 
 
 def _classify_get_path(path: str) -> str:

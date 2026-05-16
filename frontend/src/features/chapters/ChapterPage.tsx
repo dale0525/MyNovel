@@ -4,6 +4,7 @@ import {
   ChapterReviewActions,
   type ChapterReviewAction,
 } from "@/features/chapters/ChapterReviewActions";
+import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
 import { ChapterStageBoard } from "@/features/chapters/ChapterStageBoard";
 import { ApiError, getJson, isAbortError, postJson } from "@/lib/api";
 import type { ChapterDetailPayload, ChapterResponse } from "@/lib/types";
@@ -145,6 +146,13 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
       </div>
 
       <ChapterStageBoard slots={stageSlots} traces={traces} />
+
+      {chapter.status === "running" ? (
+        <AiWaitingIndicator
+          detail="AI 正在执行章节规划、上下文检索、草稿、修订和审计流水线。"
+          label="章节生成中"
+        />
+      ) : null}
 
       {actionState.status === "success" ? (
         <p className="setup-message" role="status">

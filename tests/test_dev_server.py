@@ -13,6 +13,7 @@ from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.dev_server import (
     _book_idea_from_form,
     _chapter_model_client_from_provider_config,
+    _frontend_redirect_location,
     _review_destination,
     build_health_payload,
     run_server,
@@ -51,6 +52,17 @@ def test_health_payload_normalizes_windows_database_path() -> None:
     payload = build_health_payload(PureWindowsPath(".mynovel/dev.sqlite"))
 
     assert payload == {"status": "ok", "database": ".mynovel/dev.sqlite"}
+
+
+def test_frontend_redirect_location_preserves_path_and_query() -> None:
+    assert (
+        _frontend_redirect_location(
+            "http://127.0.0.1:5173",
+            "/blueprints/3",
+            "tab=%E7%A6%81%E4%B9%A6",
+        )
+        == "http://127.0.0.1:5173/blueprints/3?tab=%E7%A6%81%E4%B9%A6"
+    )
 
 
 def test_chapter_generation_uses_saved_dialogue_model_config() -> None:

@@ -1,0 +1,337 @@
+.blueprint-workbench-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 25rem);
+  align-items: start;
+}
+
+.blueprint-candidate-tabs {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+}
+
+.blueprint-candidate-tabs button {
+  display: grid;
+  min-width: min(13rem, 70vw);
+  gap: 0.25rem;
+  border: 1px solid rgb(23 32 24 / 0.1);
+  border-radius: 1.05rem;
+  background: rgb(246 241 232 / 0.7);
+  color: #41513c;
+  cursor: pointer;
+  padding: 0.9rem 1rem;
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.blueprint-candidate-tabs button:hover,
+.blueprint-candidate-tabs button.is-active {
+  border-color: rgb(53 99 66 / 0.28);
+  background: #f4faef;
+  box-shadow: 0 0.8rem 1.8rem rgb(53 99 66 / 0.1);
+  transform: translateY(-1px);
+}
+
+.blueprint-candidate-tabs strong {
+  color: #172018;
+  font-size: 1rem;
+}
+
+.blueprint-candidate-tabs span {
+  color: #6a4218;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.blueprint-comparison-wrap {
+  overflow-x: auto;
+  border: 1px solid rgb(23 32 24 / 0.1);
+  border-radius: 1.2rem;
+  background: rgb(255 253 248 / 0.72);
+}
+
+.blueprint-comparison {
+  width: 100%;
+  min-width: 44rem;
+  border-collapse: collapse;
+}
+
+.blueprint-comparison th,
+.blueprint-comparison td {
+  border-bottom: 1px solid rgb(23 32 24 / 0.08);
+  padding: 0.85rem 1rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.blueprint-comparison tr:last-child th,
+.blueprint-comparison tr:last-child td {
+  border-bottom: 0;
+}
+
+.blueprint-comparison thead th {
+  background: rgb(246 241 232 / 0.74);
+  color: #213025;
+  font-size: 0.86rem;
+}
+
+.blueprint-comparison tbody th {
+  width: 8rem;
+  color: #6a4218;
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+
+.blueprint-comparison td {
+  color: #40503b;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.blueprint-comparison button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #213025;
+  cursor: pointer;
+  font-weight: 900;
+  padding: 0.35rem 0.65rem;
+}
+
+.blueprint-comparison button.is-active {
+  background: #356342;
+  color: #fffaf0;
+}
+
+.blueprint-candidate-detail,
+.blueprint-direction-summary,
+.blueprint-info-section,
+.blueprint-decision-panel,
+.blueprint-decision-block {
+  display: grid;
+  gap: 1rem;
+}
+
+.blueprint-direction-summary {
+  border: 1px solid rgb(53 99 66 / 0.16);
+  border-radius: 1.25rem;
+  background: linear-gradient(135deg, rgb(244 250 239 / 0.92), rgb(255 250 240 / 0.74));
+  padding: clamp(1rem, 3vw, 1.4rem);
+}
+
+.blueprint-direction-summary h2 {
+  margin: 0;
+  color: #172018;
+  font-size: clamp(1.25rem, 2.4vw, 1.8rem);
+  line-height: 1.35;
+}
+
+.blueprint-meta-strip,
+.blueprint-chip-list,
+.blueprint-revision-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.blueprint-meta-strip span,
+.blueprint-chip-list span,
+.blueprint-revision-prompts span {
+  border: 1px solid rgb(123 77 27 / 0.16);
+  border-radius: 999px;
+  background: #fffaf0;
+  color: #6a4218;
+  font-size: 0.82rem;
+  font-weight: 800;
+  padding: 0.38rem 0.68rem;
+}
+
+.blueprint-info-section {
+  border-top: 1px solid rgb(23 32 24 / 0.09);
+  padding-top: 1rem;
+}
+
+.blueprint-info-section h3,
+.blueprint-entity-panel h3 {
+  margin: 0;
+  color: #213025;
+  font-size: 1rem;
+}
+
+.blueprint-compact-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding-left: 1.15rem;
+}
+
+.blueprint-compact-list li {
+  color: #4f5d4a;
+  line-height: 1.55;
+}
+
+.blueprint-two-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.blueprint-entity-panel,
+.blueprint-decision-block,
+.blueprint-accept-preview,
+.blueprint-extra-fields {
+  border: 1px solid rgb(23 32 24 / 0.1);
+  border-radius: 1.1rem;
+  background: rgb(255 253 248 / 0.7);
+  padding: 1rem;
+}
+
+.blueprint-entity-panel p,
+.blueprint-decision-block p {
+  margin: 0;
+}
+
+.blueprint-chapter-timeline {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.blueprint-chapter-timeline li {
+  display: grid;
+  grid-template-columns: 2.4rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.blueprint-chapter-timeline li > span {
+  display: inline-grid;
+  width: 2.15rem;
+  height: 2.15rem;
+  place-items: center;
+  border: 1px solid rgb(53 99 66 / 0.2);
+  border-radius: 999px;
+  background: #f4faef;
+  color: #356342;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.blueprint-chapter-timeline strong {
+  color: #172018;
+}
+
+.blueprint-chapter-timeline p {
+  margin: 0.2rem 0 0;
+}
+
+.blueprint-decision-panel {
+  position: sticky;
+  top: 1rem;
+}
+
+.blueprint-decision-panel > h2 {
+  font-size: 1.35rem;
+}
+
+.blueprint-decision-block strong {
+  color: #172018;
+  font-size: 1.2rem;
+}
+
+.blueprint-revision-prompts span {
+  background: #f4faef;
+  color: #356342;
+}
+
+.blueprint-accept-preview,
+.blueprint-extra-fields {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.blueprint-accept-preview summary,
+.blueprint-extra-fields summary {
+  color: #213025;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.blueprint-key-values {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.blueprint-key-values div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.blueprint-key-values dt {
+  color: #6a4218;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.blueprint-key-values dd {
+  margin: 0;
+  color: #40503b;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.blueprint-raw-content {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.blueprint-raw-content strong {
+  color: #6a4218;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.blueprint-raw-content pre {
+  max-height: 18rem;
+  margin: 0;
+  overflow: auto;
+  border-radius: 0.85rem;
+  background: rgb(23 32 24 / 0.08);
+  color: #213025;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  padding: 0.85rem;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 980px) {
+  .blueprint-workbench-grid,
+  .blueprint-two-column {
+    grid-template-columns: 1fr;
+  }
+
+  .blueprint-decision-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 720px) {
+  .blueprint-candidate-tabs {
+    display: grid;
+  }
+
+  .blueprint-candidate-tabs button {
+    min-width: 0;
+  }
+
+  .blueprint-comparison {
+    min-width: 38rem;
+  }
+}

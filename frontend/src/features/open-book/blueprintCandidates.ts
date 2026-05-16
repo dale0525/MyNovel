@@ -11,8 +11,8 @@ export type BlueprintCandidateView = {
   audience: string;
   sellingPoints: string[];
   readerPromises: string[];
-  protagonist: string;
-  world: string;
+  protagonist: unknown;
+  world: unknown;
   centralConflict: string;
   chapterDirections: ChapterDirectionView[];
   extras: Record<string, unknown>;
@@ -47,21 +47,25 @@ export function normalizeBlueprintCandidates(content: unknown): BlueprintCandida
     .map((candidate) => recordValue(candidate))
     .filter((candidate) => Object.keys(candidate).length > 0);
 
-  const orderedCandidates = candidatesForTitles(titleOptions, candidateFields);
+  const orderedCandidates =
+    titleOptions.length > 0
+      ? candidatesForTitles(titleOptions, candidateFields)
+      : candidatesWithoutTitleOptions(blueprint, candidateFields);
 
   return orderedCandidates.map((candidate, index) => {
     const merged = { ...blueprint, ...candidate };
     const optionTitle = titleOptions[index];
+    const title = optionTitle || titleValue(candidate) || titleValue(blueprint);
 
     return {
       index,
-      title: optionTitle || titleValue(candidate) || titleValue(blueprint) || `Candidate ${index + 1}`,
+      title,
       genre: textValue(merged.genre),
       audience: textValue(merged.audience),
       sellingPoints: listValues(merged.selling_points),
       readerPromises: listValues(merged.reader_promises),
-      protagonist: summaryValue(merged.protagonist),
-      world: summaryValue(merged.world),
+      protagonist: merged.protagonist ?? "",
+      world: merged.world ?? "",
       centralConflict: textValue(merged.central_conflict) || textValue(merged.premise),
       chapterDirections: normalizeChapterDirections(merged.chapter_directions),
       extras: extrasFor(blueprint, candidate),
@@ -114,8 +118,13 @@ export function summaryValue(value: unknown): string {
 }
 
 export function fieldEntries(value: unknown): Array<[string, string]> {
-  return Object.entries(recordValue(value))
-    .map(([key, entryValue]): [string, string] => [key, summaryValue(entryValue)])
+  const fields = recordValue(value);
+  const orderedKeys = [
+    ...summaryFields.filter((field) => field in fields),
+    ...Object.keys(fields).filter((field) => !summaryFields.includes(field)),
+  ];
+  return orderedKeys
+    .map((key): [string, string] => [key, summaryValue(fields[key])])
     .filter(([, entryValue]) => entryValue.length > 0);
 }
 
@@ -130,14 +139,6 @@ function candidatesForTitles(
   titleOptions: string[],
   candidateFields: Record<string, unknown>[],
 ): Record<string, unknown>[] {
-  if (titleOptions.length === 0 && candidateFields.length > 0) {
-    return candidateFields;
-  }
-
-  if (titleOptions.length === 0) {
-    return [{}];
-  }
-
   const titleOptionSet = new Set(titleOptions);
   const usedIndexes = new Set<number>();
 
@@ -163,6 +164,17 @@ function candidatesForTitles(
     usedIndexes.add(index);
     return indexMatch ?? {};
   });
+}
+
+function candidatesWithoutTitleOptions(
+  blueprint: Record<string, unknown>,
+  candidateFields: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  if (candidateFields.length > 0) {
+    return candidateFields.filter((candidate) => titleValue(candidate));
+  }
+
+  return titleValue(blueprint) ? [{}] : [];
 }
 
 function titleValue(fields: Record<string, unknown>): string {

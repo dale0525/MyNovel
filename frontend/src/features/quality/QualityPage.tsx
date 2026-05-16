@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
 import { ApiError, getJson, isAbortError, postJson } from "@/lib/api";
 import type {
   BookPayload,
@@ -14,9 +15,11 @@ type QualityState =
   | { status: "ready"; data: QualityResponse; error: null }
   | { status: "error"; data: null; error: string };
 
+type QualityAction = "style-asset" | "study" | "snapshot";
+
 type ActionState =
   | { status: "idle"; message: null }
-  | { status: "submitting"; message: null }
+  | { status: "submitting"; action: QualityAction; message: null }
   | { status: "success"; message: string }
   | { status: "error"; message: string };
 
@@ -69,7 +72,7 @@ export function QualityPage({ bookId }: { bookId: number }) {
 
   async function createStyleAsset(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setActionState({ status: "submitting", message: null });
+    setActionState({ status: "submitting", action: "style-asset", message: null });
     try {
       await postJson(`/api/books/${bookId}/quality/style-assets`, {
         name: assetName,
@@ -87,7 +90,7 @@ export function QualityPage({ bookId }: { bookId: number }) {
 
   async function createStudy(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setActionState({ status: "submitting", message: null });
+    setActionState({ status: "submitting", action: "study", message: null });
     try {
       await postJson(`/api/books/${bookId}/quality/deconstruct-reference`, {
         sourceTitle: studyTitle,
@@ -102,7 +105,7 @@ export function QualityPage({ bookId }: { bookId: number }) {
   }
 
   async function createSnapshot() {
-    setActionState({ status: "submitting", message: null });
+    setActionState({ status: "submitting", action: "snapshot", message: null });
     try {
       const payload = await postJson<unknown>(`/api/books/${bookId}/quality/snapshots`, {});
       const parsed = parseQualityResponse(payload);
@@ -142,6 +145,7 @@ export function QualityPage({ bookId }: { bookId: number }) {
 
   const { book, styleAssets, deconstructionStudies, latestSnapshot, costStrategy } = state.data;
   const submitting = actionState.status === "submitting";
+  const submittingAction = actionState.status === "submitting" ? actionState.action : null;
 
   return (
     <section className="workbench-page" aria-labelledby="quality-page-title">
@@ -175,7 +179,11 @@ export function QualityPage({ bookId }: { bookId: number }) {
               onClick={() => void createSnapshot()}
               type="button"
             >
-              刷新质量分析
+              {submittingAction === "snapshot" ? (
+                <AiWaitingIndicator label="刷新分析中..." variant="inline" />
+              ) : (
+                "刷新质量分析"
+              )}
             </button>
           </div>
           {latestSnapshot ? (
@@ -245,6 +253,7 @@ export function QualityPage({ bookId }: { bookId: number }) {
         />
         <StudyPanel
           disabled={submitting}
+          isBusy={submittingAction === "study"}
           studies={deconstructionStudies}
           title={studyTitle}
           text={studyText}
@@ -317,6 +326,7 @@ function AssetPanel({
 
 function StudyPanel({
   disabled,
+  isBusy,
   studies,
   title,
   text,
@@ -325,6 +335,7 @@ function StudyPanel({
   onSubmit,
 }: {
   disabled: boolean;
+  isBusy: boolean;
   studies: DeconstructionStudyPayload[];
   title: string;
   text: string;
@@ -358,7 +369,7 @@ function StudyPanel({
           <textarea disabled={disabled} onChange={(event) => onTextChange(event.target.value)} required value={text} />
         </label>
         <button className="workbench-secondary-button" disabled={disabled} type="submit">
-          生成拆书笔记
+          {isBusy ? <AiWaitingIndicator label="生成拆书中..." variant="inline" /> : "生成拆书笔记"}
         </button>
       </form>
     </section>

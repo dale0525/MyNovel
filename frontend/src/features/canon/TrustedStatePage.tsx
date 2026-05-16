@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
 import { getJson, isAbortError, postJson } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
 import type {
@@ -264,7 +265,11 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
                 disabled={!editableSections.length || submittingAction !== null}
                 type="submit"
               >
-                {submittingAction === "revise" ? "提交中..." : "生成修订预览"}
+                {submittingAction === "revise" ? (
+                  <AiWaitingIndicator label="提交修订中..." variant="inline" />
+                ) : (
+                  "生成修订预览"
+                )}
               </button>
             </form>
           </section>
@@ -345,9 +350,11 @@ function RevisionPreviewActions({
 }) {
   if (revision.status === "running") {
     return (
-      <p className="setup-message" role="status">
-        修订生成中
-      </p>
+      <AiWaitingIndicator
+        detail="模型正在生成可审阅的可信设定变更。"
+        label="修订生成中"
+        variant="message"
+      />
     );
   }
   if (revision.status === "failed") {

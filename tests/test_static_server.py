@@ -78,3 +78,17 @@ def test_packaged_provider_setup_does_not_require_rerank_model() -> None:
     )
 
     assert "Rerank model name" not in bundled_text
+
+
+def test_packaged_frontend_includes_ai_waiting_animation() -> None:
+    dist = frontend_dist_path_from_module(Path("src/mynovel/frontend_assets.py"))
+    bundled_js = "\n".join(
+        asset.read_text(encoding="utf-8") for asset in (dist / "assets").glob("*.js")
+    )
+    bundled_css = "\n".join(
+        asset.read_text(encoding="utf-8") for asset in (dist / "assets").glob("*.css")
+    )
+
+    assert "ai-waiting" in bundled_css
+    assert "AiWaitingIndicator" in bundled_js or "ai-waiting-indicator" in bundled_js
+    assert "蓝图生成中" in bundled_js

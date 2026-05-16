@@ -98,6 +98,27 @@ test("quality page renders assets and creates a quality snapshot", async () => {
   expect(screen.getByRole("link", { name: "导出 JSON" })).toHaveAttribute("href", "/api/books/42/export.json");
 });
 
+test("quality page renders animated AI waiting state while snapshot request is pending", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(qualityPayload()))
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>(() => {
+          // Keep the snapshot request pending so the waiting state stays visible.
+        }),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<QualityPage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "质量中心" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "刷新质量分析" }));
+
+  await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("刷新分析中..."));
+  expect(screen.getByRole("button", { name: /刷新分析中/ })).toBeDisabled();
+});
+
 test("quality page rejects malformed payloads", async () => {
   vi.stubGlobal(
     "fetch",

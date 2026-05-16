@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 
+import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
 import { ApiError, postJson } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
 
@@ -172,7 +173,7 @@ export function OpenBookPage() {
         />
 
         <button className="workbench-action-button" disabled={isSubmitting} type="submit">
-          {isSubmitting ? "生成中..." : "生成蓝图"}
+          {isSubmitting ? <AiWaitingIndicator label="生成中..." variant="inline" /> : "生成蓝图"}
         </button>
       </form>
     </section>

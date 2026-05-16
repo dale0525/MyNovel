@@ -303,6 +303,7 @@ test("a new submit clears stale validation while the next request is pending", a
 
   fireEvent.click(screen.getByRole("button", { name: "测试并保存配置" }));
   expect(screen.queryByText("embedding failed")).not.toBeInTheDocument();
+  expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("正在测试...");
 
   resolveSecond(
     Response.json(
@@ -560,11 +561,11 @@ test("BootstrapGate rerenders route after blueprint revision navigation", async 
     />,
   );
 
-  await waitFor(() => expect(screen.getByLabelText("长夜档案")).toBeChecked());
-  fireEvent.change(screen.getByLabelText("修订意见"), {
+  await waitFor(() => expect(screen.getByRole("tab", { name: /长夜档案/ })).toHaveAttribute("aria-selected", "true"));
+  fireEvent.change(screen.getByLabelText("想让这一批怎么改"), {
     target: { value: "主角更疯一点" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "提交修订" }));
+  fireEvent.click(screen.getByRole("button", { name: "按意见重生成一版" }));
 
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("蓝图排队中"));
   expect(window.location.pathname).toBe("/blueprints/4");

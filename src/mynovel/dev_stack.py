@@ -13,8 +13,13 @@ DEFAULT_FRONTEND_PORT = 5173
 DEFAULT_DB_PATH = Path(".mynovel/dev.sqlite")
 
 
-def build_api_command(host: str, port: int, db_path: Path) -> list[str]:
-    return [
+def build_api_command(
+    host: str,
+    port: int,
+    db_path: Path,
+    frontend_origin: str | None = None,
+) -> list[str]:
+    command = [
         "python",
         "-m",
         "mynovel.dev_server",
@@ -25,6 +30,13 @@ def build_api_command(host: str, port: int, db_path: Path) -> list[str]:
         "--db",
         str(db_path),
     ]
+    if frontend_origin is not None:
+        command.extend(["--frontend-origin", frontend_origin])
+    return command
+
+
+def frontend_origin(host: str, port: int) -> str:
+    return f"http://{host}:{port}"
 
 
 def build_frontend_command(host: str, port: int) -> list[str]:
@@ -51,8 +63,12 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     project_root = Path(__file__).resolve().parents[2]
+    vite_origin = frontend_origin(args.host, args.frontend_port)
     processes = [
-        subprocess.Popen(build_api_command(args.host, args.api_port, args.db), cwd=project_root),
+        subprocess.Popen(
+            build_api_command(args.host, args.api_port, args.db, vite_origin),
+            cwd=project_root,
+        ),
         subprocess.Popen(
             build_frontend_command(args.host, args.frontend_port),
             cwd=project_root,
@@ -61,7 +77,8 @@ def main(argv: list[str] | None = None) -> None:
     print(
         f"MyNovel dev stack running:\n"
         f"- App with HMR: http://{args.host}:{args.frontend_port}\n"
-        f"- API/static preview: http://{args.host}:{args.api_port}",
+        f"- API backend: http://{args.host}:{args.api_port}\n"
+        f"  App routes on the API port redirect to the HMR app.",
         flush=True,
     )
 

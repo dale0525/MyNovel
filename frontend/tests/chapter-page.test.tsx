@@ -56,6 +56,15 @@ test("polls chapter every three seconds while it is running", async () => {
   expect(fetchMock).toHaveBeenLastCalledWith("/api/chapters/12", expect.objectContaining({ signal: expect.any(AbortSignal) }));
 });
 
+test("renders animated AI waiting state while chapter is running", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(chapterPayload({ status: "running" }))));
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("章节生成中");
+});
+
 test("chapter review actions call edit repair approve and export endpoints", async () => {
   const fetchMock = vi
     .fn()
@@ -94,6 +103,28 @@ test("chapter review actions call edit repair approve and export endpoints", asy
     ),
   );
   expect(screen.getByRole("link", { name: "导出正文" })).toHaveAttribute("href", "/api/chapters/12/export.txt");
+});
+
+test("renders animated AI waiting state while repair request is pending", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(chapterPayload()))
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>(() => {
+          // Keep the repair request pending so the waiting state stays visible.
+        }),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  fireEvent.change(screen.getByLabelText("修复要求"), { target: { value: "补强结尾。" } });
+  fireEvent.click(screen.getByRole("button", { name: "让 AI 修复" }));
+
+  await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("提交修复中..."));
+  expect(screen.getByRole("button", { name: /提交修复中/ })).toBeDisabled();
 });
 
 test("rejects action responses without chapter payload", async () => {

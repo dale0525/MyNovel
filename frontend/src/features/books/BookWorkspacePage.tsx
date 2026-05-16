@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
 import { ApiError, getJson, isAbortError, postJson } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
 import type { BookPayload, BookResponse, ChapterPayload, RunTracePayload, WordTargetsPayload } from "@/lib/types";
@@ -200,6 +201,13 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
                     第 {currentTask.number} 章 · {currentTask.title}
                   </strong>
                   <p>{chapterStatusLabel(currentTask.status)}：{currentTask.summary || "等待补齐章节摘要。"}</p>
+                  {currentTask.status === "running" ? (
+                    <AiWaitingIndicator
+                      detail="AI 正在处理当前章节，完成后可进入章节页审阅结果。"
+                      label="章节生成中"
+                      variant="message"
+                    />
+                  ) : null}
                 </>
               ) : (
                 <p>暂无待推进章节。可以先检查可信设定，再创建章节生产任务。</p>
@@ -221,7 +229,11 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
                   type="button"
                   onClick={() => void runCurrentChapter(currentTask)}
                 >
-                  {actionBusy === "run-current" ? "提交中..." : "运行当前章节"}
+                  {actionBusy === "run-current" ? (
+                    <AiWaitingIndicator label="提交章节中..." variant="inline" />
+                  ) : (
+                    "运行当前章节"
+                  )}
                 </button>
               ) : null}
               <a className="workbench-action-button" href={`/books/${bookId}/state`}>
@@ -313,7 +325,11 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
                   />
                 </label>
                 <button className="workbench-action-button" disabled={actionBusy !== null} type="submit">
-                  {actionBusy === "run-batch" ? "提交中..." : "批量生产"}
+                  {actionBusy === "run-batch" ? (
+                    <AiWaitingIndicator label="提交批量中..." variant="inline" />
+                  ) : (
+                    "批量生产"
+                  )}
                 </button>
               </form>
             ) : (

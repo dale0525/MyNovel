@@ -1,4 +1,6 @@
 @import "./workspace.css";
+@import "./ai-waiting.css";
+@import "./blueprint.css";
 
 @tailwind base;
 @tailwind components;
@@ -592,6 +594,17 @@ h1 {
 .workbench-action-button:hover {
   transform: translateY(-1px);
   box-shadow: 0 1.25rem 2.5rem rgb(123 77 27 / 0.28);
+}
+
+.workbench-action-button:disabled,
+.workbench-secondary-button:disabled {
+  cursor: wait;
+  opacity: 0.76;
+}
+
+.workbench-action-button:disabled:hover,
+.workbench-secondary-button:disabled:hover {
+  transform: none;
 }
 
 .workbench-action-button--secondary {

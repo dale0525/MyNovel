@@ -88,6 +88,27 @@ test("workspace runs planned chapters and batch production through api actions",
   expect(window.location.pathname).toBe("/chapters/9");
 });
 
+test("workspace renders animated AI waiting state while current chapter run is pending", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "planned" })))
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>(() => {
+          // Keep the chapter run request pending so the waiting state stays visible.
+        }),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "运行当前章节" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "运行当前章节" }));
+
+  await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("提交章节中..."));
+  expect(screen.getByRole("button", { name: /提交章节中/ })).toBeDisabled();
+});
+
 test("workspace hides production actions before trusted state is locked", async () => {
   vi.stubGlobal(
     "fetch",
@@ -130,7 +151,7 @@ test("workspace saves word targets through json api", async () => {
       }),
     ),
   );
-  expect(screen.getByRole("status")).toHaveTextContent("目标字数已保存。");
+  expect(screen.getByText("目标字数已保存。")).toBeInTheDocument();
 });
 
 test("aborts in-flight book fetch on unmount", () => {
