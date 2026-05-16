@@ -354,6 +354,8 @@ test("needs revision with high risk can submit trimmed AI repair", async () => {
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
   const revisionButton = screen.getByRole("button", { name: "让 AI 修订" });
+  expect(screen.queryByRole("button", { name: "退回修订" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "批准并写入可信设定" })).not.toBeInTheDocument();
   expect(revisionButton).toBeDisabled();
 
   fireEvent.change(screen.getByLabelText("修订意图"), { target: { value: "   " } });

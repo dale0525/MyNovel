@@ -37,8 +37,9 @@ export function ChapterReviewActions({
   const [repairNote, setRepairNote] = useState("");
   const [decisionNote, setDecisionNote] = useState("");
   const [allowMajorChanges, setAllowMajorChanges] = useState(false);
-  const canReviewStage = chapter.status === "awaiting_review" || chapter.status === "needs_revision";
-  const showDecisionPanel = chapter.status === "awaiting_review" || (chapter.status === "needs_revision" && highRisk);
+  const canReview = chapter.status === "awaiting_review";
+  const canRepair = canReview || chapter.status === "needs_revision";
+  const showRepairPanel = highRisk && canRepair;
   const repairNoteTrimmed = repairNote.trim();
   const stateDeltaSignature = JSON.stringify(chapter.stateDelta);
 
@@ -60,7 +61,7 @@ export function ChapterReviewActions({
         <h2 id="chapter-actions-title">审核决策</h2>
       </div>
 
-      {chapter.status === "planned" || chapter.status === "needs_revision" ? (
+      {chapter.status === "planned" || (chapter.status === "needs_revision" && !showRepairPanel) ? (
         <button
           className="workbench-action-button"
           disabled={busy}
@@ -82,11 +83,11 @@ export function ChapterReviewActions({
         />
       ) : null}
 
-      {showDecisionPanel ? (
+      {canReview || showRepairPanel ? (
         <>
           <ImpactPanel title="将写入可信设定" items={impactItems} />
 
-          {highRisk ? (
+          {showRepairPanel ? (
             <form
               className="chapter-action-form"
               onSubmit={(event) => {
@@ -141,26 +142,28 @@ export function ChapterReviewActions({
             </>
           )}
 
-          <form
-            className="chapter-action-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onAction("request-revision", { reviewerNote: decisionNote });
-            }}
-          >
-            <label>
-              决策说明
-              <input value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} />
-            </label>
-            <button className="workbench-secondary-button" disabled={busy} type="submit">
-              {actionBusy === "request-revision" ? "退回中..." : "退回修订"}
-            </button>
-          </form>
+          {canReview ? (
+            <form
+              className="chapter-action-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                onAction("request-revision", { reviewerNote: decisionNote });
+              }}
+            >
+              <label>
+                决策说明
+                <input value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} />
+              </label>
+              <button className="workbench-secondary-button" disabled={busy} type="submit">
+                {actionBusy === "request-revision" ? "退回中..." : "退回修订"}
+              </button>
+            </form>
+          ) : null}
         </>
       ) : null}
 
       <AdvancedDisclosure title="高级审核工具">
-        {canReviewStage ? (
+        {canRepair ? (
           <form
             className="chapter-action-form"
             onSubmit={(event) => {
@@ -182,7 +185,7 @@ export function ChapterReviewActions({
           </form>
         ) : null}
 
-        {canReviewStage && !highRisk ? (
+        {canRepair && !highRisk ? (
           <form
             className="chapter-action-form"
             onSubmit={(event) => {
