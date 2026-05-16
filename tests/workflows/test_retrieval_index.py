@@ -169,6 +169,45 @@ def test_retrieval_budget_truncates_high_score_oversized_context(
     assert results[0].text == "符号符号"
 
 
+def test_retrieval_budget_exact_exhaustion_does_not_add_empty_context(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        index_text(
+            session,
+            book.id,
+            "note",
+            "first",
+            "符号符号",
+            embedding_vector=[1.0, 0.0],
+            embedding_model="embedding-test",
+        )
+        index_text(
+            session,
+            book.id,
+            "note",
+            "second",
+            "短符号",
+            embedding_vector=[0.9, 0.1],
+            embedding_model="embedding-test",
+        )
+
+        results = retrieve_book_context(
+            session,
+            book.id,
+            "符号",
+            query_embedding=[1.0, 0.0],
+            embedding_model="embedding-test",
+            top_k=2,
+            character_budget=4,
+        )
+
+    assert [result.source_id for result in results] == ["first"]
+    assert results[0].text == "符号符号"
+    assert all(result.text for result in results)
+
+
 def test_index_text_stores_invalid_embedding_vector_as_lexical(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)

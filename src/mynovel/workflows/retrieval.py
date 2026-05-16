@@ -204,6 +204,8 @@ def _apply_retrieval_bounds(
         if len(bounded) >= top_k:
             break
         remaining_budget = character_budget - used_characters
+        if remaining_budget <= 0:
+            break
         if len(context.text) > remaining_budget:
             bounded.append(
                 RetrievedContext(
