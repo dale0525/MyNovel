@@ -98,6 +98,49 @@ test("failed validation stays on setup and renders validation messages", async (
   expect(screen.getByRole("heading", { name: "连接你的 AI 模型" })).toBeInTheDocument();
 });
 
+test("saved config with failed optional embedding stays on setup with continue action", async () => {
+  window.history.pushState(null, "", "/settings/provider");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        saved: true,
+        validation: {
+          passed: false,
+          results: [
+            {
+              kind: "llm",
+              label: "LLM",
+              status: "passed",
+              message: "ok",
+            },
+            {
+              kind: "embedding",
+              label: "Embedding",
+              status: "failed",
+              message: "embedding failed",
+            },
+          ],
+        },
+      }),
+    ),
+  );
+
+  render(<ProviderConfigPage />);
+
+  fillRequiredFields();
+  fireEvent.click(screen.getByRole("button", { name: "测试并保存配置" }));
+
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "配置已保存，但 Embedding 连接未通过；章节将使用本地检索。",
+    ),
+  );
+  expect(screen.getByText("embedding failed")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "进入工作台" })).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/settings/provider");
+});
+
 test("malformed validation error payload does not crash the setup page", async () => {
   vi.stubGlobal(
     "fetch",

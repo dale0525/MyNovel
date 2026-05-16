@@ -29,6 +29,7 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
   const [validation, setValidation] = useState<ProviderValidationReport | null>(null);
   const [message, setMessage] = useState<string | null>(bootstrapMessage ?? null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [canContinueAfterSave, setCanContinueAfterSave] = useState(false);
   const embeddingCredentialsRequired =
     !draft.embeddingUseLlmCredentials && draft.embeddingModel.trim().length > 0;
 
@@ -37,10 +38,16 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
     setIsSubmitting(true);
     setMessage(null);
     setValidation(null);
+    setCanContinueAfterSave(false);
 
     try {
       const response = await saveProviderConfig(sanitizeProviderConfigDraft(draft));
       setValidation(response.validation ?? null);
+      if (hasFailedOptionalValidation(response.validation)) {
+        setMessage("配置已保存，但 Embedding 连接未通过；章节将使用本地检索。");
+        setCanContinueAfterSave(true);
+        return;
+      }
       window.location.href = "/";
     } catch (error) {
       const response = providerConfigResponseFromError(error);
@@ -142,6 +149,17 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
       <button className="provider-submit-button" disabled={isSubmitting} type="submit">
         {isSubmitting ? "正在测试..." : "测试并保存配置"}
       </button>
+      {canContinueAfterSave ? (
+        <button
+          className="provider-submit-button"
+          onClick={() => {
+            window.location.href = "/";
+          }}
+          type="button"
+        >
+          进入工作台
+        </button>
+      ) : null}
     </form>
   );
 
@@ -246,4 +264,12 @@ function sanitizeProviderConfigDraft(draft: ProviderConfigDraft): ProviderConfig
   }
 
   return { ...draft, embeddingBaseUrl: "", embeddingApiKey: "" };
+}
+
+function hasFailedOptionalValidation(validation?: ProviderValidationReport): boolean {
+  return (
+    validation?.results.some(
+      (result) => result.kind !== "llm" && result.status === "failed",
+    ) ?? false
+  );
 }
