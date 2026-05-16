@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from math import isfinite
 from typing import Any, Protocol
 
 from mynovel.api_serializers import is_embedding_config_validated
@@ -43,7 +44,10 @@ def parse_embedding_response(response: dict[str, Any]) -> list[float]:
     for value in embedding:
         if isinstance(value, bool) or not isinstance(value, int | float):
             raise ValueError("Embedding response has no usable vector.")
-        vector.append(float(value))
+        number = float(value)
+        if not isfinite(number):
+            raise ValueError("Embedding response has no usable vector.")
+        vector.append(number)
     return vector
 
 
