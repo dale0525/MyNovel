@@ -13,6 +13,7 @@ from mynovel.workflows.chapter_pipeline import (
     return_chapter_for_revision,
     run_chapter_pipeline,
 )
+from mynovel.workflows.chapter_prompting import _context_package_text
 from mynovel.workflows.open_book import create_draft_book_from_blueprint
 
 
@@ -176,6 +177,42 @@ def test_run_chapter_pipeline_prompt_includes_retrieved_context(tmp_path) -> Non
     prompt = "\n".join(message["content"] for message in model.messages_by_stage["draft"])
     assert "历史召回片段" in prompt
     assert "可信设定优先于历史召回片段" in prompt
+
+
+def test_retrieved_context_prompt_omits_empty_or_unusable_items() -> None:
+    context_text = _context_package_text(
+        {
+            "trusted_state": {},
+            "volume_plan": {},
+            "retrieved_context": [{"text": ""}, {"metadata": {"kind": "章节正文"}}],
+        },
+        1,
+    )
+
+    assert "历史召回片段" not in context_text
+    assert "可信设定优先于历史召回片段" not in context_text
+
+
+def test_retrieved_context_prompt_truncates_each_snippet() -> None:
+    context_text = _context_package_text(
+        {
+            "trusted_state": {},
+            "volume_plan": {},
+            "retrieved_context": [
+                {
+                    "source_type": "accepted_chapter",
+                    "source_id": "1",
+                    "score": 0.9,
+                    "text": "A" * 1200 + "B",
+                    "metadata": {},
+                }
+            ],
+        },
+        1,
+    )
+
+    assert "A" * 1200 in context_text
+    assert "B" not in context_text
 
 
 class _PromptEmbeddingClient:
