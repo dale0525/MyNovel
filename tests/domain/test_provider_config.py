@@ -58,15 +58,30 @@ def test_provider_config_can_reuse_llm_endpoint_for_embedding_and_rerank() -> No
     assert config.resolved_rerank_api_key() == "sk-llm"
 
 
-def test_provider_config_is_complete_only_with_all_required_models() -> None:
-    missing_rerank = ProviderConfig(
+def test_provider_config_is_complete_with_required_chat_fields_only() -> None:
+    missing_llm_base_url = ProviderConfig(
+        llm_base_url="",
+        llm_api_key="sk-llm",
+        llm_model="gpt-test",
+    )
+    missing_llm_api_key = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_api_key="",
+        llm_model="gpt-test",
+    )
+    missing_llm_model = ProviderConfig(
+        llm_base_url="https://api.example.test/v1",
+        llm_api_key="sk-llm",
+        llm_model="",
+    )
+    missing_embedding_and_rerank = ProviderConfig(
         llm_base_url="https://api.example.test/v1",
         llm_api_key="sk-llm",
         llm_model="gpt-test",
         embedding_use_llm_credentials=True,
         embedding_base_url="",
         embedding_api_key=None,
-        embedding_model="text-embedding-test",
+        embedding_model="",
         rerank_use_llm_credentials=True,
         rerank_base_url=None,
         rerank_api_key=None,
@@ -87,7 +102,10 @@ def test_provider_config_is_complete_only_with_all_required_models() -> None:
     )
 
     assert is_provider_config_complete(None) is False
-    assert is_provider_config_complete(missing_rerank) is False
+    assert is_provider_config_complete(missing_llm_base_url) is False
+    assert is_provider_config_complete(missing_llm_api_key) is False
+    assert is_provider_config_complete(missing_llm_model) is False
+    assert is_provider_config_complete(missing_embedding_and_rerank) is True
     assert is_provider_config_complete(complete) is True
 
 
