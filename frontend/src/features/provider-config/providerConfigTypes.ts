@@ -6,10 +6,6 @@ export type ProviderConfigDraft = {
   embeddingBaseUrl: string;
   embeddingApiKey: string;
   embeddingModel: string;
-  rerankUseLlmCredentials: boolean;
-  rerankBaseUrl: string;
-  rerankApiKey: string;
-  rerankModel: string;
 };
 
 export type ProviderValidationStatus = "passed" | "failed" | "skipped" | string;
@@ -42,6 +38,7 @@ export type ProviderConfigSummary = {
 
 export type ProviderConfigResponse = {
   saved?: boolean;
+  embeddingValidated?: boolean;
   providerConfig?: ProviderConfigSummary | null;
   validation?: ProviderValidationReport;
   error?: {

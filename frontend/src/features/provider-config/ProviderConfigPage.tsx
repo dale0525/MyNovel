@@ -22,10 +22,6 @@ const emptyDraft: ProviderConfigDraft = {
   embeddingBaseUrl: "",
   embeddingApiKey: "",
   embeddingModel: "",
-  rerankUseLlmCredentials: true,
-  rerankBaseUrl: "",
-  rerankApiKey: "",
-  rerankModel: "",
 };
 
 export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps) {
@@ -33,6 +29,8 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
   const [validation, setValidation] = useState<ProviderValidationReport | null>(null);
   const [message, setMessage] = useState<string | null>(bootstrapMessage ?? null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const embeddingCredentialsRequired =
+    !draft.embeddingUseLlmCredentials && draft.embeddingModel.trim().length > 0;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,8 +61,7 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
         <p className="eyebrow">Provider setup</p>
         <h1>连接你的 AI 模型</h1>
         <p className="lede">
-          填入 OpenAI-compatible 服务信息，保存前会分别测试 LLM、Embedding 和
-          Rerank 模型。
+          填入 OpenAI-compatible 对话模型信息；Embedding 可作为章节历史召回增强能力。
         </p>
       </div>
 
@@ -118,7 +115,6 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
           value={draft.embeddingModel}
           onChange={(value) => updateDraft("embeddingModel", value)}
           placeholder="text-embedding-3-large"
-          required
         />
         {!draft.embeddingUseLlmCredentials ? (
           <div className="provider-form-grid">
@@ -127,7 +123,7 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
               value={draft.embeddingBaseUrl}
               onChange={(value) => updateDraft("embeddingBaseUrl", value)}
               placeholder="https://api.example.com/v1"
-              required
+              required={embeddingCredentialsRequired}
             />
             <TextField
               label="Embedding API key"
@@ -135,47 +131,7 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
               onChange={(value) => updateDraft("embeddingApiKey", value)}
               autoComplete="off"
               type="password"
-              required
-            />
-          </div>
-        ) : null}
-      </section>
-
-      <section className="provider-model-section" aria-labelledby="rerank-section-title">
-        <div>
-          <h2 id="rerank-section-title">Rerank</h2>
-          <label className="provider-checkbox">
-            <input
-              checked={draft.rerankUseLlmCredentials}
-              onChange={(event) => updateDraft("rerankUseLlmCredentials", event.target.checked)}
-              type="checkbox"
-            />
-            <span>Rerank 使用 LLM 的 base url 和 api key</span>
-          </label>
-        </div>
-        <TextField
-          label="Rerank model name"
-          value={draft.rerankModel}
-          onChange={(value) => updateDraft("rerankModel", value)}
-          placeholder="rerank-v3"
-          required
-        />
-        {!draft.rerankUseLlmCredentials ? (
-          <div className="provider-form-grid">
-            <TextField
-              label="Rerank base url"
-              value={draft.rerankBaseUrl}
-              onChange={(value) => updateDraft("rerankBaseUrl", value)}
-              placeholder="https://api.example.com/v1"
-              required
-            />
-            <TextField
-              label="Rerank API key"
-              value={draft.rerankApiKey}
-              onChange={(value) => updateDraft("rerankApiKey", value)}
-              autoComplete="off"
-              type="password"
-              required
+              required={embeddingCredentialsRequired}
             />
           </div>
         ) : null}
@@ -275,7 +231,7 @@ function ValidationResultItem({ draft, result }: ValidationResultItemProps) {
 }
 
 function redactSecrets(message: string, draft: ProviderConfigDraft): string {
-  return Array.from(new Set([draft.llmApiKey, draft.embeddingApiKey, draft.rerankApiKey]))
+  return Array.from(new Set([draft.llmApiKey, draft.embeddingApiKey]))
     .filter((secret) => secret.trim().length > 0)
     .sort((secret, other) => other.length - secret.length)
     .reduce(
@@ -285,15 +241,9 @@ function redactSecrets(message: string, draft: ProviderConfigDraft): string {
 }
 
 function sanitizeProviderConfigDraft(draft: ProviderConfigDraft): ProviderConfigDraft {
-  if (!draft.embeddingUseLlmCredentials && !draft.rerankUseLlmCredentials) {
+  if (!draft.embeddingUseLlmCredentials) {
     return draft;
   }
 
-  return {
-    ...draft,
-    embeddingBaseUrl: draft.embeddingUseLlmCredentials ? "" : draft.embeddingBaseUrl,
-    embeddingApiKey: draft.embeddingUseLlmCredentials ? "" : draft.embeddingApiKey,
-    rerankBaseUrl: draft.rerankUseLlmCredentials ? "" : draft.rerankBaseUrl,
-    rerankApiKey: draft.rerankUseLlmCredentials ? "" : draft.rerankApiKey,
-  };
+  return { ...draft, embeddingBaseUrl: "", embeddingApiKey: "" };
 }
