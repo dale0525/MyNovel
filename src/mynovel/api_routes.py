@@ -42,8 +42,11 @@ from mynovel.domain.repositories import (
 from mynovel.update import check_for_update, prepare_update_install
 from mynovel.update_security import fetch_safe_update_manifest
 from mynovel.workflows.canon_proposal import (
+    CANON_PROPOSAL_COMPLETION_INSTRUCTION,
     apply_canon_proposal_revision,
+    canon_proposal_completion_target,
     discard_canon_proposal_revision,
+    section_locks_for_book,
     set_canon_proposal_section_lock,
 )
 from mynovel.workflows.book_export import export_book_json, export_book_markdown
@@ -442,12 +445,19 @@ def _revise_canon_proposal_json(
     book_id: int,
     body: dict[str, Any],
 ) -> ApiResponse:
-    response = handle_create_canon_proposal_revision(
-        {
+    if _body_bool(body, "autoComplete", "auto_complete") is True:
+        form_response = _canon_proposal_auto_complete_form(db_path, book_id)
+        if isinstance(form_response, ApiResponse):
+            return form_response
+        form = form_response
+    else:
+        form = {
             "book_id": str(book_id),
             "target_section": str(body.get("targetSection") or body.get("target_section") or ""),
             "instruction": str(body.get("instruction") or ""),
-        },
+        }
+    response = handle_create_canon_proposal_revision(
+        form,
         db_path,
     )
     if response.status != HTTPStatus.OK or response.redirect_to is None:
@@ -464,6 +474,29 @@ def _revise_canon_proposal_json(
         HTTPStatus.ACCEPTED,
         {"revisionId": revision_id, "redirectTo": redirect_to},
     )
+
+
+def _canon_proposal_auto_complete_form(
+    db_path: Path,
+    book_id: int,
+) -> dict[str, str] | ApiResponse:
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = get_book(session, book_id)
+        if book is None:
+            return api_error(HTTPStatus.NOT_FOUND, "book_not_found", "Book not found.")
+        canon = get_latest_canon(session, book_id)
+        if canon is None:
+            return _canon_proposal_action_error(ValueError("Trusted state proposal is required."))
+        target_section = canon_proposal_completion_target(canon.content, section_locks_for_book(book))
+    if target_section is None:
+        return _canon_proposal_action_error(ValueError("No editable missing canon section."))
+    return {
+        "book_id": str(book_id),
+        "target_section": target_section,
+        "instruction": CANON_PROPOSAL_COMPLETION_INSTRUCTION,
+    }
 
 
 def _revision_id_from_redirect(redirect_to: str) -> int | None:

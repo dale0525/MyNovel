@@ -184,6 +184,31 @@ test("trusted state uses a section map to select the revision target", async () 
   );
 });
 
+test("trusted state can auto-complete missing canon with one action", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(trustedStatePayload({ selectedRevision: false })))
+    .mockResolvedValueOnce(Response.json({ revisionId: 9, redirectTo: "/books/42/state?revisionId=9" }, { status: 202 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "AI 自动补全" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/books/42/canon-proposals/revise",
+      expect.objectContaining({
+        method: "POST",
+        body: "{\"autoComplete\":true}",
+      }),
+    ),
+  );
+  expect(window.location.pathname).toBe("/books/42/state");
+  expect(window.location.search).toBe("?revisionId=9");
+});
+
 test("trusted state blocks locked sections visually and disables revision submission", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json(trustedStatePayload({ selectedRevision: false }))));
 

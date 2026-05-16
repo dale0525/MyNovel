@@ -24,7 +24,7 @@ type TrustedStatePageProps = {
   bookId: number;
 };
 
-type CanonAction = "apply" | "discard" | "revise";
+type CanonAction = "apply" | "discard" | "revise" | "auto-complete";
 
 type ActionState =
   | { status: "idle"; message: null; action: null }
@@ -140,11 +140,49 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
     ) {
       return;
     }
-    setActionState({ status: "submitting", message: null, action: "revise" });
+    await requestCanonRevision(selectedSection.key, trimmedInstruction, "revise");
+  }
+
+  async function autoCompleteCanon() {
+    if (state.status !== "ready" || actionState.status === "submitting") {
+      return;
+    }
+    const targetSection = autoCompleteTargetSection(
+      state.data.canonSections,
+      state.data.readiness.missingSections,
+    );
+    if (!targetSection) {
+      return;
+    }
+    setActionState({ status: "submitting", message: null, action: "auto-complete" });
     try {
       const response = await postJson<{ redirectTo?: string }>(
         `/api/books/${bookId}/canon-proposals/revise`,
-        { targetSection: selectedSection.key, instruction: trimmedInstruction },
+        { autoComplete: true },
+      );
+      setActionState({ status: "success", message: "已提交修订任务。", action: null });
+      if (response.redirectTo) {
+        navigateTo(response.redirectTo);
+      }
+    } catch (error) {
+      setActionState({
+        status: "error",
+        message: errorMessage(error, "提交修订失败。"),
+        action: null,
+      });
+    }
+  }
+
+  async function requestCanonRevision(
+    targetSection: string,
+    revisionInstruction: string,
+    action: "revise" | "auto-complete",
+  ) {
+    setActionState({ status: "submitting", message: null, action });
+    try {
+      const response = await postJson<{ redirectTo?: string }>(
+        `/api/books/${bookId}/canon-proposals/revise`,
+        { targetSection, instruction: revisionInstruction },
       );
       setActionState({ status: "success", message: "已提交修订任务。", action: null });
       if (response.redirectTo) {
@@ -187,6 +225,7 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
   const selectedSection = canonSections.find((section) => section.key === selectedSectionKey) ?? null;
   const selectedSectionBlocked = !selectedSection || selectedSection.locked || !selectedSection.editable;
   const submittingAction = actionState.status === "submitting" ? actionState.action : null;
+  const completionTarget = autoCompleteTargetSection(canonSections, readiness.missingSections);
   const reviseDisabled =
     selectedSectionBlocked || submittingAction !== null || instruction.trim().length === 0;
 
@@ -226,7 +265,23 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
           <section
             className={readiness.complete ? "canon-completion-gate trusted" : "canon-completion-gate"}
           >
-            <h2>{readiness.complete ? "可信设定已完整" : "可信设定仍需补全"}</h2>
+            <div className="canon-completion-gate__header">
+              <h2>{readiness.complete ? "可信设定已完整" : "可信设定仍需补全"}</h2>
+              {!readiness.complete && completionTarget ? (
+                <button
+                  className="workbench-action-button canon-completion-gate__action"
+                  disabled={submittingAction !== null}
+                  type="button"
+                  onClick={() => void autoCompleteCanon()}
+                >
+                  {submittingAction === "auto-complete" ? (
+                    <AiWaitingIndicator label="自动补全中..." variant="inline" />
+                  ) : (
+                    "AI 自动补全"
+                  )}
+                </button>
+              ) : null}
+            </div>
             {readiness.messages.length ? (
               <ul>
                 {readiness.messages.map((message) => (
@@ -275,7 +330,7 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
               <label>
                 修订意图
                 <textarea
-                  disabled={selectedSectionBlocked || submittingAction === "revise"}
+                  disabled={selectedSectionBlocked || submittingAction !== null}
                   value={instruction}
                   onChange={(event) => setInstruction(event.target.value)}
                   placeholder="说明你希望 AI 如何调整这个分区"
@@ -304,6 +359,17 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
         </aside>
       </div>
     </section>
+  );
+}
+
+function autoCompleteTargetSection(
+  sections: CanonSectionPayload[],
+  missingSections: string[],
+): CanonSectionPayload | null {
+  return (
+    missingSections
+      .map((sectionKey) => sections.find((section) => section.key === sectionKey) ?? null)
+      .find((section) => section !== null && section.editable && !section.locked) ?? null
   );
 }
 

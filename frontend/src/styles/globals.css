@@ -484,6 +484,21 @@ h1 {
   background: #f4faef;
 }
 
+.canon-completion-gate__header {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.canon-completion-gate__header h2 {
+  margin: 0;
+}
+
+.canon-completion-gate__action {
+  box-shadow: 0 0.85rem 1.8rem rgb(141 91 31 / 0.18);
+}
+
 .canon-completion-gate ul {
   display: flex;
   flex-wrap: wrap;
@@ -832,6 +847,11 @@ h1 {
   .app-shell__nav-link:hover,
   .app-shell__nav-link.is-active {
     transform: none;
+  }
+
+  .canon-completion-gate__header {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .workbench-grid {

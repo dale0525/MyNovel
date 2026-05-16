@@ -6,6 +6,7 @@ from pathlib import Path
 from sqlmodel import Session, select
 
 from mynovel.api_routes import dispatch_api_get, dispatch_api_post
+from mynovel.canon_proposal_server import CanonProposalServerResponse
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import (
     Book,
@@ -28,7 +29,12 @@ from mynovel.domain.repositories import (
     get_book,
     get_canon_proposal_revision,
 )
-from mynovel.workflows.canon_proposal import content_hash, locks_hash, section_locks_for_book
+from mynovel.workflows.canon_proposal import (
+    CANON_PROPOSAL_COMPLETION_INSTRUCTION,
+    content_hash,
+    locks_hash,
+    section_locks_for_book,
+)
 
 
 def test_book_workspace_returns_chapters_canon_traces_and_volume_plans(tmp_path: Path) -> None:
@@ -195,6 +201,41 @@ def test_canon_proposal_apply_discard_and_revise_routes_map_to_workflow(
 
     assert invalid_revise.status == HTTPStatus.BAD_REQUEST
     assert invalid_revise.body["error"]["code"] == "canon_proposal_action_failed"
+
+
+def test_canon_proposal_auto_complete_revise_uses_first_missing_unlocked_section(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    book_id = _create_workspace_fixture(db_path)
+    captured: dict[str, str] = {}
+
+    def fake_create_revision(
+        form: dict[str, str],
+        db_path_arg: Path,
+    ) -> CanonProposalServerResponse:
+        assert db_path_arg == db_path
+        captured.update(form)
+        return CanonProposalServerResponse(
+            redirect_to=f"/books/{book_id}/state?revision_id=9#canon-revision-job"
+        )
+
+    monkeypatch.setattr(
+        "mynovel.api_routes.handle_create_canon_proposal_revision",
+        fake_create_revision,
+    )
+
+    response = dispatch_api_post(
+        f"/api/books/{book_id}/canon-proposals/revise",
+        {"autoComplete": True},
+        db_path,
+    )
+
+    assert response.status == HTTPStatus.ACCEPTED
+    assert response.body["redirectTo"] == f"/books/{book_id}/state?revisionId=9"
+    assert captured["target_section"] == "characters"
+    assert captured["instruction"] == CANON_PROPOSAL_COMPLETION_INSTRUCTION
 
 
 def test_canon_proposal_lock_parses_false_string_as_false(tmp_path: Path) -> None:
