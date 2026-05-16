@@ -132,7 +132,7 @@ describe("normalizeBlueprintCandidates", () => {
     expect(candidates[0]).toMatchObject({
       index: 0,
       title: "长夜档案",
-      genre: "奇幻",
+      genre: "悬疑奇幻",
       audience: "成人",
       protagonist: "林既明 / 档案员",
       world: "借书支付记忆 / 逾期吞掉姓名",
@@ -191,5 +191,25 @@ describe("normalizeBlueprintCandidates", () => {
     });
 
     expect(candidates[0].centralConflict).toBe("档案员追查禁书真相。");
+  });
+
+  test("summarizes unknown nested objects in helper entries", () => {
+    expect(summaryValue({ angle: "强钩子" })).toBe("强钩子");
+    expect(Object.fromEntries(fieldEntries({ market_angle: { angle: "强钩子" } }))).toEqual({
+      market_angle: "强钩子",
+    });
+  });
+
+  test("preserves index-matched candidate details when candidate title does not match", () => {
+    const candidates = normalizeBlueprintCandidates({
+      title_options: ["A"],
+      candidates: [{ title: "B", genre: "错位题材" }],
+    });
+
+    expect(candidates[0]).toMatchObject({
+      title: "A",
+      genre: "错位题材",
+    });
+    expect(candidates[0].extras).toEqual({});
   });
 });

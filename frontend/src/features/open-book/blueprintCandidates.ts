@@ -102,7 +102,15 @@ export function summaryValue(value: unknown): string {
     return "";
   }
 
-  return summaryFields.map((field) => summaryValue(fields[field])).filter(Boolean).join(" / ");
+  const preferredSummary = summaryFields
+    .map((field) => summaryValue(fields[field]))
+    .filter(Boolean)
+    .join(" / ");
+  if (preferredSummary) {
+    return preferredSummary;
+  }
+
+  return Object.values(fields).map((entryValue) => summaryValue(entryValue)).filter(Boolean).join(" / ");
 }
 
 export function fieldEntries(value: unknown): Array<[string, string]> {
@@ -136,10 +144,7 @@ function candidatesForTitles(
     if (titleMatch) {
       return titleMatch;
     }
-    if (indexMatch && !titleValue(indexMatch)) {
-      return indexMatch;
-    }
-    return {};
+    return indexMatch ?? {};
   });
 }
 
