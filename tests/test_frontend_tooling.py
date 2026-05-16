@@ -19,30 +19,39 @@ def test_pixi_exposes_frontend_tasks() -> None:
     config = tomllib.loads(Path("pixi.toml").read_text(encoding="utf-8"))
     assert "nodejs" in config["dependencies"]
     assert config["dependencies"]["nodejs"] == ">=22.12,<23"
+    assert config["tasks"]["dev"] == (
+        "pixi run frontend-install && python -m mynovel.dev_stack --db .mynovel/dev.sqlite"
+    )
+    assert config["tasks"]["preview"] == (
+        "pixi run frontend-install && npm --prefix frontend run build && "
+        "python -m mynovel.release_package sync-frontend-dist --source frontend/dist "
+        "--target src/mynovel/frontend/dist && mynovel-dev --db .mynovel/dev.sqlite"
+    )
     assert config["tasks"]["frontend-install"] == (
         "npm --prefix frontend install --package-lock=false"
     )
-    assert config["tasks"]["frontend-dev"] == (
-        "pixi run frontend-install && npm --prefix frontend run dev"
-    )
-    assert config["tasks"]["frontend-build"] == (
-        "pixi run frontend-install && npm --prefix frontend run build && "
-        "python -m mynovel.release_package sync-frontend-dist --source frontend/dist "
-        "--target src/mynovel/frontend/dist"
-    )
-    assert config["tasks"]["frontend-typecheck"] == (
-        "pixi run frontend-install && npm --prefix frontend run typecheck"
-    )
-    assert config["tasks"]["frontend-lint"] == (
-        "pixi run frontend-install && npm --prefix frontend run lint"
-    )
-    assert config["tasks"]["frontend-test"] == (
-        "pixi run frontend-install && npm --prefix frontend run test"
-    )
-    assert config["tasks"]["frontend-e2e"] == (
-        "pixi run frontend-build && PLAYWRIGHT_BROWSERS_PATH=.tool/ms-playwright "
-        "npm --prefix frontend exec playwright install chromium && npm --prefix frontend run e2e"
-    )
+    ci_only_task_names = {
+        "test",
+        "lint",
+        "typecheck",
+        "schema-check",
+        "frontend-dev",
+        "frontend-build",
+        "frontend-typecheck",
+        "frontend-lint",
+        "frontend-test",
+        "frontend-e2e",
+        "desktop-build",
+        "native-package",
+    }
+    assert ci_only_task_names.isdisjoint(config["tasks"])
+
+
+def test_vite_dev_server_proxies_api_to_python_backend() -> None:
+    vite_config = Path("frontend/vite.config.ts").read_text(encoding="utf-8")
+
+    assert '"/api": "http://127.0.0.1:8765"' in vite_config
+    assert "server:" in vite_config
 
 
 def test_frontend_config_files_support_tooling() -> None:

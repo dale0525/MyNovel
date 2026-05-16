@@ -1,17 +1,20 @@
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import {
+  getProviderConfig,
   providerConfigResponseFromError,
   saveProviderConfig,
 } from "./providerConfigApi";
 import type {
   ProviderConfigDraft,
+  ProviderConfigSummary,
   ProviderValidationReport,
   ProviderValidationResult,
 } from "./providerConfigTypes";
 
 type ProviderConfigPageProps = {
   bootstrapMessage?: string | null;
+  loadExistingConfig?: boolean;
 };
 
 const emptyDraft: ProviderConfigDraft = {
@@ -24,14 +27,53 @@ const emptyDraft: ProviderConfigDraft = {
   embeddingModel: "",
 };
 
-export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps) {
+export function ProviderConfigPage({
+  bootstrapMessage,
+  loadExistingConfig = false,
+}: ProviderConfigPageProps) {
   const [draft, setDraft] = useState<ProviderConfigDraft>(emptyDraft);
+  const [savedConfig, setSavedConfig] = useState<ProviderConfigSummary | null>(null);
   const [validation, setValidation] = useState<ProviderValidationReport | null>(null);
   const [message, setMessage] = useState<string | null>(bootstrapMessage ?? null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [canContinueAfterSave, setCanContinueAfterSave] = useState(false);
+  const hasReusableLlmApiKey =
+    savedConfig?.hasLlmApiKey === true &&
+    sameEndpoint(draft.llmBaseUrl, savedConfig.llmBaseUrl);
+  const hasReusableEmbeddingApiKey =
+    !draft.embeddingUseLlmCredentials &&
+    savedConfig?.embeddingUseLlmCredentials === false &&
+    savedConfig.hasEmbeddingApiKey &&
+    sameEndpoint(draft.embeddingBaseUrl, savedConfig.embeddingBaseUrl);
   const embeddingCredentialsRequired =
-    !draft.embeddingUseLlmCredentials && draft.embeddingModel.trim().length > 0;
+    !draft.embeddingUseLlmCredentials &&
+    draft.embeddingModel.trim().length > 0 &&
+    !hasReusableEmbeddingApiKey;
+
+  useEffect(() => {
+    if (!loadExistingConfig) {
+      return;
+    }
+
+    const controller = new AbortController();
+    getProviderConfig({ signal: controller.signal })
+      .then((response) => {
+        setSavedConfig(response.providerConfig);
+        if (response.providerConfig) {
+          setDraft(draftFromProviderConfig(response.providerConfig));
+        }
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") {
+          return;
+        }
+        setMessage(error instanceof Error ? error.message : "已保存模型配置加载失败。");
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [loadExistingConfig]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -91,8 +133,9 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
           value={draft.llmApiKey}
           onChange={(value) => updateDraft("llmApiKey", value)}
           autoComplete="off"
+          placeholder={hasReusableLlmApiKey ? "已保存，留空则继续使用" : undefined}
           type="password"
-          required
+          required={!hasReusableLlmApiKey}
         />
         <TextField
           label="Model name"
@@ -121,6 +164,7 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
           label="Embedding model name"
           value={draft.embeddingModel}
           onChange={(value) => updateDraft("embeddingModel", value)}
+          hint="可选，不填时使用本地检索"
           placeholder="text-embedding-3-large"
         />
         {!draft.embeddingUseLlmCredentials ? (
@@ -137,6 +181,7 @@ export function ProviderConfigPage({ bootstrapMessage }: ProviderConfigPageProps
               value={draft.embeddingApiKey}
               onChange={(value) => updateDraft("embeddingApiKey", value)}
               autoComplete="off"
+              placeholder={hasReusableEmbeddingApiKey ? "已保存，留空则继续使用" : undefined}
               type="password"
               required={embeddingCredentialsRequired}
             />
@@ -176,6 +221,7 @@ type TextFieldProps = {
   value: string;
   onChange: (value: string) => void;
   autoComplete?: string;
+  hint?: string;
   placeholder?: string;
   required?: boolean;
   type?: "text" | "password";
@@ -186,22 +232,33 @@ function TextField({
   value,
   onChange,
   autoComplete,
+  hint,
   placeholder,
   required,
   type = "text",
 }: TextFieldProps) {
+  const inputId = useId();
+  const hintId = hint ? `${inputId}-hint` : undefined;
+
   return (
-    <label className="provider-field">
-      <span>{label}</span>
+    <div className="provider-field">
+      <label htmlFor={inputId}>{label}</label>
       <input
+        aria-describedby={hintId}
         autoComplete={autoComplete}
+        id={inputId}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         required={required}
         type={type}
         value={value}
       />
-    </label>
+      {hint ? (
+        <span className="provider-field__hint" id={hintId}>
+          {hint}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -264,6 +321,22 @@ function sanitizeProviderConfigDraft(draft: ProviderConfigDraft): ProviderConfig
   }
 
   return { ...draft, embeddingBaseUrl: "", embeddingApiKey: "" };
+}
+
+function draftFromProviderConfig(config: ProviderConfigSummary): ProviderConfigDraft {
+  return {
+    llmBaseUrl: config.llmBaseUrl,
+    llmApiKey: "",
+    llmModel: config.llmModel,
+    embeddingUseLlmCredentials: config.embeddingUseLlmCredentials,
+    embeddingBaseUrl: config.embeddingBaseUrl,
+    embeddingApiKey: "",
+    embeddingModel: config.embeddingModel,
+  };
+}
+
+function sameEndpoint(value: string | null | undefined, other: string | null | undefined): boolean {
+  return (value ?? "").trim() === (other ?? "").trim();
 }
 
 function hasFailedOptionalValidation(validation?: ProviderValidationReport): boolean {

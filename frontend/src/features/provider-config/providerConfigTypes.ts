@@ -47,3 +47,9 @@ export type ProviderConfigResponse = {
     details: Record<string, unknown>;
   };
 };
+
+export type ProviderConfigLoadResponse = {
+  providerConfig: ProviderConfigSummary | null;
+  validated: boolean;
+  embeddingValidated: boolean;
+};

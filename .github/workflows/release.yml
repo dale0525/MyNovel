@@ -33,16 +33,19 @@ jobs:
       - run: pixi run pytest
       - run: pixi run ruff check src tests
       - run: pixi run ruff format --check src tests
-      - run: pixi run typecheck
-      - run: pixi run schema-check
-      - run: pixi run desktop-build
+      - run: pixi run mypy src
+      - run: pixi run python -m mynovel.schema_check
+      - run: pixi run npm --prefix frontend install --package-lock=false
+      - run: pixi run npm --prefix frontend run build
+      - run: pixi run python -m mynovel.release_package sync-frontend-dist --source frontend/dist --target src/mynovel/frontend/dist
+      - run: pixi run pyinstaller --name MyNovel --onefile --collect-all mynovel --workpath build/pyinstaller --specpath build src/mynovel/desktop.py
       - name: Install free WiX toolset
         if: runner.os == 'Windows'
         run: |
           dotnet tool install --tool-path .tools wix --version 5.0.2
           "$PWD/.tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Build unsigned native installer
-        run: pixi run native-package --version "${{ env.RELEASE_VERSION }}" --platform "${{ matrix.asset_suffix }}"
+        run: pixi run python -m mynovel.release_package --version "${{ env.RELEASE_VERSION }}" --platform "${{ matrix.asset_suffix }}"
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.asset_suffix }}

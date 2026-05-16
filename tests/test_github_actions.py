@@ -11,12 +11,16 @@ def test_ci_workflow_runs_project_verification_with_pixi() -> None:
     assert "pixi run pytest" in commands
     assert "pixi run ruff check src tests" in commands
     assert "pixi run ruff format --check src tests" in commands
-    assert "pixi run typecheck" in commands
-    assert "pixi run schema-check" in commands
+    assert "pixi run mypy src" in commands
+    assert "pixi run python -m mynovel.schema_check" in commands
+    assert "pixi run npm --prefix frontend install --package-lock=false" in commands
+    assert "pixi run npm --prefix frontend run test" in commands
+    assert "pixi run npm --prefix frontend run typecheck" in commands
+    assert "pixi run npm --prefix frontend run build" in commands
 
     pixi = Path("pixi.toml").read_text(encoding="utf-8")
     assert 'mypy = "' in pixi
-    assert 'typecheck = "mypy src"' in pixi
+    assert 'typecheck = "mypy src"' not in pixi
     assert "compileall" not in pixi
 
 
@@ -26,7 +30,11 @@ def test_release_workflow_reserves_desktop_release_metadata_steps() -> None:
     commands = _workflow_run_commands(workflow)
 
     assert "pixi run pytest" in commands
-    assert any(command.startswith("pixi run native-package") for command in commands)
+    assert any(command.startswith("pixi run pyinstaller") for command in commands)
+    assert any(
+        command.startswith("pixi run python -m mynovel.release_package --version")
+        for command in commands
+    )
     assert workflow["on"]["push"]["branches"] == ["main"]
     assert "tags" not in workflow["on"]["push"]
 

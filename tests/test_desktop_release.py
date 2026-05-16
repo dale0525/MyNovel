@@ -12,17 +12,15 @@ def test_desktop_entrypoint_and_build_task_are_configured() -> None:
 
     assert project["project"]["scripts"]["mynovel-desktop"] == "mynovel.desktop:main"
     assert "pyinstaller" in pixi["pypi-dependencies"]
-    assert "src/mynovel/desktop.py" in pixi["tasks"]["desktop-build"]
-    assert "frontend-build" in pixi["tasks"]["desktop-build"]
-    assert "--collect-all mynovel" in pixi["tasks"]["desktop-build"]
-    assert "native-package" in pixi["tasks"]
-    assert "mynovel.release_package" in pixi["tasks"]["native-package"]
+    assert "desktop-build" not in pixi["tasks"]
+    assert "native-package" not in pixi["tasks"]
 
 
-def test_frontend_build_copies_assets_into_python_package() -> None:
+def test_preview_task_copies_assets_into_python_package() -> None:
     pixi = tomllib.loads(Path("pixi.toml").read_text(encoding="utf-8"))
 
-    assert "src/mynovel/frontend/dist" in pixi["tasks"]["frontend-build"]
+    assert "src/mynovel/frontend/dist" in pixi["tasks"]["preview"]
+    assert "mynovel-dev --db .mynovel/dev.sqlite" in pixi["tasks"]["preview"]
 
 
 def test_sync_frontend_dist_replaces_package_assets(tmp_path: Path) -> None:
@@ -48,8 +46,11 @@ def test_release_workflow_builds_desktop_artifact_and_update_metadata() -> None:
         step["run"] for job in workflow["jobs"].values() for step in job["steps"] if "run" in step
     ]
 
-    assert "pixi run desktop-build" in commands
-    assert any(command.startswith("pixi run native-package") for command in commands)
+    assert any(command.startswith("pixi run pyinstaller") for command in commands)
+    assert any(
+        command.startswith("pixi run python -m mynovel.release_package --version")
+        for command in commands
+    )
     workflow_text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     assert "update-" in workflow_text
     assert "sha256" in workflow_text

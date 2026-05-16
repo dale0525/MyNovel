@@ -68,7 +68,7 @@ def test_missing_index_reports_frontend_not_built(tmp_path: Path) -> None:
 
     assert response.status == HTTPStatus.SERVICE_UNAVAILABLE
     assert response.content_type == "text/plain; charset=utf-8"
-    assert b"pixi run frontend-build" in response.body
+    assert b"pixi run preview" in response.body
 
 
 def test_packaged_provider_setup_does_not_require_rerank_model() -> None:

@@ -18,7 +18,10 @@ export function routeForPath(pathname: string): RouteMatch {
   const path = normalizePath(pathname);
 
   if (path === "/settings/provider" || path === "/provider-config") {
-    return { activePath: "/settings/provider", element: <ProviderConfigPage /> };
+    return {
+      activePath: "/settings/provider",
+      element: <ProviderConfigPage loadExistingConfig />,
+    };
   }
 
   if (path === "/books/new") {

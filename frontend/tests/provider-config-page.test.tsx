@@ -19,6 +19,7 @@ test("provider setup requires chat and treats embedding as optional", () => {
   expect(screen.getByLabelText("API key")).toBeRequired();
   expect(screen.getByLabelText("Model name")).toBeRequired();
   expect(screen.getByLabelText("Embedding model name")).not.toBeRequired();
+  expect(screen.getByText("可选，不填时使用本地检索")).toBeInTheDocument();
   expect(screen.queryByLabelText("Rerank model name")).not.toBeInTheDocument();
 });
 
@@ -328,6 +329,56 @@ test("api key fields disable browser autocomplete", () => {
   expect(screen.getByLabelText("Embedding API key")).toHaveAttribute("autocomplete", "off");
 });
 
+test("configured settings page loads saved provider config without exposing api keys", async () => {
+  window.history.pushState(null, "", "/settings/provider");
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) === "/api/provider-config") {
+      return Response.json({
+        providerConfig: {
+          llmBaseUrl: "https://api.saved.test/v1",
+          llmModel: "gpt-saved",
+          hasLlmApiKey: true,
+          embeddingUseLlmCredentials: false,
+          embeddingBaseUrl: "https://embedding.saved.test/v1",
+          embeddingModel: "embedding-saved",
+          hasEmbeddingApiKey: true,
+          rerankUseLlmCredentials: true,
+          rerankBaseUrl: null,
+          rerankModel: null,
+          hasRerankApiKey: false,
+        },
+        validated: true,
+        embeddingValidated: true,
+      });
+    }
+    return Response.json({}, { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(
+    <BootstrapGate
+      bootstrap={{ providerConfigured: true, initialRoute: "/settings/provider", message: null }}
+    />,
+  );
+
+  await waitFor(() =>
+    expect(screen.getByLabelText("Base url")).toHaveValue("https://api.saved.test/v1"),
+  );
+  expect(screen.getByLabelText("Model name")).toHaveValue("gpt-saved");
+  expect(screen.getByLabelText("API key")).toHaveValue("");
+  expect(screen.getByLabelText("API key")).not.toBeRequired();
+  expect(screen.getByLabelText("Embedding model name")).toHaveValue("embedding-saved");
+  expect(screen.getByLabelText("Embedding base url")).toHaveValue(
+    "https://embedding.saved.test/v1",
+  );
+  expect(screen.getByLabelText("Embedding API key")).toHaveValue("");
+  expect(screen.getByLabelText("Embedding API key")).not.toBeRequired();
+  expect(screen.queryByText("已保存 API key；留空则继续使用，填写新值会替换。")).not.toBeInTheDocument();
+  expect(screen.getAllByPlaceholderText("已保存，留空则继续使用")).toHaveLength(2);
+  expect(document.body).not.toHaveTextContent("llm-secret");
+  expect(fetchMock).toHaveBeenCalledWith("/api/provider-config", expect.anything());
+});
+
 test("BootstrapGate renders only setup when provider is not configured on any path", () => {
   window.history.pushState(null, "", "/books/new");
 
@@ -561,8 +612,18 @@ test("BootstrapGate refetches blueprint after same-route retry navigation", asyn
   expect(fetchMock.mock.calls.filter(([path]) => path === "/api/blueprints/3")).toHaveLength(2);
 });
 
-test("BootstrapGate routes configured settings path inside the app shell", () => {
+test("BootstrapGate routes configured settings path inside the app shell", async () => {
   window.history.pushState(null, "", "/settings/provider");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        providerConfig: null,
+        validated: false,
+        embeddingValidated: false,
+      }),
+    ),
+  );
 
   render(
     <BootstrapGate
@@ -572,6 +633,7 @@ test("BootstrapGate routes configured settings path inside the app shell", () =>
 
   expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "连接你的 AI 模型" })).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByLabelText("Base url")).toHaveValue(""));
   expect(screen.getByRole("link", { name: "设置" })).toHaveClass("is-active");
   expect(screen.queryByRole("heading", { name: "把故事推进到下一步" })).not.toBeInTheDocument();
 });

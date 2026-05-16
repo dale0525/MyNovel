@@ -36,7 +36,8 @@ def test_dev_pixi_task_starts_local_server() -> None:
 
     dev_task = config["tasks"]["dev"]
 
-    assert dev_task.startswith("mynovel-dev")
+    assert dev_task.startswith("pixi run frontend-install")
+    assert "python -m mynovel.dev_stack" in dev_task
     assert "--help" not in dev_task
 
 

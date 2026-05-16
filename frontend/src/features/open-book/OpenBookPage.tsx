@@ -14,6 +14,62 @@ const ideaPresets = [
   "被流放的巡夜人继承一座会说话的城",
 ];
 
+const genrePresets = [
+  "玄幻升级",
+  "都市异能",
+  "仙侠修真",
+  "科幻机甲",
+  "废土生存",
+  "悬疑推理",
+  "古代言情",
+  "穿越重生",
+  "无限流",
+  "奇幻冒险",
+  "历史架空",
+  "赛博朋克",
+];
+
+const audiencePresets = [
+  "男频网文读者",
+  "女频网文读者",
+  "轻小说读者",
+  "悬疑推理读者",
+  "科幻读者",
+  "成长冒险读者",
+  "成人类型小说读者",
+  "泛娱乐爽文读者",
+];
+
+const sellingPointPresets = [
+  "逆袭反转",
+  "智商碾压",
+  "打脸爽感",
+  "群像高燃",
+  "升级成长",
+  "强情绪拉扯",
+  "悬念钩子",
+  "经营建设",
+];
+
+const constraintPresets = [
+  "不写虐主",
+  "不写恋爱线",
+  "不写后宫",
+  "不写低智反派",
+  "不写重口暴力",
+  "不写现实政治",
+  "不写未成年人危险内容",
+];
+
+type PresetFieldProps = {
+  label: string;
+  mode?: "append" | "replace";
+  onChange: (value: string) => void;
+  placeholder: string;
+  presets: string[];
+  value: string;
+};
+
 export function OpenBookPage() {
   const [idea, setIdea] = useState("");
   const [genre, setGenre] = useState("");
@@ -82,27 +138,38 @@ export function OpenBookPage() {
         </div>
 
         <div className="provider-form-grid">
-          <label className="provider-field">
-            题材
-            <input onChange={(event) => setGenre(event.target.value)} value={genre} />
-          </label>
-          <label className="provider-field">
-            目标读者
-            <input onChange={(event) => setAudience(event.target.value)} value={audience} />
-          </label>
+          <PresetField
+            label="题材"
+            onChange={setGenre}
+            placeholder="留空：交给 AI 判断；也可手填"
+            presets={genrePresets}
+            value={genre}
+          />
+          <PresetField
+            label="目标读者"
+            onChange={setAudience}
+            placeholder="留空：交给 AI 判断；也可手填"
+            presets={audiencePresets}
+            value={audience}
+          />
         </div>
 
-        <label className="provider-field">
-          爽点偏好
-          <input
-            onChange={(event) => setSellingPoints(event.target.value)}
-            value={sellingPoints}
-          />
-        </label>
-        <label className="provider-field">
-          写作禁区
-          <input onChange={(event) => setConstraints(event.target.value)} value={constraints} />
-        </label>
+        <PresetField
+          label="爽点偏好"
+          mode="append"
+          onChange={setSellingPoints}
+          placeholder="留空：交给 AI 判断；也可手填或点多个预设"
+          presets={sellingPointPresets}
+          value={sellingPoints}
+        />
+        <PresetField
+          label="写作禁区"
+          mode="append"
+          onChange={setConstraints}
+          placeholder="留空：交给 AI 判断；也可手填或点多个预设"
+          presets={constraintPresets}
+          value={constraints}
+        />
 
         <button className="workbench-action-button" disabled={isSubmitting} type="submit">
           {isSubmitting ? "生成中..." : "生成蓝图"}
@@ -110,4 +177,53 @@ export function OpenBookPage() {
       </form>
     </section>
   );
+}
+
+function PresetField({
+  label,
+  mode = "replace",
+  onChange,
+  placeholder,
+  presets,
+  value,
+}: PresetFieldProps) {
+  function applyPreset(preset: string) {
+    onChange(mode === "append" ? appendPresetValue(value, preset) : preset);
+  }
+
+  return (
+    <div className="open-book-preset-field">
+      <label className="provider-field">
+        {label}
+        <input
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          value={value}
+        />
+      </label>
+      <div className="open-book-presets open-book-presets--compact">
+        {presets.map((preset) => (
+          <button key={preset} onClick={() => applyPreset(preset)} type="button">
+            {preset}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function appendPresetValue(currentValue: string, preset: string) {
+  const trimmedValue = currentValue.trim();
+  if (!trimmedValue) {
+    return preset;
+  }
+
+  const existingValues = trimmedValue
+    .split(/[、,，;；\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (existingValues.includes(preset)) {
+    return trimmedValue;
+  }
+  return `${trimmedValue}、${preset}`;
 }

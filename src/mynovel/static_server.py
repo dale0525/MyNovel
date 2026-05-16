@@ -40,7 +40,7 @@ def _resolve_asset_response(path: str, dist_dir: Path) -> StaticResponse:
 def _resolve_index_response(dist_dir: Path) -> StaticResponse:
     index_path = dist_dir / "index.html"
     if not index_path.is_file():
-        message = "React frontend is not built. Run `pixi run frontend-build`."
+        message = "React frontend is not built. Run `pixi run preview`."
         return StaticResponse(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "text/plain; charset=utf-8",

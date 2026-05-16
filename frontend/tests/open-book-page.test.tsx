@@ -35,6 +35,42 @@ test("submits open book idea as JSON and follows API redirect", async () => {
   );
 });
 
+test("optional open book fields support blank values, presets, and custom text", () => {
+  render(<OpenBookPage />);
+
+  expect(screen.getByLabelText("故事灵感")).toBeRequired();
+  expect(screen.getByLabelText("题材")).not.toBeRequired();
+  expect(screen.getByLabelText("目标读者")).not.toBeRequired();
+  expect(screen.getByLabelText("爽点偏好")).not.toBeRequired();
+  expect(screen.getByLabelText("写作禁区")).not.toBeRequired();
+
+  fireEvent.click(screen.getByRole("button", { name: "玄幻升级" }));
+  expect(screen.getByLabelText("题材")).toHaveValue("玄幻升级");
+
+  fireEvent.change(screen.getByLabelText("题材"), { target: { value: "自定义题材" } });
+  expect(screen.getByLabelText("题材")).toHaveValue("自定义题材");
+
+  fireEvent.click(screen.getByRole("button", { name: "男频网文读者" }));
+  expect(screen.getByLabelText("目标读者")).toHaveValue("男频网文读者");
+
+  fireEvent.change(screen.getByLabelText("目标读者"), { target: { value: "私人读者" } });
+  expect(screen.getByLabelText("目标读者")).toHaveValue("私人读者");
+
+  fireEvent.click(screen.getByRole("button", { name: "逆袭反转" }));
+  fireEvent.click(screen.getByRole("button", { name: "智商碾压" }));
+  expect(screen.getByLabelText("爽点偏好")).toHaveValue("逆袭反转、智商碾压");
+
+  fireEvent.change(screen.getByLabelText("爽点偏好"), { target: { value: "慢热群像" } });
+  expect(screen.getByLabelText("爽点偏好")).toHaveValue("慢热群像");
+
+  fireEvent.click(screen.getByRole("button", { name: "不写虐主" }));
+  fireEvent.click(screen.getByRole("button", { name: "不写后宫" }));
+  expect(screen.getByLabelText("写作禁区")).toHaveValue("不写虐主、不写后宫");
+
+  fireEvent.change(screen.getByLabelText("写作禁区"), { target: { value: "自定义禁区" } });
+  expect(screen.getByLabelText("写作禁区")).toHaveValue("自定义禁区");
+});
+
 test("renders API error message when open book submit fails", async () => {
   vi.stubGlobal(
     "fetch",

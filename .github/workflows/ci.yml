@@ -14,5 +14,9 @@ jobs:
       - run: pixi run pytest
       - run: pixi run ruff check src tests
       - run: pixi run ruff format --check src tests
-      - run: pixi run typecheck
-      - run: pixi run schema-check
+      - run: pixi run mypy src
+      - run: pixi run python -m mynovel.schema_check
+      - run: pixi run npm --prefix frontend install --package-lock=false
+      - run: pixi run npm --prefix frontend run test
+      - run: pixi run npm --prefix frontend run typecheck
+      - run: pixi run npm --prefix frontend run build

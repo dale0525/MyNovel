@@ -1,10 +1,15 @@
-import { ApiError, postJson } from "@/lib/api";
+import { ApiError, getJson, postJson } from "@/lib/api";
 import type {
   ProviderConfigDraft,
+  ProviderConfigLoadResponse,
   ProviderConfigResponse,
   ProviderValidationReport,
   ProviderValidationResult,
 } from "./providerConfigTypes";
+
+export function getProviderConfig(options: { signal?: AbortSignal } = {}) {
+  return getJson<ProviderConfigLoadResponse>("/api/provider-config", options);
+}
 
 export function saveProviderConfig(draft: ProviderConfigDraft): Promise<ProviderConfigResponse> {
   return postJson<ProviderConfigResponse>("/api/provider-config", draft);
