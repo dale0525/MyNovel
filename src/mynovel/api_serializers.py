@@ -413,11 +413,16 @@ def is_provider_config_validated(
 ) -> bool:
     if config is None or validation is None:
         return False
-    return (
-        validation.llm_fingerprint == provider_model_fingerprint(config, "llm")
-        and validation.embedding_fingerprint == provider_model_fingerprint(config, "embedding")
-        and validation.rerank_fingerprint == provider_model_fingerprint(config, "rerank")
-    )
+    return validation.llm_fingerprint == provider_model_fingerprint(config, "llm")
+
+
+def is_embedding_config_validated(
+    config: ProviderConfig | None,
+    validation: ProviderConfigValidation | None,
+) -> bool:
+    if config is None or validation is None or not config.embedding_model.strip():
+        return False
+    return validation.embedding_fingerprint == provider_model_fingerprint(config, "embedding")
 
 
 def _canon_section_payloads(

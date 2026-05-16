@@ -32,7 +32,9 @@ class ProviderValidationReport:
 
     @property
     def passed(self) -> bool:
-        return all(result.status != "failed" for result in self.results)
+        return all(
+            result.status != "failed" for result in self.results if result.kind == "llm"
+        )
 
 
 class ProviderConfigChecker(Protocol):
@@ -85,9 +87,22 @@ async def validate_provider_config(
     validation = _copy_validation(previous_validation)
     results: list[ProviderCheckResult] = []
 
-    for kind in ("llm", "embedding", "rerank"):
+    for kind in ("llm", "embedding"):
+        if kind == "embedding" and not config.embedding_model.strip():
+            validation.embedding_fingerprint = None
+            results.append(
+                ProviderCheckResult(
+                    kind,
+                    _model_label(kind),
+                    "skipped",
+                    "未配置检索模型，章节生产将使用本地检索。",
+                )
+            )
+            continue
+
         missing_message = _missing_required_message(config, kind)
         if missing_message:
+            _clear_fingerprint(validation, kind)
             results.append(
                 ProviderCheckResult(kind, _model_label(kind), "failed", missing_message)
             )
@@ -108,6 +123,7 @@ async def validate_provider_config(
         try:
             await _run_check(checker, config, kind)
         except Exception as error:  # noqa: BLE001
+            _clear_fingerprint(validation, kind)
             results.append(
                 ProviderCheckResult(
                     kind,
@@ -220,6 +236,18 @@ def _set_fingerprint(
         validation.embedding_fingerprint = fingerprint
     else:
         validation.rerank_fingerprint = fingerprint
+
+
+def _clear_fingerprint(
+    validation: ProviderConfigValidation,
+    kind: ProviderModelKind,
+) -> None:
+    if kind == "llm":
+        validation.llm_fingerprint = None
+    elif kind == "embedding":
+        validation.embedding_fingerprint = None
+    else:
+        validation.rerank_fingerprint = None
 
 
 def _model_label(kind: ProviderModelKind) -> str:

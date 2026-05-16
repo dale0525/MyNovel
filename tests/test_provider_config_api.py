@@ -12,7 +12,7 @@ from mynovel.api_provider_config import (
 from mynovel.api_routes import dispatch_api_get, dispatch_api_post
 from mynovel.db import create_engine_for_path
 from mynovel.domain.models import ProviderConfig
-from mynovel.domain.repositories import get_provider_config, get_provider_config_validation
+from mynovel.domain.repositories import get_provider_config
 
 
 class FakeChecker:
@@ -36,74 +36,31 @@ class FakeChecker:
             raise RuntimeError("rerank failed")
 
 
-def test_save_provider_config_json_returns_validation_error_without_saving_config(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "mynovel.sqlite"
-    checker = FakeChecker(failures={"rerank"})
+def test_save_provider_config_succeeds_when_embedding_fails(tmp_path: Path) -> None:
+    response = save_provider_config_json(
+        tmp_path / "dev.sqlite",
+        _payload(),
+        FakeChecker(failures={"embedding"}),
+    )
 
-    response = save_provider_config_json(db_path, _payload(), checker)
-
-    assert response.status == HTTPStatus.BAD_REQUEST
-    assert response.body["error"] == {
-        "code": "provider_validation_failed",
-        "message": "模型连接测试未全部通过。",
-        "details": {},
-    }
-    assert response.body["saved"] is False
-    assert response.body["validation"]["passed"] is False
-    assert _validation_statuses(response.body) == {
-        "llm": "passed",
-        "embedding": "passed",
-        "rerank": "failed",
-    }
-    assert _validation_message(response.body, "rerank") == "rerank failed"
-    assert checker.calls == ["llm", "embedding", "rerank"]
-
-    with Session(create_engine_for_path(db_path)) as session:
-        saved = get_provider_config(session)
-        validation = get_provider_config_validation(session)
-
-    assert saved is None
-    assert validation is not None
-    assert validation.llm_fingerprint is not None
-    assert validation.embedding_fingerprint is not None
-    assert validation.rerank_fingerprint is None
+    assert response.status == HTTPStatus.OK
+    assert response.body["saved"] is True
+    statuses = _validation_statuses(response.body)
+    assert statuses["llm"] == "passed"
+    assert statuses["embedding"] == "failed"
+    assert "rerank" not in statuses
 
 
-def test_save_provider_config_json_retests_only_failed_rerank_after_partial_validation(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "mynovel.sqlite"
-    first_checker = FakeChecker(failures={"rerank"})
-    second_checker = FakeChecker()
+def test_save_provider_config_ignores_missing_rerank_model(tmp_path: Path) -> None:
+    response = save_provider_config_json(
+        tmp_path / "dev.sqlite",
+        _payload(rerank_model=""),
+        FakeChecker(failures={"rerank"}),
+    )
 
-    first_response = save_provider_config_json(db_path, _payload(), first_checker)
-    second_response = save_provider_config_json(db_path, _payload(), second_checker)
-
-    assert first_response.status == HTTPStatus.BAD_REQUEST
-    assert second_response.status == HTTPStatus.OK
-    assert second_response.body["saved"] is True
-    assert second_checker.calls == ["rerank"]
-    assert second_response.body["validation"]["passed"] is True
-    assert _validation_statuses(second_response.body) == {
-        "llm": "skipped",
-        "embedding": "skipped",
-        "rerank": "passed",
-    }
-    provider_config = second_response.body["providerConfig"]
-    assert provider_config["llmBaseUrl"] == "https://api.test/v1"
-    assert "llmApiKey" not in provider_config
-    assert "embeddingApiKey" not in provider_config
-    assert "rerankApiKey" not in provider_config
-
-    with Session(create_engine_for_path(db_path)) as session:
-        saved = get_provider_config(session)
-
-    assert saved is not None
-    assert saved.llm_model == "gpt"
-    assert saved.embedding_model == "embed"
-    assert saved.rerank_model == "rerank"
+    assert response.status == HTTPStatus.OK
+    assert response.body["saved"] is True
+    assert "rerank" not in _validation_statuses(response.body)
 
 
 def test_validate_endpoint_tests_and_saves_config_on_success(
@@ -121,7 +78,7 @@ def test_validate_endpoint_tests_and_saves_config_on_success(
 
     assert response.status == HTTPStatus.OK
     assert response.body["saved"] is True
-    assert checker.calls == ["llm", "embedding", "rerank"]
+    assert checker.calls == ["llm", "embedding"]
     with Session(create_engine_for_path(db_path)) as session:
         saved = get_provider_config(session)
 
@@ -135,7 +92,7 @@ def test_failed_json_edit_keeps_existing_valid_provider_config_active(
     db_path = tmp_path / "mynovel.sqlite"
     original_payload = _payload(llm_model="gpt-a", rerank_model="rerank-a")
     changed_payload = _payload(llm_model="gpt-b", rerank_model="rerank-b")
-    changed_checker = FakeChecker(failures={"rerank"})
+    changed_checker = FakeChecker(failures={"llm"})
 
     saved_response = save_provider_config_json(db_path, original_payload, FakeChecker())
     failed_response = save_provider_config_json(db_path, changed_payload, changed_checker)
@@ -145,7 +102,7 @@ def test_failed_json_edit_keeps_existing_valid_provider_config_active(
     assert failed_response.status == HTTPStatus.BAD_REQUEST
     assert failed_response.body["error"]["code"] == "provider_validation_failed"
     assert failed_response.body["saved"] is False
-    assert changed_checker.calls == ["llm", "rerank"]
+    assert changed_checker.calls == ["llm"]
 
     with Session(create_engine_for_path(db_path)) as session:
         saved = get_provider_config(session)
@@ -207,7 +164,7 @@ def test_validation_error_redacts_submitted_keys_from_messages(tmp_path: Path) -
     assert response.status == HTTPStatus.BAD_REQUEST
     assert response.body["saved"] is False
     _assert_no_secret_payload(response.body, secret)
-    assert "[redacted]" in _validation_message(response.body, "rerank")
+    assert "[redacted]" in _validation_message(response.body, "llm")
 
 
 def test_validation_error_redacts_raw_submitted_embedding_key_when_inherited(
@@ -226,8 +183,8 @@ def test_validation_error_redacts_raw_submitted_embedding_key_when_inherited(
         checker,
     )
 
-    assert response.status == HTTPStatus.BAD_REQUEST
-    assert response.body["saved"] is False
+    assert response.status == HTTPStatus.OK
+    assert response.body["saved"] is True
     _assert_no_secret_payload(response.body, secret)
     assert "[redacted]" in _validation_message(response.body, "embedding")
 
@@ -248,10 +205,10 @@ def test_validation_error_redacts_raw_submitted_rerank_key_when_inherited(
         checker,
     )
 
-    assert response.status == HTTPStatus.BAD_REQUEST
-    assert response.body["saved"] is False
+    assert response.status == HTTPStatus.OK
+    assert response.body["saved"] is True
     _assert_no_secret_payload(response.body, secret)
-    assert "[redacted]" in _validation_message(response.body, "rerank")
+    assert "rerank" not in _validation_statuses(response.body)
 
 
 def test_keyless_llm_edit_reuses_existing_llm_api_key(tmp_path: Path) -> None:
@@ -410,8 +367,8 @@ def test_keyless_embedding_edit_does_not_reuse_key_when_base_url_changes(
         checker,
     )
 
-    assert response.status == HTTPStatus.BAD_REQUEST
-    assert response.body["saved"] is False
+    assert response.status == HTTPStatus.OK
+    assert response.body["saved"] is True
     assert checker.calls == []
     assert _validation_message(response.body, "embedding") == "请填写检索模型访问密钥。"
 
@@ -419,8 +376,8 @@ def test_keyless_embedding_edit_does_not_reuse_key_when_base_url_changes(
         saved = get_provider_config(session)
 
     assert saved is not None
-    assert saved.embedding_base_url == "https://embedding-safe.test/v1"
-    assert saved.embedding_api_key == embedding_key
+    assert saved.embedding_base_url == "https://embedding-attacker.test/v1"
+    assert saved.embedding_api_key is None
 
 
 def test_keyless_rerank_edit_does_not_reuse_key_when_base_url_changes(
@@ -451,17 +408,17 @@ def test_keyless_rerank_edit_does_not_reuse_key_when_base_url_changes(
         checker,
     )
 
-    assert response.status == HTTPStatus.BAD_REQUEST
-    assert response.body["saved"] is False
+    assert response.status == HTTPStatus.OK
+    assert response.body["saved"] is True
     assert checker.calls == []
-    assert _validation_message(response.body, "rerank") == "请填写重排模型访问密钥。"
+    assert "rerank" not in _validation_statuses(response.body)
 
     with Session(create_engine_for_path(db_path)) as session:
         saved = get_provider_config(session)
 
     assert saved is not None
-    assert saved.rerank_base_url == "https://rerank-safe.test/v1"
-    assert saved.rerank_api_key == rerank_key
+    assert saved.rerank_base_url == "https://rerank-attacker.test/v1"
+    assert saved.rerank_api_key is None
 
 
 def test_inherited_credentials_clear_submitted_dedicated_api_keys(
@@ -544,7 +501,7 @@ def test_provider_config_route_saves_config_on_success(
 
     assert response.status == HTTPStatus.OK
     assert response.body["saved"] is True
-    assert checker.calls == ["llm", "embedding", "rerank"]
+    assert checker.calls == ["llm", "embedding"]
 
     with Session(create_engine_for_path(db_path)) as session:
         saved = get_provider_config(session)
@@ -628,9 +585,9 @@ class SecretLeakingChecker(FakeChecker):
         super().__init__()
         self.secret = secret
 
-    async def check_rerank(self, config: ProviderConfig) -> None:
-        self.calls.append("rerank")
-        raise RuntimeError(f"rerank failed for {self.secret}")
+    async def check_chat(self, config: ProviderConfig) -> None:
+        self.calls.append("llm")
+        raise RuntimeError(f"chat failed for {self.secret}")
 
 
 class ModelSecretLeakingChecker(FakeChecker):

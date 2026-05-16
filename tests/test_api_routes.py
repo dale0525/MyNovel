@@ -36,7 +36,7 @@ def test_bootstrap_requires_setup_with_empty_provider_validation(tmp_path: Path)
     assert response.body["initialRoute"] == "/setup"
 
 
-def test_bootstrap_opens_home_with_matching_provider_fingerprints(tmp_path: Path) -> None:
+def test_bootstrap_opens_home_with_matching_chat_fingerprint(tmp_path: Path) -> None:
     db_path = tmp_path / "dev.sqlite"
     config = _provider_config()
     _save_provider_state(
@@ -44,8 +44,6 @@ def test_bootstrap_opens_home_with_matching_provider_fingerprints(tmp_path: Path
         config,
         ProviderConfigValidation(
             llm_fingerprint=provider_model_fingerprint(config, "llm"),
-            embedding_fingerprint=provider_model_fingerprint(config, "embedding"),
-            rerank_fingerprint=provider_model_fingerprint(config, "rerank"),
         ),
     )
 

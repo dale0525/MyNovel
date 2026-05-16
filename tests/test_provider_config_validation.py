@@ -1,6 +1,6 @@
 import asyncio
 
-from mynovel.domain.models import ProviderConfig, ProviderConfigValidation
+from mynovel.domain.models import ProviderConfig
 from mynovel.provider_config_validation import (
     provider_model_fingerprint,
     validate_provider_config,
@@ -28,35 +28,15 @@ class FakeChecker:
             raise RuntimeError("rerank failed")
 
 
-def test_provider_validation_tests_all_models_and_records_passed_fingerprints() -> None:
+def test_provider_validation_requires_chat_and_records_optional_embedding() -> None:
     config = _provider_config()
     checker = FakeChecker()
 
     report = asyncio.run(validate_provider_config(config, None, checker))
 
     assert report.passed is True
-    assert checker.calls == ["llm", "embedding", "rerank"]
-    assert report.validation.llm_fingerprint == provider_model_fingerprint(config, "llm")
-    assert report.validation.embedding_fingerprint == provider_model_fingerprint(
-        config, "embedding"
-    )
-    assert report.validation.rerank_fingerprint == provider_model_fingerprint(config, "rerank")
-
-
-def test_provider_validation_skips_previous_passed_unchanged_model() -> None:
-    config = _provider_config()
-    previous = ProviderConfigValidation(
-        llm_fingerprint=provider_model_fingerprint(config, "llm")
-    )
-    checker = FakeChecker(failures={"rerank"})
-
-    report = asyncio.run(validate_provider_config(config, previous, checker))
-
-    assert report.passed is False
-    assert checker.calls == ["embedding", "rerank"]
-    assert _status_for(report, "llm") == "skipped"
-    assert _status_for(report, "embedding") == "passed"
-    assert _status_for(report, "rerank") == "failed"
+    assert checker.calls == ["llm", "embedding"]
+    assert [result.kind for result in report.results] == ["llm", "embedding"]
     assert report.validation.llm_fingerprint == provider_model_fingerprint(config, "llm")
     assert report.validation.embedding_fingerprint == provider_model_fingerprint(
         config, "embedding"
@@ -64,36 +44,41 @@ def test_provider_validation_skips_previous_passed_unchanged_model() -> None:
     assert report.validation.rerank_fingerprint is None
 
 
-def test_provider_validation_retests_when_effective_model_fields_change() -> None:
-    original = _provider_config(llm_model="gpt-old")
-    changed = _provider_config(llm_model="gpt-new")
-    previous = ProviderConfigValidation(
-        llm_fingerprint=provider_model_fingerprint(original, "llm"),
-        embedding_fingerprint=provider_model_fingerprint(changed, "embedding"),
-        rerank_fingerprint=provider_model_fingerprint(changed, "rerank"),
-    )
-    checker = FakeChecker()
+def test_provider_validation_allows_save_when_optional_embedding_fails() -> None:
+    config = _provider_config()
+    checker = FakeChecker(failures={"embedding", "rerank"})
 
-    report = asyncio.run(validate_provider_config(changed, previous, checker))
+    report = asyncio.run(validate_provider_config(config, None, checker))
 
     assert report.passed is True
-    assert checker.calls == ["llm"]
+    assert checker.calls == ["llm", "embedding"]
     assert _status_for(report, "llm") == "passed"
-    assert _status_for(report, "embedding") == "skipped"
-    assert _status_for(report, "rerank") == "skipped"
-    assert report.validation.llm_fingerprint == provider_model_fingerprint(changed, "llm")
+    assert _status_for(report, "embedding") == "failed"
+    assert report.validation.llm_fingerprint == provider_model_fingerprint(config, "llm")
+    assert report.validation.embedding_fingerprint is None
 
 
-def test_provider_validation_fails_missing_required_fields_before_http_call() -> None:
-    config = _provider_config(rerank_model="")
-    checker = FakeChecker()
+def test_provider_validation_blocks_when_chat_fails() -> None:
+    config = _provider_config()
+    checker = FakeChecker(failures={"llm"})
 
     report = asyncio.run(validate_provider_config(config, None, checker))
 
     assert report.passed is False
     assert checker.calls == ["llm", "embedding"]
-    assert _status_for(report, "rerank") == "failed"
-    assert "重排模型名称" in _message_for(report, "rerank")
+    assert _status_for(report, "llm") == "failed"
+
+
+def test_provider_validation_skips_unconfigured_embedding() -> None:
+    config = _provider_config(embedding_model="")
+    checker = FakeChecker()
+
+    report = asyncio.run(validate_provider_config(config, None, checker))
+
+    assert report.passed is True
+    assert checker.calls == ["llm"]
+    assert _status_for(report, "embedding") == "skipped"
+    assert "未配置检索模型" in _message_for(report, "embedding")
 
 
 def _status_for(report, kind: str) -> str:

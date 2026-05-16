@@ -8,7 +8,10 @@ from typing import Any
 from sqlmodel import Session
 
 from mynovel.api_errors import ApiResponse
-from mynovel.api_serializers import is_provider_config_validated
+from mynovel.api_serializers import (
+    is_embedding_config_validated,
+    is_provider_config_validated,
+)
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import ProviderConfig
 from mynovel.domain.repositories import (
@@ -92,12 +95,14 @@ def get_provider_config_json(db_path: Path) -> ApiResponse:
         config = get_provider_config(session)
         validation = get_provider_config_validation(session)
         validated = is_provider_config_validated(config, validation)
+        embedding_validated = is_embedding_config_validated(config, validation)
 
     return ApiResponse(
         HTTPStatus.OK,
         {
             "providerConfig": provider_config_payload(config) if config is not None else None,
             "validated": validated,
+            "embeddingValidated": embedding_validated,
         },
     )
 
