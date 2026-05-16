@@ -320,7 +320,7 @@ function isMajorChangeRecord(change: Record<string, unknown>): boolean {
   }
 
   const majorTerms = ["角色死亡", "人物死亡", "死亡", "牺牲", "退场", "核心设定", "改写设定"];
-  const changeText = [change.target, change.change]
+  const changeText = [change.type, change.target, change.change]
     .filter((value) => typeof value === "string")
     .join(" ");
   return majorTerms.some((term) => changeText.includes(term));

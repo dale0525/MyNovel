@@ -97,6 +97,33 @@ test.each([
   expect(approveButton).toBeDisabled();
 });
 
+test("major state changes include death terms in change type", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(
+        chapterPayload({
+          stateDelta: {
+            chapter: 2,
+            changes: [{ type: "角色死亡", target: "罗文", change: "保护主角" }],
+          },
+        }),
+      ),
+    ),
+  );
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  const approveButton = screen.getByRole("button", { name: "批准并写入可信设定" });
+  expect(screen.getByLabelText("确认写入重大变化")).toBeInTheDocument();
+  expect(approveButton).toBeDisabled();
+
+  fireEvent.click(screen.getByLabelText("确认写入重大变化"));
+
+  expect(approveButton).toBeEnabled();
+});
+
 test("major change confirmation resets when chapter content changes", async () => {
   const fetchMock = vi
     .fn()
@@ -310,6 +337,37 @@ test("high-risk AI revision requires a trimmed instruction", async () => {
       "/api/chapters/12/repair",
       expect.objectContaining({
         body: JSON.stringify({ reviewerNote: "补强结尾。" }),
+        method: "POST",
+      }),
+    ),
+  );
+});
+
+test("needs revision with high risk can submit trimmed AI repair", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(chapterPayload({ status: "needs_revision", riskLevel: "high" })))
+    .mockResolvedValueOnce(Response.json(chapterPayload({ status: "running" }), { status: 202 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  const revisionButton = screen.getByRole("button", { name: "让 AI 修订" });
+  expect(revisionButton).toBeDisabled();
+
+  fireEvent.change(screen.getByLabelText("修订意图"), { target: { value: "   " } });
+  expect(revisionButton).toBeDisabled();
+
+  fireEvent.change(screen.getByLabelText("修订意图"), { target: { value: "  重写冲突段落。  " } });
+  expect(revisionButton).toBeEnabled();
+  fireEvent.click(revisionButton);
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chapters/12/repair",
+      expect.objectContaining({
+        body: JSON.stringify({ reviewerNote: "重写冲突段落。" }),
         method: "POST",
       }),
     ),

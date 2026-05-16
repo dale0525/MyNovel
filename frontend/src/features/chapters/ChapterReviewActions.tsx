@@ -38,6 +38,7 @@ export function ChapterReviewActions({
   const [decisionNote, setDecisionNote] = useState("");
   const [allowMajorChanges, setAllowMajorChanges] = useState(false);
   const canReviewStage = chapter.status === "awaiting_review" || chapter.status === "needs_revision";
+  const showDecisionPanel = chapter.status === "awaiting_review" || (chapter.status === "needs_revision" && highRisk);
   const repairNoteTrimmed = repairNote.trim();
   const stateDeltaSignature = JSON.stringify(chapter.stateDelta);
 
@@ -81,7 +82,7 @@ export function ChapterReviewActions({
         />
       ) : null}
 
-      {chapter.status === "awaiting_review" ? (
+      {showDecisionPanel ? (
         <>
           <ImpactPanel title="将写入可信设定" items={impactItems} />
 
