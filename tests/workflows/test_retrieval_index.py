@@ -129,7 +129,7 @@ def test_model_retrieval_fallback_scores_vector_entries_from_text(tmp_path) -> N
     assert [result.source_id for result in results] == ["old"]
 
 
-def test_retrieval_budget_skips_oversized_context_and_keeps_later_small_context(
+def test_retrieval_budget_truncates_high_score_oversized_context(
     tmp_path,
 ) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
@@ -165,7 +165,8 @@ def test_retrieval_budget_skips_oversized_context_and_keeps_later_small_context(
             character_budget=4,
         )
 
-    assert [result.source_id for result in results] == ["small"]
+    assert [result.source_id for result in results] == ["long"]
+    assert results[0].text == "符号符号"
 
 
 def test_index_text_stores_invalid_embedding_vector_as_lexical(tmp_path) -> None:

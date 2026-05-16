@@ -203,11 +203,20 @@ def _apply_retrieval_bounds(
     for context in contexts:
         if len(bounded) >= top_k:
             break
-        next_total = used_characters + len(context.text)
-        if next_total > character_budget:
-            continue
+        remaining_budget = character_budget - used_characters
+        if len(context.text) > remaining_budget:
+            bounded.append(
+                RetrievedContext(
+                    source_type=context.source_type,
+                    source_id=context.source_id,
+                    score=context.score,
+                    text=context.text[:remaining_budget],
+                    metadata=context.metadata,
+                )
+            )
+            break
         bounded.append(context)
-        used_characters = next_total
+        used_characters += len(context.text)
     return bounded
 
 
