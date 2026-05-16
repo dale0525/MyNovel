@@ -213,10 +213,6 @@
 .guided-status-strip {
   display: grid;
   gap: 1rem;
-  border: 1px solid rgb(23 32 24 / 0.1);
-  border-radius: 1.25rem;
-  background: rgb(255 250 240 / 0.64);
-  padding: 1rem;
 }
 
 .guided-status-strip .workspace-snapshot-card {
@@ -227,6 +223,37 @@
 .guided-status-strip .workspace-snapshot-card:hover {
   border-color: rgb(53 99 66 / 0.28);
   background: #fbfcf8;
+}
+
+.chapter-review-details {
+  display: grid;
+  gap: 1rem;
+}
+
+.chapter-review-details h3 {
+  margin: 0 0 0.55rem;
+  color: #172018;
+  font-size: 0.95rem;
+}
+
+.chapter-detail-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chapter-detail-list li {
+  border-left: 3px solid rgb(191 127 39 / 0.42);
+  background: #fffdf8;
+  color: #213025;
+  font-weight: 700;
+  padding: 0.55rem 0.7rem;
+}
+
+.chapter-detail-list--changes li {
+  border-left-color: rgb(53 99 66 / 0.38);
 }
 
 .guided-tools-grid {

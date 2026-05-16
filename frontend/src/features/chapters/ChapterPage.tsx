@@ -5,6 +5,7 @@ import {
   type ChapterReviewAction,
 } from "@/features/chapters/ChapterReviewActions";
 import {
+  AdvancedDisclosure,
   ImpactPanel,
   type ImpactItem,
   ProjectIdentityBar,
@@ -168,6 +169,7 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
       <div className="content-grid chapter-review-grid">
         <main className="chapter-review-main">
           <ImpactPanel title="章节结果" items={chapterResultItems(chapter)} />
+          <ChapterReviewDetails chapter={chapter} />
           <section className="workbench-panel chapter-reader" aria-labelledby="chapter-text-title">
             <p className="eyebrow">Manuscript</p>
             <h2 id="chapter-text-title">章节正文</h2>
@@ -248,12 +250,53 @@ function chapterImpactItems(chapter: ChapterDetailPayload): ImpactItem[] {
   }));
 }
 
+function ChapterReviewDetails({ chapter }: { chapter: ChapterDetailPayload }) {
+  const auditIssues = auditReportIssues(chapter.auditReport);
+  const changes = stateDeltaChanges(chapter.stateDelta);
+
+  if (auditIssues.length === 0 && changes.length === 0) {
+    return null;
+  }
+
+  return (
+    <AdvancedDisclosure title="审核明细">
+      <div className="chapter-review-details">
+        {auditIssues.length > 0 ? (
+          <section aria-label="审计问题">
+            <h3>审计问题</h3>
+            <ol className="chapter-detail-list">
+              {auditIssues.map((issue, index) => (
+                <li key={`${String(issue.title ?? "issue")}-${index}`}>
+                  {auditIssueSummary(issue, index)}
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
+
+        {changes.length > 0 ? (
+          <section aria-label="设定变化">
+            <h3>设定变化</h3>
+            <ol className="chapter-detail-list chapter-detail-list--changes">
+              {changes.map((change, index) => (
+                <li key={`${String(change.target ?? "change")}-${index}`}>
+                  {stateChangeSummary(change, index)}
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
+      </div>
+    </AdvancedDisclosure>
+  );
+}
+
 function hasHighRiskAudit(chapter: ChapterDetailPayload): boolean {
-  if (chapter.auditReport.risk_level === "high") {
+  if (normalizedText(chapter.auditReport.risk_level) === "high") {
     return true;
   }
   return auditReportIssues(chapter.auditReport).some(
-    (issue) => issue.severity === "high" && issue.resolved !== true,
+    (issue) => normalizedText(issue.severity) === "high" && issue.resolved !== true,
   );
 }
 
@@ -310,7 +353,7 @@ function auditReportIssues(auditReport: Record<string, unknown>): Record<string,
 }
 
 function isMajorChangeRecord(change: Record<string, unknown>): boolean {
-  if (change.major === true || change.severity === "major") {
+  if (change.major === true || normalizedText(change.severity) === "major") {
     return true;
   }
 
@@ -324,6 +367,23 @@ function isMajorChangeRecord(change: Record<string, unknown>): boolean {
     .filter((value) => typeof value === "string")
     .join(" ");
   return majorTerms.some((term) => changeText.includes(term));
+}
+
+function auditIssueSummary(issue: Record<string, unknown>, index: number): string {
+  const title = String(issue.title ?? issue.type ?? `问题 ${index + 1}`);
+  const severity = String(issue.severity ?? "未标注");
+  const status = issue.resolved === true ? "已解决" : "未解决";
+  return `${title} · ${severity} · ${status}`;
+}
+
+function stateChangeSummary(change: Record<string, unknown>, index: number): string {
+  const target = String(change.target ?? change.entity ?? `变化 ${index + 1}`);
+  const detail = String(change.change ?? change.summary ?? change.type ?? "待写入");
+  return `${target}：${detail}`;
+}
+
+function normalizedText(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
 function chapterStatusLabel(status: string): string {

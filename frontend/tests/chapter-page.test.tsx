@@ -56,6 +56,69 @@ test("chapter review prioritizes AI revision when audit risk is high", async () 
   expect(screen.queryByRole("button", { name: "批准并写入可信设定" })).not.toBeInTheDocument();
 });
 
+test("chapter review treats high risk values case-insensitively", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(chapterPayload({ riskLevel: "HIGH" }))));
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "让 AI 修订" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "批准并写入可信设定" })).not.toBeInTheDocument();
+});
+
+test("chapter review treats high severity issues case-insensitively", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(
+        chapterPayload({
+          auditIssues: [{ title: "设定冲突", severity: "High", resolved: false }],
+        }),
+      ),
+    ),
+  );
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "让 AI 修订" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "批准并写入可信设定" })).not.toBeInTheDocument();
+});
+
+test("chapter review keeps audit issues and all state changes in details", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(
+        chapterPayload({
+          auditIssues: [{ title: "时间线冲突", severity: "medium", resolved: false }],
+          stateDelta: {
+            chapter: 2,
+            changes: [
+              { target: "港湾", change: "首次出现" },
+              { target: "灯塔记录", change: "推进伏笔" },
+              { target: "岑星", change: "更加警觉" },
+              { target: "罗文", change: "提出警告" },
+              { target: "旧航道协会", change: "留下新线索" },
+            ],
+          },
+        }),
+      ),
+    ),
+  );
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  expect(screen.queryByText("时间线冲突 · medium · 未解决")).not.toBeInTheDocument();
+  expect(screen.queryByText("旧航道协会：留下新线索")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "审核明细" }));
+
+  expect(screen.getByText("时间线冲突 · medium · 未解决")).toBeInTheDocument();
+  expect(screen.getByText("旧航道协会：留下新线索")).toBeInTheDocument();
+});
+
 test("major state changes require confirmation before approval", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json(chapterPayload({ majorChange: true }))));
 
@@ -417,6 +480,7 @@ function chapterPayload({
   status = "awaiting_review",
   emptyReview = false,
   riskLevel = "low",
+  auditIssues,
   majorChange = false,
   chapterId = 12,
   stateDelta,
@@ -426,6 +490,7 @@ function chapterPayload({
   status?: string;
   emptyReview?: boolean;
   riskLevel?: string;
+  auditIssues?: Array<Record<string, unknown>>;
   majorChange?: boolean;
   chapterId?: number | null;
   stateDelta?: Record<string, unknown>;
@@ -456,7 +521,10 @@ function chapterPayload({
       draftText: "岑星抵达港湾。",
       revisedText,
       finalText: status === "accepted" ? revisedText : "",
-      auditReport: emptyReview ? {} : { risk_level: riskLevel, issues: riskLevel === "high" ? [{ title: "设定冲突", severity: "high", resolved: false }] : [] },
+      auditReport: emptyReview ? {} : {
+        risk_level: riskLevel,
+        issues: auditIssues ?? (riskLevel === "high" ? [{ title: "设定冲突", severity: "high", resolved: false }] : []),
+      },
       stateDelta: emptyReview ? {} : stateDelta ?? { chapter: 2, changes: [{ target: "港湾", change: "首次出现", major: majorChange }] },
     },
     siblingChapters: [],
