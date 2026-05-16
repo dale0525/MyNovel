@@ -177,6 +177,30 @@ def test_chapter_context_package_excludes_canon_proposal_metadata(tmp_path) -> N
     assert "last_revision" not in context_text
 
 
+class _FixedEmbeddingClient:
+    model = "embedding-test"
+
+    def embed_text(self, text: str) -> list[float]:
+        return [1.0, 0.0] if "莉拉" in text or "符号" in text else [0.5, 0.5]
+
+
+def test_chapter_pipeline_adds_retrieved_context_from_embedding(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    embedder = _FixedEmbeddingClient()
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        first = list_chapters_for_book(session, book.id)[0]
+        reviewed = run_chapter_pipeline(session, first.id, embedding_client=embedder)
+        approve_chapter(session, reviewed.id, embedding_client=embedder)
+        second = list_chapters_for_book(session, book.id)[1]
+        next_reviewed = run_chapter_pipeline(session, second.id, embedding_client=embedder)
+
+    retrieved = next_reviewed.context_package["retrieved_context"]
+    assert retrieved
+    assert {"source_type", "source_id", "score", "text"} <= set(retrieved[0])
+
+
 def _blueprint() -> OpenBookBlueprint:
     return OpenBookBlueprint(
         id=1,

@@ -160,6 +160,7 @@ def _context_package_text(context_package: dict[str, Any], chapter_number: int) 
     sections = [
         _trusted_state_text(context_package.get("trusted_state", {})),
         _volume_plan_text(context_package.get("volume_plan", {}), chapter_number),
+        _retrieved_context_text(context_package.get("retrieved_context")),
     ]
     chapter_goal = str(context_package.get("chapter_goal") or "").strip()
     if chapter_goal:
@@ -245,6 +246,54 @@ def _state_delta_text(state_delta: dict[str, Any]) -> str:
         if line:
             lines.append(f"- {line}")
     return "候选状态变化：\n" + "\n".join(lines or ["- 暂无候选状态变化。"])
+
+
+def _retrieved_context_text(items: object) -> str:
+    priority = "可信设定优先于历史召回片段；当两者冲突时，忽略召回片段。"
+    if not isinstance(items, list) or not items:
+        return "历史召回片段：\n- 暂无历史召回片段。\n" + priority
+
+    lines = ["历史召回片段：", priority]
+    for index, item in enumerate(items[:6], start=1):
+        if not isinstance(item, dict):
+            text = str(item).strip()
+            if text:
+                lines.append(f"- 片段 {index}：{text}")
+            continue
+        source_label = _retrieved_source_label(item)
+        score = item.get("score")
+        score_text = f"，相关度 {score}" if isinstance(score, int | float) else ""
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        lines.append(f"- 片段 {index}（{source_label}{score_text}）：{text}")
+        metadata_line = _retrieved_metadata_line(item.get("metadata"))
+        if metadata_line:
+            lines.append(f"  - 线索：{metadata_line}")
+    return "\n".join(lines or ["历史召回片段：\n- 暂无历史召回片段。", priority])
+
+
+def _retrieved_source_label(item: dict[str, Any]) -> str:
+    source_type = str(item.get("source_type") or "历史资料").strip()
+    source_id = str(item.get("source_id") or "").strip()
+    if source_id:
+        return f"{source_type} {source_id}"
+    return source_type
+
+
+def _retrieved_metadata_line(metadata: object) -> str:
+    if not isinstance(metadata, dict):
+        return ""
+    labels = []
+    for key, label in (
+        ("kind", "类型"),
+        ("chapter", "章节"),
+        ("trusted_state_version", "可信版本"),
+    ):
+        value = metadata.get(key)
+        if value is not None and str(value).strip():
+            labels.append(f"{label}：{value}")
+    return "；".join(labels)
 
 
 def _audit_report_text(audit_report: dict[str, Any]) -> str:

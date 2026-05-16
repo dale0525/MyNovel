@@ -48,7 +48,7 @@ from mynovel.workflows.chapter_repair import (
     word_count_patch_mode,
 )
 from mynovel.workflows.open_book_blueprint import extract_chat_content
-from mynovel.workflows.retrieval import index_text
+from mynovel.workflows.retrieval import RetrievedContext, index_text, retrieve_book_context
 from mynovel.workflows.state_validation import validate_state_delta
 
 
@@ -121,6 +121,8 @@ def run_chapter_pipeline(
     chapter_id: int,
     model_client: ChapterModelClient | None = None,
     model_name: str | None = None,
+    *,
+    embedding_client: TextEmbeddingClient | None = None,
 ) -> Chapter:
     chapter = _required_chapter(session, chapter_id)
     book = get_book(session, chapter.book_id)
@@ -133,16 +135,26 @@ def run_chapter_pipeline(
 
     chapter.status = ChapterStatus.RUNNING
     model_label = model_name or "本地演示模型"
+    embedding_client = embedding_client or _embedding_client_from_session(session)
     try:
         if model_client is None:
-            _run_simulated_pipeline(book.title, canon, chapter, _volume_plan_payload(volume_plan))
+            _run_simulated_pipeline(
+                session,
+                book.title,
+                canon,
+                chapter,
+                _volume_plan_payload(volume_plan),
+                embedding_client,
+            )
         else:
             _run_model_pipeline(
+                session,
                 book.title,
                 canon,
                 chapter,
                 model_client,
                 _volume_plan_payload(volume_plan),
+                embedding_client,
             )
     except Exception as error:  # noqa: BLE001
         failed_stage = error.stage if isinstance(error, ChapterStageError) else "unknown"
@@ -407,12 +419,15 @@ def _required_chapter(session: Session, chapter_id: int) -> Chapter:
 
 
 def _run_simulated_pipeline(
+    session: Session,
     book_title: str,
     canon: Canon,
     chapter: Chapter,
     volume_plan: dict[str, Any],
+    embedding_client: TextEmbeddingClient | None,
 ) -> None:
-    chapter.context_package = _build_context_package(canon, chapter, volume_plan)
+    retrieved_context = _retrieved_context_for_chapter(session, chapter, canon, embedding_client)
+    chapter.context_package = _build_context_package(canon, chapter, volume_plan, retrieved_context)
     chapter.draft_text = _generate_draft_text(book_title, chapter)
     chapter.audit_report = _audit_chapter(chapter)
     chapter.revised_text = _revise_text(chapter.draft_text, chapter.audit_report)
@@ -420,11 +435,13 @@ def _run_simulated_pipeline(
 
 
 def _run_model_pipeline(
+    session: Session,
     book_title: str,
     canon: Canon,
     chapter: Chapter,
     model_client: ChapterModelClient,
     volume_plan: dict[str, Any],
+    embedding_client: TextEmbeddingClient | None,
 ) -> None:
     chapter.plan = _complete_json_stage(
         model_client,
@@ -432,7 +449,8 @@ def _run_model_pipeline(
         _build_plan_messages(book_title, canon, chapter, volume_plan),
         {"goal", "must_write", "forbidden_drift", "word_budget", "ending_hook"},
     )
-    chapter.context_package = _build_context_package(canon, chapter, volume_plan)
+    retrieved_context = _retrieved_context_for_chapter(session, chapter, canon, embedding_client)
+    chapter.context_package = _build_context_package(canon, chapter, volume_plan, retrieved_context)
     chapter.draft_text = _complete_text_stage(
         model_client,
         "draft",
@@ -521,7 +539,12 @@ def _complete_text_stage(
         raise ChapterStageError(stage, error, messages=messages, response_format="text") from error
 
 
-def _build_context_package(canon: Canon, chapter: Chapter, volume_plan: dict[str, Any]) -> dict:
+def _build_context_package(
+    canon: Canon,
+    chapter: Chapter,
+    volume_plan: dict[str, Any],
+    retrieved_context: list[dict[str, Any]] | None = None,
+) -> dict:
     return {
         "trusted_state": {
             "version": canon.version,
@@ -534,8 +557,54 @@ def _build_context_package(canon: Canon, chapter: Chapter, volume_plan: dict[str
         "chapter_goal": chapter.plan.get("goal", ""),
         "word_budget": chapter.plan.get("word_budget"),
         "must_write": chapter.plan.get("must_write", []),
+        "retrieved_context": retrieved_context or [],
         "forbidden_drift": ["不要改写已锁定设定", "不要让状态变化绕过人工审核"],
     }
+
+
+def _retrieved_context_for_chapter(
+    session: Session, chapter: Chapter, canon: Canon, client: TextEmbeddingClient | None
+) -> list[dict[str, Any]]:
+    query = _chapter_retrieval_query(chapter, canon)
+    query_embedding = None
+    embedding_model = None
+    if client is not None:
+        try:
+            query_embedding = client.embed_text(query)
+            embedding_model = client.model
+        except Exception:  # noqa: BLE001
+            query_embedding = embedding_model = None
+    contexts = retrieve_book_context(
+        session,
+        chapter.book_id,
+        query,
+        query_embedding=query_embedding,
+        embedding_model=embedding_model,
+    )
+    return [_retrieved_context_payload(item) for item in contexts]
+
+
+def _chapter_retrieval_query(chapter: Chapter, canon: Canon) -> str:
+    content = canon.content or {}
+    return json.dumps(
+        {
+            "chapter": {"number": chapter.number, "title": chapter.title},
+            "chapter_goal": chapter.plan.get("goal", ""),
+            "must_write": chapter.plan.get("must_write", []),
+            "characters": _recent_items(content.get("characters"), 8),
+            "foreshadowing": _recent_items(content.get("foreshadowing"), 8),
+            "chapter_summaries": _recent_items(content.get("chapter_summaries"), 3),
+        },
+        ensure_ascii=False,
+    )
+
+
+def _recent_items(value: Any, limit: int) -> Any:
+    return value[-limit:] if isinstance(value, list) else value
+
+
+def _retrieved_context_payload(item: RetrievedContext) -> dict[str, Any]:
+    return {"source_type": item.source_type, "source_id": item.source_id, "score": round(item.score, 4), "text": item.text, "metadata": dict(item.metadata or {})}
 
 
 def _volume_plan_payload(volume_plan: Any) -> dict[str, Any]:

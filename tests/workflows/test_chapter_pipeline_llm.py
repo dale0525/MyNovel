@@ -154,6 +154,37 @@ def test_run_chapter_pipeline_prompts_use_readable_inputs_not_raw_internal_json(
     assert '"audit_report"' not in combined_prompt
 
 
+def test_run_chapter_pipeline_prompt_includes_retrieved_context(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = FakeChapterModel()
+    embedder = _PromptEmbeddingClient()
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        first = book_chapter(session, book.id, 1)
+        reviewed = run_chapter_pipeline(session, first.id, embedding_client=embedder)
+        approve_chapter(session, reviewed.id, embedding_client=embedder)
+        second = book_chapter(session, book.id, 2)
+        run_chapter_pipeline(
+            session,
+            second.id,
+            model_client=model,
+            model_name="章节模型",
+            embedding_client=embedder,
+        )
+
+    prompt = "\n".join(message["content"] for message in model.messages_by_stage["draft"])
+    assert "历史召回片段" in prompt
+    assert "可信设定优先于历史召回片段" in prompt
+
+
+class _PromptEmbeddingClient:
+    model = "embedding-test"
+
+    def embed_text(self, text: str) -> list[float]:
+        return [1.0, 0.0] if "莉拉" in text else [0.5, 0.5]
+
+
 def test_run_chapter_pipeline_normalizes_model_state_delta_shape(tmp_path) -> None:
     class LooseStateDeltaModel(FakeChapterModel):
         def complete(self, stage: str, messages, response_format: str) -> str:
