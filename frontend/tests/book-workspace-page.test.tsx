@@ -264,8 +264,42 @@ test("workspace runs needs-revision chapters through the primary action", async 
   expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("进入章节审核");
 });
 
+test("workspace avoids unsafe chapter actions when the current task has no id", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(bookPayload({ bookStatus: "canon_locked", chapterId: null, chapterStatus: "planned" })),
+    ),
+  );
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
+  expect(screen.getByRole("link", { name: "检查可信设定" })).toHaveAttribute("href", "/books/42/state");
+  expect(screen.queryAllByRole("link").map((link) => link.getAttribute("href"))).not.toContain("/chapters/0");
+  expect(screen.queryByRole("button", { name: "运行当前章节" })).not.toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("章节条目不完整");
+});
+
+test("workspace shows primary action errors without opening project tools", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "planned" })))
+    .mockResolvedValueOnce(Response.json({ error: { message: "章节运行失败。" } }, { status: 500 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<BookWorkspacePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "运行当前章节" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "运行当前章节" }));
+
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("章节运行失败。"));
+  expect(screen.queryByRole("heading", { name: "章节队列" })).not.toBeInTheDocument();
+});
+
 function bookPayload({
   bookStatus = "draft",
+  chapterId = 8,
   chapterStatus = "running",
   chapterTitle = "失落灯塔",
   chapterSummary = "领航员发现星港残影。",
@@ -276,6 +310,7 @@ function bookPayload({
   includeVolumePlan = false,
 }: {
   bookStatus?: string;
+  chapterId?: number | null;
   chapterStatus?: string;
   chapterTitle?: string;
   chapterSummary?: string;
@@ -300,7 +335,7 @@ function bookPayload({
     },
     chapters: [
       {
-        id: 8,
+        id: chapterId,
         bookId: 42,
         number: 1,
         title: chapterTitle,

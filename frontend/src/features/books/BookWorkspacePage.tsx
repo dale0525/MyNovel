@@ -94,7 +94,12 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
   }, [bookId]);
 
   async function runCurrentChapter(chapter: ChapterPayload) {
-    const chapterId = chapter.id ?? 0;
+    const chapterId = chapter.id;
+    if (chapterId === null || chapterId === undefined) {
+      setActionError("章节条目不完整，无法运行。");
+      setActionStatus(null);
+      return;
+    }
     await runAction("run-current", async () => {
       const payload = await postJson<unknown>(`/api/chapters/${chapterId}/run`, {});
       const response = parseActionRedirectResponse(payload);
@@ -216,6 +221,17 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
         impact={<ImpactPanel embedded title="影响预览" items={primaryAction.impactItems} />}
       />
 
+      {actionError ? (
+        <section className="workspace-result-section workspace-result-section--alert" role="alert">
+          {actionError}
+        </section>
+      ) : null}
+      {actionStatus ? (
+        <section className="workspace-result-section workspace-result-section--success" role="status">
+          {actionStatus}
+        </section>
+      ) : null}
+
       <section className="guided-status-strip" aria-labelledby="canon-summary-title">
         <div className="workspace-section-head">
           <div>
@@ -238,17 +254,6 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
 
       <AdvancedDisclosure title="项目工具">
         <div className="guided-tools-grid">
-          {actionError ? (
-            <section className="workspace-result-section workspace-result-section--alert" role="alert">
-              {actionError}
-            </section>
-          ) : null}
-          {actionStatus ? (
-            <section className="workspace-result-section workspace-result-section--success" role="status">
-              {actionStatus}
-            </section>
-          ) : null}
-
           <section className="workspace-result-section" aria-labelledby="chapter-queue-title">
             <div className="workspace-section-head">
               <div>
@@ -260,9 +265,13 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
             <ol className="workspace-mini-list">
               {chapters.slice(0, 8).map((chapter) => (
                 <li key={chapter.id ?? chapter.number}>
-                  <a className="workspace-mini-list-link" href={`/chapters/${chapter.id ?? 0}`}>
-                    第 {chapter.number} 章 · {chapter.title}
-                  </a>
+                  {chapter.id === null || chapter.id === undefined ? (
+                    <strong>第 {chapter.number} 章 · {chapter.title}</strong>
+                  ) : (
+                    <a className="workspace-mini-list-link" href={`/chapters/${chapter.id}`}>
+                      第 {chapter.number} 章 · {chapter.title}
+                    </a>
+                  )}
                   <span>{chapterStatusLabel(chapter.status)} · {chapter.wordCount} 字</span>
                 </li>
               ))}
@@ -430,8 +439,25 @@ function workspacePrimaryAction({
     };
   }
 
-  const chapterId = currentTask.id ?? 0;
   const chapterTitle = `第 ${currentTask.number} 章 · ${currentTask.title}`;
+
+  if (currentTask.id === null || currentTask.id === undefined) {
+    return {
+      title: "继续推进项目",
+      summary: `${chapterTitle} 的章节条目不完整，先检查可信设定并修正项目数据。`,
+      action: (
+        <a className="workbench-action-button" href={`/books/${bookId}/state`}>
+          检查可信设定
+        </a>
+      ),
+      impactItems: [
+        { label: "章节", value: "章节条目不完整", tone: "danger" },
+        { label: "生产", value: "不会启动章节生产", tone: "warning" },
+      ],
+    };
+  }
+
+  const chapterId = currentTask.id;
 
   if (currentTask.status === "awaiting_review") {
     return {
