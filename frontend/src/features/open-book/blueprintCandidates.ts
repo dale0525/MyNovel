@@ -11,8 +11,8 @@ export type BlueprintCandidateView = {
   audience: string;
   sellingPoints: string[];
   readerPromises: string[];
-  protagonist: unknown;
-  world: unknown;
+  protagonist: string;
+  world: string;
   centralConflict: string;
   chapterDirections: ChapterDirectionView[];
   extras: Record<string, unknown>;
@@ -20,37 +20,42 @@ export type BlueprintCandidateView = {
 
 const knownFields = new Set([
   "audience",
+  "book_title",
   "candidates",
   "central_conflict",
   "chapter_directions",
   "genre",
+  "premise",
   "protagonist",
   "reader_promises",
+  "selected_title",
   "selling_points",
   "title",
+  "title_option",
   "title_options",
   "world",
 ]);
 
+const titleFields = ["title", "selected_title", "title_option", "book_title"];
+const summaryFields = ["summary", "name", "identity", "role", "goal", "flaw", "rules"];
+
 export function normalizeBlueprintCandidates(content: unknown): BlueprintCandidateView[] {
-  const blueprint = fieldEntries(content);
+  const blueprint = recordValue(content);
   const titleOptions = listValues(blueprint.title_options);
   const rawCandidates = Array.isArray(blueprint.candidates) ? blueprint.candidates : [];
   const candidateFields = rawCandidates
-    .map((candidate) => fieldEntries(candidate))
+    .map((candidate) => recordValue(candidate))
     .filter((candidate) => Object.keys(candidate).length > 0);
 
-  const orderedCandidates =
-    candidateFields.length > 0
-      ? orderCandidatesByTitle(titleOptions, candidateFields)
-      : [fieldEntries({ title: titleOptions[0] })];
+  const orderedCandidates = candidatesForTitles(titleOptions, candidateFields);
 
   return orderedCandidates.map((candidate, index) => {
     const merged = { ...blueprint, ...candidate };
+    const optionTitle = titleOptions[index];
 
     return {
       index,
-      title: textValue(merged.title) || titleOptions[index] || `Candidate ${index + 1}`,
+      title: optionTitle || titleValue(candidate) || titleValue(blueprint) || `Candidate ${index + 1}`,
       genre: textValue(merged.genre),
       audience: textValue(merged.audience),
       sellingPoints: listValues(merged.selling_points),
@@ -82,40 +87,62 @@ export function listValues(value: unknown): string[] {
   return text ? [text] : [];
 }
 
-export function summaryValue(value: unknown): unknown {
-  const fields = fieldEntries(value);
-  if (Object.keys(fields).length === 1 && "summary" in fields) {
-    return textValue(fields.summary);
+export function summaryValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => summaryValue(item)).filter(Boolean).join(" / ");
   }
-  return value;
+
+  const text = textValue(value);
+  if (text) {
+    return text;
+  }
+
+  const fields = recordValue(value);
+  if (Object.keys(fields).length === 0) {
+    return "";
+  }
+
+  return summaryFields.map((field) => summaryValue(fields[field])).filter(Boolean).join(" / ");
 }
 
-export function fieldEntries(value: unknown): Record<string, unknown> {
+export function fieldEntries(value: unknown): Array<[string, string]> {
+  return Object.entries(recordValue(value))
+    .map(([key, entryValue]): [string, string] => [key, summaryValue(entryValue)])
+    .filter(([, entryValue]) => entryValue.length > 0);
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
   return value as Record<string, unknown>;
 }
 
-function orderCandidatesByTitle(
+function candidatesForTitles(
   titleOptions: string[],
   candidateFields: Record<string, unknown>[],
 ): Record<string, unknown>[] {
-  if (titleOptions.length === 0) {
+  if (titleOptions.length === 0 && candidateFields.length > 0) {
     return candidateFields;
   }
 
-  const remaining = [...candidateFields];
-  const ordered = titleOptions.flatMap((title) => {
-    const matchIndex = remaining.findIndex((candidate) => textValue(candidate.title) === title);
-    if (matchIndex === -1) {
-      return [];
-    }
-    const [match] = remaining.splice(matchIndex, 1);
-    return [match];
-  });
+  if (titleOptions.length === 0) {
+    return [{}];
+  }
 
-  return [...ordered, ...remaining];
+  return titleOptions.map((title) => {
+    return candidateFields.find((candidate) => titleValue(candidate) === title) ?? {};
+  });
+}
+
+function titleValue(fields: Record<string, unknown>): string {
+  for (const field of titleFields) {
+    const title = textValue(fields[field]);
+    if (title) {
+      return title;
+    }
+  }
+  return "";
 }
 
 function normalizeChapterDirections(value: unknown): ChapterDirectionView[] {
@@ -124,13 +151,17 @@ function normalizeChapterDirections(value: unknown): ChapterDirectionView[] {
   }
 
   return value.map((item, index) => {
-    const fields = fieldEntries(item);
+    const fields = recordValue(item);
     const number = index + 1;
     if (Object.keys(fields).length > 0) {
       return {
         number,
         title: textValue(fields.title) || defaultChapterTitle(number),
-        goal: textValue(fields.goal) || textValue(fields.summary),
+        goal:
+          textValue(fields.goal) ||
+          textValue(fields.direction) ||
+          textValue(fields.summary) ||
+          textValue(fields.title),
       };
     }
 
