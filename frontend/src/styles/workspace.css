@@ -240,3 +240,75 @@
     grid-template-columns: 1fr;
   }
 }
+
+.guided-canon-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+  gap: 1rem;
+  align-items: start;
+}
+
+.canon-section-map {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.75rem;
+}
+
+.canon-section-tile {
+  display: grid;
+  gap: 0.5rem;
+  min-height: 8rem;
+  border: 1px solid rgb(23 32 24 / 0.12);
+  border-radius: 0.75rem;
+  background: #fffdf8;
+  color: #172018;
+  cursor: pointer;
+  font: inherit;
+  justify-items: start;
+  padding: 0.9rem;
+  text-align: left;
+}
+
+.canon-section-tile:hover {
+  border-color: rgb(53 99 66 / 0.28);
+  background: #fbfcf8;
+}
+
+.canon-section-tile.is-selected {
+  border-color: rgb(53 99 66 / 0.52);
+  background: #f4faef;
+  box-shadow: inset 0 0 0 1px rgb(53 99 66 / 0.24);
+}
+
+.canon-section-tile strong {
+  font-size: 1.05rem;
+}
+
+.canon-section-tile__key {
+  color: #596954;
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.guided-canon-aside {
+  position: sticky;
+  top: 1rem;
+}
+
+.guided-canon-aside .canon-revision-preview {
+  border: 1px solid rgb(23 32 24 / 0.1);
+  border-radius: 1.15rem;
+  background: rgb(255 250 240 / 0.78);
+  padding: 1rem;
+}
+
+@media (max-width: 920px) {
+  .guided-canon-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .guided-canon-aside {
+    position: static;
+  }
+}

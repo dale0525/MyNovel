@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 
 import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
+import {
+  AdvancedDisclosure,
+  ImpactPanel,
+  type ImpactItem,
+  ProjectIdentityBar,
+} from "@/components/guidance/GuidedPanels";
 import { getJson, isAbortError, postJson } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
 import type {
@@ -32,7 +38,7 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
     data: null,
     error: null,
   });
-  const [targetSection, setTargetSection] = useState("characters");
+  const [selectedSectionKey, setSelectedSectionKey] = useState("");
   const [instruction, setInstruction] = useState("");
   const [actionState, setActionState] = useState<ActionState>({
     status: "idle",
@@ -55,9 +61,7 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
             const firstEditable = parsed.canonSections.find(
               (section) => section.editable && !section.locked,
             );
-            if (firstEditable) {
-              setTargetSection(firstEditable.key);
-            }
+            setSelectedSectionKey(firstEditable?.key ?? parsed.canonSections[0]?.key ?? "");
           } else {
             setState({ status: "error", data: null, error: "可信设定数据格式无效。" });
           }
@@ -126,7 +130,7 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
     try {
       const response = await postJson<{ redirectTo?: string }>(
         `/api/books/${bookId}/canon-proposals/revise`,
-        { targetSection, instruction },
+        { targetSection: selectedSectionKey, instruction },
       );
       setActionState({ status: "success", message: "已提交修订任务。", action: null });
       if (response.redirectTo) {
@@ -166,32 +170,37 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
   }
 
   const { book, canonSections, readiness, selectedRevision } = state.data;
-  const editableSections = canonSections.filter((section) => section.editable && !section.locked);
+  const selectedSection = canonSections.find((section) => section.key === selectedSectionKey) ?? null;
+  const selectedSectionBlocked = !selectedSection || selectedSection.locked || !selectedSection.editable;
   const submittingAction = actionState.status === "submitting" ? actionState.action : null;
+  const reviseDisabled =
+    selectedSectionBlocked || submittingAction !== null || instruction.trim().length === 0;
 
   return (
-    <section className="workbench-page canon-gate-layout" aria-labelledby="trusted-state-title">
-      <div className="workbench-hero">
-        <p className="eyebrow">Trusted State</p>
-        <h1 id="trusted-state-title">可信设定</h1>
-        <p className="lede">
-          {book.title} · {statusLabel(book.status)} ·{" "}
-          {readiness.complete ? "设定已满足生产门槛" : "仍有分区需要补全"}
-        </p>
-      </div>
+    <section className="workbench-page canon-gate-layout" aria-label="可信设定">
+      <ProjectIdentityBar
+        eyebrow="Trusted State"
+        title="可信设定"
+        meta={[
+          { label: "项目", value: book.title },
+          { label: "状态", value: statusLabel(book.status) },
+          { label: "完整度", value: readiness.complete ? "已完整" : "待补全" },
+        ]}
+      />
 
-      <div className="content-grid completion-grid">
+      {actionState.status === "success" ? (
+        <p className="setup-message" role="status">
+          {actionState.message}
+        </p>
+      ) : null}
+      {actionState.status === "error" ? (
+        <p className="setup-message" role="alert">
+          {actionState.message}
+        </p>
+      ) : null}
+
+      <div className="guided-canon-grid">
         <main className="workbench-panel canon-gate-main">
-          {actionState.status === "success" ? (
-            <p className="setup-message" role="status">
-              {actionState.message}
-            </p>
-          ) : null}
-          {actionState.status === "error" ? (
-            <p className="setup-message" role="alert">
-              {actionState.message}
-            </p>
-          ) : null}
           <section
             className={readiness.complete ? "canon-completion-gate trusted" : "canon-completion-gate"}
           >
@@ -207,54 +216,41 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
             )}
           </section>
 
-          <RevisionPreview
-            revision={selectedRevision}
-            submittingAction={submittingAction}
-            onApply={() => void applyRevision()}
-            onDiscard={() => void discardRevision()}
+          <CanonSectionMap
+            sections={canonSections}
+            selectedSectionKey={selectedSectionKey}
+            onSelect={setSelectedSectionKey}
           />
 
-          <section className="detail-state-sections" aria-label="可信设定分区">
-            {canonSections.map((section) => (
-              <article className="canon-section-panel data-card" id={section.anchor} key={section.key}>
-                <header className="canon-section-head">
-                  <div>
-                    <p className="eyebrow">{section.key}</p>
-                    <h2>{section.label}</h2>
-                  </div>
-                  <span className={section.locked ? "status-pill trusted" : "status-pill pending"}>
-                    {section.locked ? "已锁定" : "可修订"}
-                  </span>
-                </header>
-                <CanonSectionContent section={section} />
-              </article>
-            ))}
-          </section>
+          <AdvancedDisclosure title="完整设定内容">
+            <section className="detail-state-sections" aria-label="可信设定分区">
+              {canonSections.map((section) => (
+                <article className="canon-section-panel data-card" id={section.anchor} key={section.key}>
+                  <header className="canon-section-head">
+                    <div>
+                      <p className="eyebrow">{section.key}</p>
+                      <h2>{section.label}</h2>
+                    </div>
+                    <span className={section.locked ? "status-pill trusted" : "status-pill pending"}>
+                      {section.locked ? "已锁定" : "可修订"}
+                    </span>
+                  </header>
+                  <CanonSectionContent section={section} />
+                </article>
+              ))}
+            </section>
+          </AdvancedDisclosure>
         </main>
 
-        <aside className="completion-aside">
+        <aside className="completion-aside guided-canon-aside">
           <section>
             <p className="eyebrow">Revision Request</p>
             <h2>生成修订预览</h2>
             <form className="canon-revision-form" onSubmit={(event) => void reviseState(event)}>
               <label>
-                修订分区
-                <select
-                  disabled={submittingAction === "revise"}
-                  value={targetSection}
-                  onChange={(event) => setTargetSection(event.target.value)}
-                >
-                  {editableSections.map((section) => (
-                    <option key={section.key} value={section.key}>
-                      {section.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                修订指令
+                修订意图
                 <textarea
-                  disabled={submittingAction === "revise"}
+                  disabled={selectedSectionBlocked || submittingAction === "revise"}
                   value={instruction}
                   onChange={(event) => setInstruction(event.target.value)}
                   placeholder="说明你希望 AI 如何调整这个分区"
@@ -262,7 +258,7 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
               </label>
               <button
                 className="workbench-action-button"
-                disabled={!editableSections.length || submittingAction !== null}
+                disabled={reviseDisabled}
                 type="submit"
               >
                 {submittingAction === "revise" ? (
@@ -273,10 +269,80 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
               </button>
             </form>
           </section>
+          <ImpactPanel title="影响预览" items={selectedSectionImpact(selectedSection)} />
+          <RevisionPreview
+            revision={selectedRevision}
+            submittingAction={submittingAction}
+            onApply={() => void applyRevision()}
+            onDiscard={() => void discardRevision()}
+          />
         </aside>
       </div>
     </section>
   );
+}
+
+function CanonSectionMap({
+  sections,
+  selectedSectionKey,
+  onSelect,
+}: {
+  sections: CanonSectionPayload[];
+  selectedSectionKey: string;
+  onSelect: (sectionKey: string) => void;
+}) {
+  return (
+    <section className="canon-section-map" aria-label="可信设定分区地图">
+      {sections.map((section) => {
+        const selected = section.key === selectedSectionKey;
+        return (
+          <button
+            aria-pressed={selected}
+            className={selected ? "canon-section-tile is-selected" : "canon-section-tile"}
+            key={section.key}
+            onClick={() => onSelect(section.key)}
+            type="button"
+          >
+            <span className="canon-section-tile__key">{section.key}</span>
+            <strong>{section.label}</strong>
+            <span>{sectionItemCount(section.content)} 项</span>
+            <span className={section.locked ? "status-pill trusted" : "status-pill pending"}>
+              {section.locked ? "已锁定" : section.editable ? "可修订" : "不可修订"}
+            </span>
+          </button>
+        );
+      })}
+    </section>
+  );
+}
+
+function selectedSectionImpact(section: CanonSectionPayload | null): ImpactItem[] {
+  if (!section) {
+    return [{ label: "分区", value: "未选择", tone: "warning" }];
+  }
+  if (section.locked || !section.editable) {
+    return [
+      { label: "状态", value: "已锁定", tone: "warning" },
+      { label: "修订", value: "不可提交", tone: "danger" },
+    ];
+  }
+  return [
+    { label: "提交结果", value: "只生成预览", tone: "neutral" },
+    { label: "应用", value: "确认后才覆盖", tone: "good" },
+  ];
+}
+
+function sectionItemCount(content: unknown): number {
+  if (Array.isArray(content)) {
+    return content.length;
+  }
+  if (isRecord(content)) {
+    return Object.keys(content).length;
+  }
+  if (content === null || content === undefined || content === "") {
+    return 0;
+  }
+  return 1;
 }
 
 function RevisionPreview({

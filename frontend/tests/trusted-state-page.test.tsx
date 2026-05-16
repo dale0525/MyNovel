@@ -26,12 +26,13 @@ test("renders canon sections locks revision changes and blocked sections", async
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
   expect(screen.getByText("世界规则")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "完整设定内容" }));
   expect(screen.getByText("灯塔会记录航线")).toBeInTheDocument();
   expect(screen.getAllByText("人物")).toHaveLength(2);
   expect(screen.getAllByText("可修订")[0]).toBeInTheDocument();
   expect(screen.getByText("变更预览")).toBeInTheDocument();
   expect(screen.getByText("岑星")).toBeInTheDocument();
-  expect(screen.getByText("已锁定")).toBeInTheDocument();
+  expect(screen.getAllByText("已锁定")[0]).toBeInTheDocument();
   expect(screen.getByText("world_rules: 已锁定")).toBeInTheDocument();
 });
 
@@ -63,7 +64,8 @@ test("apply discard and revise actions call canon proposal endpoints", async () 
     ),
   );
 
-  fireEvent.change(screen.getByLabelText("修订指令"), {
+  fireEvent.click(screen.getByRole("button", { name: /人物/ }));
+  fireEvent.change(screen.getByLabelText("修订意图"), {
     target: { value: "让人物动机更清晰" },
   });
   fireEvent.click(screen.getByRole("button", { name: "生成修订预览" }));
@@ -92,7 +94,8 @@ test("renders animated AI waiting state while canon revise request is pending", 
   render(<TrustedStatePage bookId={42} />);
 
   await waitFor(() => expect(screen.getByRole("button", { name: "生成修订预览" })).toBeInTheDocument());
-  fireEvent.change(screen.getByLabelText("修订指令"), {
+  fireEvent.click(screen.getByRole("button", { name: /人物/ }));
+  fireEvent.change(screen.getByLabelText("修订意图"), {
     target: { value: "让人物动机更清晰" },
   });
   fireEvent.click(screen.getByRole("button", { name: "生成修订预览" }));
@@ -154,11 +157,92 @@ test("canon proposal action errors render feedback and keep user on the page", a
   expect(window.location.pathname).toBe("/");
 });
 
+test("trusted state uses a section map to select the revision target", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(trustedStatePayload({ selectedRevision: false })))
+    .mockResolvedValueOnce(Response.json({ revisionId: 9, redirectTo: "/books/42/state?revisionId=9" }, { status: 202 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: /人物/ }));
+  fireEvent.change(screen.getByLabelText("修订意图"), {
+    target: { value: "让主角动机更清晰" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "生成修订预览" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/books/42/canon-proposals/revise",
+      expect.objectContaining({
+        method: "POST",
+        body: "{\"targetSection\":\"characters\",\"instruction\":\"让主角动机更清晰\"}",
+      }),
+    ),
+  );
+});
+
+test("trusted state blocks locked sections visually and disables revision submission", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(trustedStatePayload({ selectedRevision: false }))));
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: /世界规则/ }));
+
+  expect(screen.getByLabelText("修订意图")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "生成修订预览" })).toBeDisabled();
+  expect(screen.getByRole("region", { name: "影响预览" })).toHaveTextContent("已锁定");
+});
+
+test("trusted state hides apply until a pending revision preview exists", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(trustedStatePayload({ selectedRevision: false }))));
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
+  expect(screen.queryByRole("button", { name: "应用修订" })).not.toBeInTheDocument();
+});
+
+test("trusted state keeps full section content in an advanced disclosure", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(trustedStatePayload())));
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
+  expect(screen.queryByText("灯塔会记录航线")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "完整设定内容" }));
+
+  expect(screen.getByText("灯塔会记录航线")).toBeInTheDocument();
+});
+
 function trustedStatePayload({
   revisionStatus = "pending",
+  selectedRevision = true,
 }: {
   revisionStatus?: string;
+  selectedRevision?: boolean;
 } = {}) {
+  const revision = {
+    id: 7,
+    bookId: 42,
+    baseCanonVersion: 2,
+    targetSection: "characters",
+    instruction: "让主角更谨慎",
+    allowedSections: ["characters"],
+    lockedSections: ["world_rules"],
+    changedSections: { characters: [{ name: "岑星", trait: "谨慎" }] },
+    blockedSections: [{ section: "world_rules", reason: "已锁定" }],
+    summary: "补强人物风险意识。",
+    risks: [],
+    status: revisionStatus,
+    createdAt: "2026-05-16T00:00:00+00:00",
+    appliedAt: null,
+  };
+
   return {
     book: {
       id: 42,
@@ -199,22 +283,7 @@ function trustedStatePayload({
     ],
     sectionLocks: { world_rules: true, characters: false, state_history: true },
     readiness: { complete: false, missingSections: ["characters"], messages: ["人物至少 3 条"] },
-    pendingRevisions: [],
-    selectedRevision: {
-      id: 7,
-      bookId: 42,
-      baseCanonVersion: 2,
-      targetSection: "characters",
-      instruction: "让主角更谨慎",
-      allowedSections: ["characters"],
-      lockedSections: ["world_rules"],
-      changedSections: { characters: [{ name: "岑星", trait: "谨慎" }] },
-      blockedSections: [{ section: "world_rules", reason: "已锁定" }],
-      summary: "补强人物风险意识。",
-      risks: [],
-      status: revisionStatus,
-      createdAt: "2026-05-16T00:00:00+00:00",
-      appliedAt: null,
-    },
+    pendingRevisions: selectedRevision ? [revision] : [],
+    selectedRevision: selectedRevision ? revision : null,
   };
 }
