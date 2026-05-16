@@ -126,11 +126,25 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
 
   async function reviseState(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const selectedSection =
+      state.status === "ready"
+        ? state.data.canonSections.find((section) => section.key === selectedSectionKey)
+        : null;
+    const trimmedInstruction = instruction.trim();
+    if (
+      actionState.status === "submitting" ||
+      !selectedSection ||
+      selectedSection.locked ||
+      !selectedSection.editable ||
+      trimmedInstruction.length === 0
+    ) {
+      return;
+    }
     setActionState({ status: "submitting", message: null, action: "revise" });
     try {
       const response = await postJson<{ redirectTo?: string }>(
         `/api/books/${bookId}/canon-proposals/revise`,
-        { targetSection: selectedSectionKey, instruction },
+        { targetSection: selectedSection.key, instruction: trimmedInstruction },
       );
       setActionState({ status: "success", message: "已提交修订任务。", action: null });
       if (response.redirectTo) {
@@ -176,6 +190,14 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
   const reviseDisabled =
     selectedSectionBlocked || submittingAction !== null || instruction.trim().length === 0;
 
+  function selectSection(sectionKey: string) {
+    if (selectedSectionKey !== sectionKey) {
+      setInstruction("");
+      setActionState({ status: "idle", message: null, action: null });
+    }
+    setSelectedSectionKey(sectionKey);
+  }
+
   return (
     <section className="workbench-page canon-gate-layout" aria-label="可信设定">
       <ProjectIdentityBar
@@ -219,7 +241,7 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
           <CanonSectionMap
             sections={canonSections}
             selectedSectionKey={selectedSectionKey}
-            onSelect={setSelectedSectionKey}
+            onSelect={selectSection}
           />
 
           <AdvancedDisclosure title="完整设定内容">
@@ -247,6 +269,9 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
             <p className="eyebrow">Revision Request</p>
             <h2>生成修订预览</h2>
             <form className="canon-revision-form" onSubmit={(event) => void reviseState(event)}>
+              <p className="canon-revision-target">
+                当前分区：{selectedSection?.label ?? "未选择"}
+              </p>
               <label>
                 修订意图
                 <textarea

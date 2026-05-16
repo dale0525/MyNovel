@@ -219,12 +219,55 @@ test("trusted state keeps full section content in an advanced disclosure", async
   expect(screen.getByText("灯塔会记录航线")).toBeInTheDocument();
 });
 
+test("trusted state clears revision intent when switching editable sections", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json(trustedStatePayload({ includeLocations: true, selectedRevision: false }))),
+  );
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: /人物/ }));
+  fireEvent.change(screen.getByLabelText("修订意图"), {
+    target: { value: "让人物动机更清晰" },
+  });
+
+  expect(screen.getByLabelText("修订意图")).toHaveValue("让人物动机更清晰");
+  expect(screen.getByRole("button", { name: "生成修订预览" })).toBeEnabled();
+
+  fireEvent.click(screen.getByRole("button", { name: /地点/ }));
+
+  expect(screen.getByText("当前分区：地点")).toBeInTheDocument();
+  expect(screen.getByLabelText("修订意图")).toHaveValue("");
+  expect(screen.getByRole("button", { name: "生成修订预览" })).toBeDisabled();
+});
+
+test("trusted state ignores forced submit for locked revision targets", async () => {
+  const fetchMock = vi.fn(async () => Response.json(trustedStatePayload({ selectedRevision: false })));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<TrustedStatePage bookId={42} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "可信设定" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: /世界规则/ }));
+  fireEvent.submit(screen.getByLabelText("修订意图").closest("form")!);
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  expect(fetchMock).not.toHaveBeenCalledWith(
+    "/api/books/42/canon-proposals/revise",
+    expect.objectContaining({ method: "POST" }),
+  );
+});
+
 function trustedStatePayload({
   revisionStatus = "pending",
   selectedRevision = true,
+  includeLocations = false,
 }: {
   revisionStatus?: string;
   selectedRevision?: boolean;
+  includeLocations?: boolean;
 } = {}) {
   const revision = {
     id: 7,
@@ -260,6 +303,7 @@ function trustedStatePayload({
         world_rules: [{ rule: "灯塔会记录航线" }],
         characters: [{ name: "岑星" }],
         state_history: [],
+        locations: [{ name: "白塔港" }],
       },
       createdAt: "2026-05-16T00:00:00+00:00",
     },
@@ -280,8 +324,25 @@ function trustedStatePayload({
         locked: false,
         content: [{ name: "岑星" }],
       },
+      ...(includeLocations
+        ? [
+            {
+              key: "locations",
+              anchor: "locations",
+              label: "地点",
+              editable: true,
+              locked: false,
+              content: [{ name: "白塔港" }],
+            },
+          ]
+        : []),
     ],
-    sectionLocks: { world_rules: true, characters: false, state_history: true },
+    sectionLocks: {
+      world_rules: true,
+      characters: false,
+      locations: false,
+      state_history: true,
+    },
     readiness: { complete: false, missingSections: ["characters"], messages: ["人物至少 3 条"] },
     pendingRevisions: selectedRevision ? [revision] : [],
     selectedRevision: selectedRevision ? revision : null,
