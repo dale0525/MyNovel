@@ -72,7 +72,7 @@ def _parse_payload(raw_json: str) -> dict[str, Any]:
     try:
         payload = json.loads(raw_json)
     except json.JSONDecodeError as error:
-        raise ValueError("Project import JSON is invalid.") from error
+        raise ValueError("导入项目数据格式无效。") from error
     return _mapping(payload, "payload")
 
 

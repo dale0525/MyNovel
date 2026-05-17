@@ -270,7 +270,7 @@ TRANSLATIONS = {
         "workspace.trace_accept_chapter": "人工批准",
         "word_targets.total_label": "全书目标字数",
         "word_targets.chapter_label": "单章目标字数",
-        "word_targets.update_existing": "同步更新已有章节计划",
+        "word_targets.update_existing": "同步更新待生产章节计划",
         "word_targets.save": "保存目标字数",
         "batch.title": "连续生产",
         "batch.limit": "章节数",

@@ -72,7 +72,11 @@ export async function postJsonLineStream<T>(
     const lines = buffer.split(/\r?\n/);
     buffer = lines.pop() ?? "";
     for (const line of lines) {
-      await emitJsonLine(line, onEvent);
+      const shouldStop = await emitJsonLine(line, onEvent);
+      if (shouldStop) {
+        await cancelStreamReader(reader);
+        return;
+      }
     }
     if (done) {
       break;
@@ -121,7 +125,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new ApiError("API 返回了空响应。", "empty_response", {}, payload);
   }
   if (parsed.kind === "invalid") {
-    throw new ApiError("API 返回了无效 JSON。", "invalid_json_response", {}, payload);
+    throw new ApiError("服务返回的数据格式无效。", "invalid_json_response", {}, payload);
   }
   return payload as T;
 }
@@ -150,17 +154,35 @@ function apiErrorBody(payload: unknown): ApiErrorBody {
   return payload as ApiErrorBody;
 }
 
-async function emitJsonLine<T>(line: string, onEvent: JsonLineStreamHandler<T>): Promise<void> {
+async function emitJsonLine<T>(line: string, onEvent: JsonLineStreamHandler<T>): Promise<boolean> {
   const trimmed = line.trim();
   if (!trimmed) {
-    return;
+    return false;
   }
   try {
-    await onEvent(JSON.parse(trimmed) as T);
+    const event = JSON.parse(trimmed) as T;
+    await onEvent(event);
+    return isTerminalStreamEvent(event);
   } catch (error) {
     if (error instanceof SyntaxError) {
       throw new ApiError("API 返回了无效流式数据。", "invalid_stream_response", {}, trimmed);
     }
     throw error;
+  }
+}
+
+function isTerminalStreamEvent(event: unknown): boolean {
+  if (event === null || typeof event !== "object") {
+    return false;
+  }
+  const type = (event as { type?: unknown }).type;
+  return type === "done" || type === "failed";
+}
+
+async function cancelStreamReader(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  try {
+    await reader.cancel();
+  } catch {
+    return;
   }
 }

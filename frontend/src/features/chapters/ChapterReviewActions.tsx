@@ -60,7 +60,7 @@ export function ChapterReviewActions({
   return (
     <section className="chapter-review-actions guided-decision-panel workbench-panel" aria-labelledby="chapter-actions-title">
       <div>
-        <p className="eyebrow">Operation</p>
+        <p className="eyebrow">章节操作</p>
         <h2 id="chapter-actions-title">章节操作</h2>
       </div>
 

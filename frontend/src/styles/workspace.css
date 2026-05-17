@@ -207,7 +207,7 @@
 
 .book-workspace-page {
   display: grid;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .book-workspace-sections {
@@ -217,6 +217,138 @@
   margin-inline: auto;
 }
 
+.book-workspace-subnav {
+  display: flex;
+  width: min(100%, 62rem);
+  gap: 0.4rem;
+  align-items: center;
+  overflow-x: auto;
+  margin-inline: auto;
+  border: 1px solid rgb(23 32 24 / 0.1);
+  border-radius: 0.85rem;
+  background: rgb(255 252 245 / 0.68);
+  padding: 0.35rem;
+}
+
+.book-workspace-subnav__link {
+  flex: 0 0 auto;
+  border-radius: 0.65rem;
+  color: #43513f;
+  font-size: 0.9rem;
+  font-weight: 900;
+  line-height: 1;
+  padding: 0.65rem 0.9rem;
+  text-decoration: none;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.book-workspace-subnav__link:hover {
+  background: rgb(244 250 239 / 0.82);
+  color: #172018;
+}
+
+.book-workspace-subnav__link[aria-current="page"] {
+  background: #356342;
+  color: #fffdf8;
+  box-shadow: 0 0.45rem 1rem rgb(53 99 66 / 0.16);
+}
+
+.book-workspace-summary {
+  gap: 0.65rem;
+}
+
+.book-workspace-summary h2 {
+  font-size: clamp(1.35rem, 2.6vw, 1.75rem);
+}
+
+.book-workspace-premise {
+  max-width: 58rem;
+  margin: 0;
+  color: #33402f;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.book-workspace-facts--compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.2rem;
+}
+
+.book-workspace-facts--compact div {
+  display: grid;
+  gap: 0.25rem;
+  align-items: start;
+  justify-content: start;
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.book-workspace-navigation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.book-workspace-nav-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 0.75rem;
+  align-items: center;
+  min-height: 5.1rem;
+  border: 1px solid rgb(23 32 24 / 0.1);
+  border-radius: 0.95rem;
+  background: rgb(255 250 240 / 0.76);
+  color: #172018;
+  padding: 0.85rem;
+  text-decoration: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.book-workspace-nav-card:hover {
+  border-color: rgb(53 99 66 / 0.28);
+  box-shadow: 0 0.85rem 2rem rgb(43 52 35 / 0.1);
+  transform: translateY(-1px);
+}
+
+.book-workspace-nav-card__icon {
+  display: inline-flex;
+  width: 2.35rem;
+  height: 2.35rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  background: #f4faef;
+  color: #356342;
+}
+
+.book-workspace-nav-card strong,
+.book-workspace-nav-card small {
+  display: block;
+}
+
+.book-workspace-nav-card small {
+  margin-top: 0.22rem;
+  color: #596954;
+  font-size: 0.84rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.book-workspace-nav-card em {
+  color: #7b4d1b;
+  font-size: 0.88rem;
+  font-style: normal;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .book-workspace-inline-form,
 .book-workspace-batch-form {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -224,8 +356,25 @@
 }
 
 .book-workspace-inline-form .chapter-major-change-toggle {
+  display: flex;
   align-self: center;
   grid-column: 1 / -1;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.book-workspace-inline-form .chapter-major-change-toggle input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
+
+.book-workspace-form-note {
+  align-self: center;
+  color: #596954;
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.45;
 }
 
 .book-workspace-inline-form .workbench-action-button,
@@ -279,6 +428,17 @@
   position: static;
 }
 
+.chapter-identity-actions {
+  display: grid;
+  gap: 0.65rem;
+  justify-items: end;
+}
+
+.chapter-identity-actions .lede {
+  margin: 0;
+  text-align: right;
+}
+
 .chapter-review-details h3 {
   margin: 0 0 0.55rem;
   color: #172018;
@@ -317,8 +477,32 @@
   }
 
   .book-workspace-inline-form,
-  .book-workspace-batch-form {
+  .book-workspace-batch-form,
+  .book-workspace-facts--compact,
+  .book-workspace-navigation {
     grid-template-columns: 1fr;
+  }
+
+  .book-workspace-nav-card {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .book-workspace-nav-card em {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .book-workspace-nav-card > svg:last-child {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+
+  .chapter-identity-actions {
+    justify-items: start;
+  }
+
+  .chapter-identity-actions .lede {
+    text-align: left;
   }
 }
 

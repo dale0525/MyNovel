@@ -29,7 +29,15 @@ type ChapterStreamEvent = LlmStreamEvent<{
   redirectTo?: string;
 } & Record<string, unknown>>;
 
-export function ChapterPage({ chapterId }: { chapterId: number }) {
+export function ChapterPage({
+  bookId,
+  chapterId,
+  embedded = false,
+}: {
+  bookId?: number;
+  chapterId: number;
+  embedded?: boolean;
+}) {
   const [state, setState] = useState<ChapterPageState>({
     status: "loading",
     data: null,
@@ -155,8 +163,8 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
 
   if (state.status === "loading") {
     return (
-      <section className="workbench-page" aria-labelledby="chapter-page-title">
-        <div className="workbench-panel" role="status">
+      <section className={embedded ? "chapter-page chapter-page--embedded" : "workbench-page"} aria-labelledby="chapter-page-title">
+        <div className={embedded ? "workspace-result-section" : "workbench-panel"} role="status">
           正在加载章节...
         </div>
       </section>
@@ -165,8 +173,8 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
 
   if (state.status === "error") {
     return (
-      <section className="workbench-page" aria-labelledby="chapter-page-title">
-        <div className="workbench-panel workbench-panel--alert" role="alert">
+      <section className={embedded ? "chapter-page chapter-page--embedded" : "workbench-page"} aria-labelledby="chapter-page-title">
+        <div className={embedded ? "workspace-result-section workspace-result-section--alert" : "workbench-panel workbench-panel--alert"} role="alert">
           <h1 id="chapter-page-title">章节加载失败</h1>
           <p>{state.error}</p>
           <a className="workbench-action-button" href="/">
@@ -178,19 +186,29 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
   }
 
   const { book, chapter, latestCanon } = state.data;
+  const parentBookId = bookId ?? book.id;
 
   return (
-    <section className="workbench-page chapter-page" aria-label={chapter.title}>
+    <section className={embedded ? "chapter-page chapter-page--embedded" : "workbench-page chapter-page"} aria-label={chapter.title}>
       <ProjectIdentityBar
-        eyebrow="Chapter Review"
+        eyebrow="章节审核"
         title={chapter.title}
         meta={[
           { label: "项目", value: book.title },
           { label: "章节", value: `第 ${chapter.number} 章` },
           { label: "状态", value: chapterStatusLabel(chapter.status) },
-          { label: "Canon", value: latestCanon ? `v${latestCanon.version}` : "未连接可信设定" },
+          { label: "设定", value: latestCanon ? `第 ${latestCanon.version} 版` : "未连接可信设定" },
         ]}
-        actions={<p className="lede">{chapter.summary || "本章尚未形成摘要。"}</p>}
+        actions={(
+          <div className="chapter-identity-actions">
+            <p className="lede">{chapter.summary || "本章尚未形成摘要。"}</p>
+            {parentBookId === null ? null : (
+              <a className="workbench-secondary-link" href={`/books/${parentBookId}/chapters`}>
+                返回章节
+              </a>
+            )}
+          </div>
+        )}
       />
 
       {actionState.status === "success" ? (
@@ -215,7 +233,7 @@ export function ChapterPage({ chapterId }: { chapterId: number }) {
           streamSnippets={actionState.status === "submitting" ? actionState.streamSnippets : []}
         />
         <section className="workbench-panel chapter-reader" aria-labelledby="chapter-text-title">
-          <p className="eyebrow">Manuscript</p>
+          <p className="eyebrow">正文</p>
           <h2 id="chapter-text-title">章节正文</h2>
           <div className="chapter-text-body">{chapter.finalText || chapter.revisedText || chapter.draftText || "正文尚未生成。"}</div>
         </section>
@@ -245,7 +263,7 @@ function ChapterReviewDetails({ chapter }: { chapter: ChapterDetailPayload }) {
   return (
     <div className="chapter-review-details">
       <section className="workbench-panel" aria-labelledby="chapter-revision-notes-title">
-        <p className="eyebrow">Revision</p>
+        <p className="eyebrow">修订</p>
         <h2 id="chapter-revision-notes-title">修正意见</h2>
         {auditIssues.length > 0 ? (
           <ol className="chapter-detail-list">
@@ -261,7 +279,7 @@ function ChapterReviewDetails({ chapter }: { chapter: ChapterDetailPayload }) {
       </section>
 
       <section className="workbench-panel" aria-labelledby="chapter-state-delta-title">
-        <p className="eyebrow">Canon Delta</p>
+        <p className="eyebrow">设定变化</p>
         <h2 id="chapter-state-delta-title">设定变动</h2>
         {changes.length > 0 ? (
           <ol className="chapter-detail-list chapter-detail-list--changes">
@@ -382,7 +400,7 @@ function chapterStatusLabel(status: string): string {
     needs_revision: "需修订",
     accepted: "已批准",
   };
-  return labels[status] ?? status;
+  return labels[status] ?? "未知状态";
 }
 
 function errorMessage(error: unknown, fallback: string): string {

@@ -279,6 +279,66 @@ def test_create_draft_book_from_blueprint_creates_volume_plan(tmp_path) -> None:
     assert volume_plans[0].commitments == ["持续禁书谜题", "关系信任逐章推进"]
 
 
+def test_create_draft_book_from_blueprint_replaces_generic_first_volume_title(
+    tmp_path,
+) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    blueprint = OpenBookBlueprint(
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜图书馆"],
+            "genre": "玄幻",
+            "audience": "男频网文读者",
+            "volume_plan": {
+                "volume_number": 1,
+                "title": "第一卷",
+                "core_conflict": "主角必须在追捕者到来前恢复禁书馆。",
+            },
+        },
+        raw_response="{}",
+    )
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, blueprint, selected_title="长夜图书馆")
+        volume_plans = list_volume_plans_for_book(session, book.id)
+
+    assert volume_plans[0].title == "开篇卷"
+
+
+def test_create_draft_book_from_blueprint_assigns_first_ten_chapters_to_first_volume(
+    tmp_path,
+) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    blueprint = OpenBookBlueprint(
+        idea="失意档案员重建禁书馆",
+        version=1,
+        status=BlueprintStatus.SUCCEEDED,
+        content={
+            "title_options": ["长夜图书馆"],
+            "genre": "玄幻",
+            "audience": "男频网文读者",
+            "chapter_directions": [{"title": f"第{i}章", "goal": f"推进第{i}章"} for i in range(1, 11)],
+            "volume_plan": {
+                "volume_number": 1,
+                "title": "禁书馆重启",
+                "core_conflict": "主角必须在追捕者到来前恢复禁书馆。",
+            },
+        },
+        raw_response="{}",
+    )
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, blueprint, selected_title="长夜图书馆")
+        chapters = list_chapters_for_book(session, book.id)
+
+    assert [chapter.number for chapter in chapters] == list(range(1, 11))
+    assert {chapter.plan.get("volume_number") for chapter in chapters} == {1}
+
+
 def test_create_draft_book_from_blueprint_can_leave_foundation_waiting_for_review(
     tmp_path,
 ) -> None:

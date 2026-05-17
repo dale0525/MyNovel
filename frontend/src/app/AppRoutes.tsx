@@ -2,11 +2,9 @@ import { ProviderConfigPage } from "@/features/provider-config/ProviderConfigPag
 import { WorkbenchPage } from "@/features/workbench/WorkbenchPage";
 import { BookWorkspacePage } from "@/features/books/BookWorkspacePage";
 import { ImportBookPage } from "@/features/books/ImportBookPage";
-import { TrustedStatePage } from "@/features/canon/TrustedStatePage";
 import { ChapterPage } from "@/features/chapters/ChapterPage";
 import { BlueprintPage } from "@/features/open-book/BlueprintPage";
 import { OpenBookPage } from "@/features/open-book/OpenBookPage";
-import { QualityPage } from "@/features/quality/QualityPage";
 import { UpdatesPage } from "@/features/updates/UpdatesPage";
 
 type RouteMatch = {
@@ -28,6 +26,13 @@ export function routeForPath(pathname: string): RouteMatch {
     return {
       activePath: "/books/new",
       element: <OpenBookPage />,
+    };
+  }
+
+  if (path === "/books") {
+    return {
+      activePath: "/books",
+      element: <WorkbenchPage />,
     };
   }
 
@@ -57,7 +62,45 @@ export function routeForPath(pathname: string): RouteMatch {
   if (trustedStateBookId !== null) {
     return {
       activePath: "/books/:id/state",
-      element: <TrustedStatePage bookId={trustedStateBookId} />,
+      element: <BookWorkspacePage bookId={trustedStateBookId} view="state" />,
+    };
+  }
+
+  const bookSettingsId = parseBookSettingsPath(path);
+  if (bookSettingsId !== null) {
+    return {
+      activePath: "/books/:id/settings",
+      element: <BookWorkspacePage bookId={bookSettingsId} view="settings" />,
+    };
+  }
+
+  const bookVolumesId = parseBookVolumesPath(path);
+  if (bookVolumesId !== null) {
+    return {
+      activePath: "/books/:id/volumes",
+      element: <BookWorkspacePage bookId={bookVolumesId} view="volumes" />,
+    };
+  }
+
+  const bookChaptersId = parseBookChaptersPath(path);
+  if (bookChaptersId !== null) {
+    return {
+      activePath: "/books/:id/chapters",
+      element: <BookWorkspacePage bookId={bookChaptersId} view="chapters" />,
+    };
+  }
+
+  const bookChapterIds = parseBookChapterPath(path);
+  if (bookChapterIds !== null) {
+    return {
+      activePath: "/books/:id/chapters/:chapterId",
+      element: (
+        <BookWorkspacePage
+          bookId={bookChapterIds.bookId}
+          chapterId={bookChapterIds.chapterId}
+          view="chapters"
+        />
+      ),
     };
   }
 
@@ -73,7 +116,7 @@ export function routeForPath(pathname: string): RouteMatch {
   if (qualityBookId !== null) {
     return {
       activePath: "/books/:id/quality",
-      element: <QualityPage bookId={qualityBookId} />,
+      element: <BookWorkspacePage bookId={qualityBookId} view="quality" />,
     };
   }
 
@@ -96,6 +139,26 @@ function normalizePath(pathname: string): string {
 function parseBookProjectPath(path: string): number | null {
   const match = path.match(/^\/books\/(\d+)$/);
   return match ? Number(match[1]) : null;
+}
+
+function parseBookSettingsPath(path: string): number | null {
+  const match = path.match(/^\/books\/(\d+)\/settings$/);
+  return match ? Number(match[1]) : null;
+}
+
+function parseBookVolumesPath(path: string): number | null {
+  const match = path.match(/^\/books\/(\d+)\/volumes$/);
+  return match ? Number(match[1]) : null;
+}
+
+function parseBookChaptersPath(path: string): number | null {
+  const match = path.match(/^\/books\/(\d+)\/chapters$/);
+  return match ? Number(match[1]) : null;
+}
+
+function parseBookChapterPath(path: string): { bookId: number; chapterId: number } | null {
+  const match = path.match(/^\/books\/(\d+)\/chapters\/(\d+)$/);
+  return match ? { bookId: Number(match[1]), chapterId: Number(match[2]) } : null;
 }
 
 function parseBookStatePath(path: string): number | null {

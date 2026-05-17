@@ -292,6 +292,31 @@ def test_volume_outline_generate_stream_route_maps_to_workflow(tmp_path: Path, m
     assert captured == {"db_path": db_path, "book_id": book_id}
 
 
+def test_volume_outline_revise_stream_route_maps_to_workflow(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    book_id = _create_workspace_fixture(db_path)
+    captured: dict[str, object] = {}
+    body = {"scope": "volume_chapters", "volumeNumber": 1, "revisionNotes": "第二章提前设局。"}
+
+    def fake_stream(db_path_arg: Path, book_id_arg: int, body_arg: dict[str, object]):
+        captured["db_path"] = db_path_arg
+        captured["book_id"] = book_id_arg
+        captured["body"] = body_arg
+        yield {"type": "done", "book": {"id": book_id_arg}}
+
+    monkeypatch.setattr("mynovel.api_routes.stream_revise_volume_outline", fake_stream)
+
+    response = dispatch_api_post_stream(
+        f"/api/books/{book_id}/volume-outline/revise-stream",
+        body,
+        db_path,
+    )
+
+    assert response is not None
+    assert list(response.events) == [{"type": "done", "book": {"id": book_id}}]
+    assert captured == {"db_path": db_path, "book_id": book_id, "body": body}
+
+
 def test_canon_proposal_lock_parses_false_string_as_false(tmp_path: Path) -> None:
     db_path = tmp_path / "dev.sqlite"
     book_id = _create_workspace_fixture(db_path)

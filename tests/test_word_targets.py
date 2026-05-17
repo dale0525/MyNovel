@@ -1,7 +1,7 @@
 from sqlmodel import Session
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import Book, Chapter
+from mynovel.domain.models import Book, Chapter, ChapterStatus
 from mynovel.domain.repositories import add_book, add_chapter, get_book, list_chapters_for_book
 from mynovel.word_targets import update_book_word_targets
 
@@ -60,6 +60,16 @@ def test_update_book_word_targets_can_sync_existing_chapters(tmp_path) -> None:
         add_chapter(
             session, Chapter(book_id=book.id, number=2, title="迷雾", plan={"goal": "入谷"})
         )
+        add_chapter(
+            session,
+            Chapter(
+                book_id=book.id,
+                number=3,
+                title="定稿",
+                status=ChapterStatus.ACCEPTED,
+                plan={"word_budget": 2800},
+            ),
+        )
 
         update_book_word_targets(
             session,
@@ -75,4 +85,4 @@ def test_update_book_word_targets_can_sync_existing_chapters(tmp_path) -> None:
     assert saved.constraints["selling_points"] == ["禁书体系"]
     assert saved.constraints["target_word_count"] == 300000
     assert saved.constraints["chapter_word_count"] == 3200
-    assert [chapter.plan["word_budget"] for chapter in chapters] == [3200, 3200]
+    assert [chapter.plan["word_budget"] for chapter in chapters] == [3200, 3200, 2800]

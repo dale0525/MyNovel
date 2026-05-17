@@ -10,12 +10,20 @@ const navItems = [
   { label: "工作台", href: "/", activePaths: ["/"] },
   { label: "开书", href: "/books/new", activePaths: ["/books/new"] },
   { label: "导入", href: "/books/import", activePaths: ["/books/import"] },
-  { label: "项目", href: "/", activePaths: ["/books/:id", "/books/:id/state"], bookHref: (bookId: number) => `/books/${bookId}` },
   {
-    label: "质量",
-    href: "/",
-    activePaths: ["/books/:id/quality"],
-    bookHref: (bookId: number) => `/books/${bookId}/quality`,
+    label: "项目",
+    href: "/books",
+    activePaths: [
+      "/books",
+      "/books/:id",
+      "/books/:id/settings",
+      "/books/:id/state",
+      "/books/:id/volumes",
+      "/books/:id/chapters",
+      "/books/:id/chapters/:chapterId",
+      "/books/:id/quality",
+    ],
+    bookHref: (bookId: number) => `/books/${bookId}`,
   },
   { label: "更新", href: "/updates", activePaths: ["/updates"] },
   { label: "设置", href: "/settings/provider", activePaths: ["/settings/provider"] },
@@ -52,6 +60,6 @@ export function AppShell({ activePath, currentPath = window.location.pathname, c
 }
 
 function parseCurrentBookId(path: string): number | null {
-  const match = path.match(/^\/books\/(\d+)(?:\/state|\/quality)?$/);
+  const match = path.match(/^\/books\/(\d+)(?:\/(?:state|quality|settings|volumes|chapters(?:\/\d+)?))?$/);
   return match ? Number(match[1]) : null;
 }

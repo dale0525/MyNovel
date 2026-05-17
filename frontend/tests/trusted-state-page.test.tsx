@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, expect, test, vi } from "vitest";
 
 import { routeForPath } from "@/app/AppRoutes";
+import { BookWorkspacePage } from "@/features/books/BookWorkspacePage";
 import { TrustedStatePage } from "@/features/canon/TrustedStatePage";
 
 afterEach(() => {
@@ -15,7 +16,7 @@ test("routes book state path to trusted state page", () => {
   const match = routeForPath("/books/42/state");
 
   expect(match.activePath).toBe("/books/:id/state");
-  expect(match.element).toEqual(<TrustedStatePage bookId={42} />);
+  expect(match.element).toEqual(<BookWorkspacePage bookId={42} view="state" />);
 });
 
 test("renders canon section rows without a separate revision preview", async () => {

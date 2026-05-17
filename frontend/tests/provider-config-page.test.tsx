@@ -663,7 +663,7 @@ test("BootstrapGate routes configured book path to the project workspace", async
   );
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  expect(screen.getByRole("heading", { name: "基本信息" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "项目概括" })).toBeInTheDocument();
   expect(screen.getByText("科幻")).toBeInTheDocument();
   expect(screen.getByText("成人")).toBeInTheDocument();
   expect(screen.getByText("领航员追查失落星港的真相。")).toBeInTheDocument();

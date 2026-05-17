@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, expect, test, vi } from "vitest";
 
 import { routeForPath } from "@/app/AppRoutes";
+import { BookWorkspacePage } from "@/features/books/BookWorkspacePage";
 import { ChapterPage } from "@/features/chapters/ChapterPage";
 
 afterEach(() => {
@@ -19,12 +20,20 @@ test("routes chapter path to chapter review page", () => {
   expect(match.element).toEqual(<ChapterPage chapterId={12} />);
 });
 
+test("routes project chapter path as a third-level editor", () => {
+  const match = routeForPath("/books/42/chapters/12");
+
+  expect(match.activePath).toBe("/books/:id/chapters/:chapterId");
+  expect(match.element).toEqual(<BookWorkspacePage bookId={42} chapterId={12} view="chapters" />);
+});
+
 test("renders the simplified chapter operation structure without extra sections", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json(chapterPayload({ emptyReview: true }))));
 
-  render(<ChapterPage chapterId={12} />);
+  render(<ChapterPage bookId={42} chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  expect(screen.getByRole("link", { name: "返回章节" })).toHaveAttribute("href", "/books/42/chapters");
   const operation = screen.getByRole("heading", { name: "章节操作" });
   const text = screen.getByRole("heading", { name: "章节正文" });
   const revision = screen.getByRole("heading", { name: "修正意见" });
@@ -578,7 +587,7 @@ function chapterPayload({
     traces: [],
     stageSlots: [
       { key: "plan", label: "规划", ready: true, status: "ready", summary: "进入港湾" },
-      { key: "context", label: "上下文", ready: true, status: "ready", summary: "可信设定 v2" },
+      { key: "context", label: "上下文", ready: true, status: "ready", summary: "可信设定第 2 版" },
       { key: "draft", label: "草稿", ready: true, status: "ready", summary: "7 字" },
       { key: "delta", label: "状态变化", ready: !emptyReview, status: emptyReview ? "empty" : "ready", summary: "" },
       { key: "audit", label: "审计", ready: !emptyReview, status: emptyReview ? "empty" : "ready", summary: "" },

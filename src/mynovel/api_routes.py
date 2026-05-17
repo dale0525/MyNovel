@@ -40,6 +40,7 @@ from mynovel.llm_streams import (
     stream_generate_volume_outline,
     stream_repair_chapter,
     stream_retry_blueprint,
+    stream_revise_volume_outline,
     stream_revise_blueprint,
     stream_run_chapter,
     stream_run_chapter_batch,
@@ -192,6 +193,8 @@ def dispatch_api_post_stream(
         book_id, action = volume_outline_action
         if action == "generate-stream":
             return ApiStreamResponse(stream_generate_volume_outline(db_path, book_id))
+        if action == "revise-stream":
+            return ApiStreamResponse(stream_revise_volume_outline(db_path, book_id, body))
     blueprint_action = _parse_blueprint_action_api_path(path)
     if blueprint_action is not None:
         blueprint_id, action = blueprint_action

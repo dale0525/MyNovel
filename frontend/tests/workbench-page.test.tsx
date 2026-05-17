@@ -50,6 +50,14 @@ test("recent books render title status premise and project CTAs", async () => {
             status: "draft",
             premise: "一名领航员追查失落星港的真相。",
           },
+          {
+            id: 8,
+            title: "雾谷旧约",
+            genre: "悬疑",
+            audience: "成人",
+            status: "producing",
+            premise: "档案员追查被删掉的山城协议。",
+          },
         ],
       }),
     ),
@@ -62,4 +70,7 @@ test("recent books render title status premise and project CTAs", async () => {
   expect(screen.getByText("一名领航员追查失落星港的真相。")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "继续推进" })).toHaveAttribute("href", "/books/7");
   expect(screen.getByRole("link", { name: "打开最近作品" })).toHaveAttribute("href", "/books/7");
+  expect(screen.getByRole("heading", { name: "雾谷旧约" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "继续《星港遗梦》" })).toHaveAttribute("href", "/books/7");
+  expect(screen.getByRole("link", { name: "继续《雾谷旧约》" })).toHaveAttribute("href", "/books/8");
 });

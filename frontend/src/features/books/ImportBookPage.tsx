@@ -35,9 +35,9 @@ export function ImportBookPage() {
   return (
     <section className="workbench-page" aria-labelledby="import-book-title">
       <div className="workbench-hero">
-        <p className="eyebrow">Import</p>
+        <p className="eyebrow">导入</p>
         <h1 id="import-book-title">导入项目</h1>
-        <p className="lede">粘贴从 MyNovel 导出的 JSON，系统会重建作品、可信设定和已接受章节。</p>
+        <p className="lede">粘贴从本工具导出的项目数据，系统会重建作品、可信设定和已接受章节。</p>
       </div>
 
       <form className="workbench-panel open-book-form" onSubmit={handleSubmit}>
@@ -47,10 +47,10 @@ export function ImportBookPage() {
           </p>
         ) : null}
         <label className="provider-field">
-          项目 JSON
+          项目数据
           <textarea
             onChange={(event) => setProjectJson(event.target.value)}
-            placeholder='{"book":{"title":"星港遗梦"},"chapters":[]}'
+            placeholder='{"作品":{"标题":"星港遗梦"},"章节":[]}'
             required
             value={projectJson}
           />

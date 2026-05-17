@@ -169,7 +169,7 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
   return (
     <section className="workbench-page blueprint-page" aria-labelledby="blueprint-title">
       <div className="workbench-hero">
-        <p className="eyebrow">Blueprint v{blueprint.version}</p>
+        <p className="eyebrow">蓝图第 {blueprint.version} 版</p>
         <h1 id="blueprint-title">开书蓝图</h1>
         {blueprintInProgress ? (
           <AiWaitingIndicator detail={waitingDetail} label={waitingLabel} variant="hero" />
@@ -548,7 +548,7 @@ function RawBlueprintDetails({ blueprint }: { blueprint: BlueprintPayload }) {
       <summary>模型原始信息</summary>
       <KeyValueList
         value={{
-          蓝图版本: `v${blueprint.version}`,
+          蓝图版本: `第 ${blueprint.version} 版`,
           原始灵感: blueprint.idea,
           修订来源: blueprint.instruction ?? "无",
           解析错误: blueprint.parseError ?? "",

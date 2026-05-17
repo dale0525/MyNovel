@@ -15,6 +15,7 @@ type TrustedState =
 
 type TrustedStatePageProps = {
   bookId: number;
+  embedded?: boolean;
 };
 
 type CanonAction = "global-revise" | "section-revise" | "lock" | "next";
@@ -47,7 +48,7 @@ type CanonRevisionStreamEvent = {
 
 const hiddenCanonSectionKeys = new Set(["state_history"]);
 
-export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
+export function TrustedStatePage({ bookId, embedded = false }: TrustedStatePageProps) {
   const [state, setState] = useState<TrustedState>({
     status: "loading",
     data: null,
@@ -325,8 +326,8 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
 
   if (state.status === "loading") {
     return (
-      <section className="workbench-page canon-page" aria-label="设定">
-        <div className="workbench-panel" role="status">
+      <section className={embedded ? "canon-page canon-page--embedded" : "workbench-page canon-page"} aria-label="设定">
+        <div className={embedded ? "workspace-result-section" : "workbench-panel"} role="status">
           正在加载设定...
         </div>
       </section>
@@ -335,8 +336,11 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
 
   if (state.status === "error") {
     return (
-      <section className="workbench-page canon-page" aria-labelledby="trusted-state-title">
-        <div className="workbench-panel workbench-panel--alert" role="alert">
+      <section
+        className={embedded ? "canon-page canon-page--embedded" : "workbench-page canon-page"}
+        aria-labelledby="trusted-state-title"
+      >
+        <div className={embedded ? "workspace-result-section workspace-result-section--alert" : "workbench-panel workbench-panel--alert"} role="alert">
           <h1 id="trusted-state-title">设定加载失败</h1>
           <p>{state.error}</p>
           <a className="workbench-action-button" href={`/books/${bookId}`}>
@@ -350,6 +354,90 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
   const { book, canonSections, readiness, selectedRevision } = state.data;
   const visibleCanonSections = canonSections.filter((section) => !hiddenCanonSectionKeys.has(section.key));
   const submittingAction = actionState.status === "submitting" ? actionState.action : null;
+  const content = (
+    <main className="canon-centered-flow">
+      <section className="workbench-panel canon-global-revision" aria-label="整体修改">
+        <form
+          className="canon-revision-form canon-global-revision__form"
+          onSubmit={(event) => void reviseAllCanon(event)}
+        >
+          <label className="canon-revision-label" htmlFor="canon-global-instruction">
+            全部设定修改意见
+          </label>
+          <div className="canon-revision-control">
+            <textarea
+              id="canon-global-instruction"
+              value={globalInstruction}
+              onChange={(event) => setGlobalInstruction(event.target.value)}
+              placeholder="留空时，AI 会优先补齐缺口"
+            />
+            <div className="canon-revision-control__actions">
+              <button
+                className="workbench-action-button canon-global-revision__button"
+                disabled={submittingAction !== null || !globalTarget}
+                type="submit"
+              >
+                {submittingAction === "global-revise" ? (
+                  <AiWaitingIndicator label="提交修订中..." variant="inline" />
+                ) : (
+                  "让 AI 修改全部设定"
+                )}
+              </button>
+              <InlineActionFeedback
+                actionState={actionState}
+                action="global-revise"
+                targetSection={globalTarget?.key ?? null}
+              />
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <section className="canon-section-rows" aria-label="设定列表">
+        {visibleCanonSections.map((section) => (
+          <CanonSectionRow
+            actionState={actionState}
+            expanded={expandedSections.has(section.key)}
+            instruction={sectionInstructions[section.key] ?? ""}
+            key={section.key}
+            readiness={readiness}
+            revisionStatus={selectedRevision?.targetSection === section.key ? selectedRevision.status : null}
+            section={section}
+            onInstructionChange={updateSectionInstruction}
+            onLockToggle={() => void toggleSectionLock(section)}
+            onRevisionSubmit={(event) => void reviseSection(section, event)}
+            onToggle={() => toggleExpandedSection(section.key)}
+          />
+        ))}
+      </section>
+
+      <section className="workbench-panel canon-next-step" aria-label="下一步">
+        <div className="canon-next-step__status" aria-hidden="true">
+          <span className={readiness.complete ? "canon-step-light is-ready" : "canon-step-light"} />
+          <strong>{readiness.complete ? "可以进入下一步" : `${readiness.messages.length || readiness.missingSections.length} 处待修正`}</strong>
+        </div>
+        <div className="canon-next-step__actions">
+          <button
+            className="workbench-action-button canon-next-step__button"
+            disabled={submittingAction !== null}
+            onClick={() => void lockAndContinue()}
+            type="button"
+          >
+            {submittingAction === "next" ? <AiWaitingIndicator label="锁定中..." variant="inline" /> : "下一步"}
+          </button>
+          <InlineActionFeedback actionState={actionState} action="next" targetSection={null} />
+        </div>
+      </section>
+    </main>
+  );
+
+  if (embedded) {
+    return (
+      <section className="canon-page canon-page--embedded" aria-label="设定">
+        {content}
+      </section>
+    );
+  }
 
   return (
     <section className="workbench-page canon-page" aria-label="设定">
@@ -363,80 +451,7 @@ export function TrustedStatePage({ bookId }: TrustedStatePageProps) {
         ]}
       />
 
-      <main className="canon-centered-flow">
-        <section className="workbench-panel canon-global-revision" aria-label="整体修改">
-          <form
-            className="canon-revision-form canon-global-revision__form"
-            onSubmit={(event) => void reviseAllCanon(event)}
-          >
-            <label className="canon-revision-label" htmlFor="canon-global-instruction">
-              全部设定修改意见
-            </label>
-            <div className="canon-revision-control">
-              <textarea
-                id="canon-global-instruction"
-                value={globalInstruction}
-                onChange={(event) => setGlobalInstruction(event.target.value)}
-                placeholder="留空时，AI 会优先补齐缺口"
-              />
-              <div className="canon-revision-control__actions">
-                <button
-                  className="workbench-action-button canon-global-revision__button"
-                  disabled={submittingAction !== null || !globalTarget}
-                  type="submit"
-                >
-                  {submittingAction === "global-revise" ? (
-                    <AiWaitingIndicator label="提交修订中..." variant="inline" />
-                  ) : (
-                    "让 AI 修改全部设定"
-                  )}
-                </button>
-                <InlineActionFeedback
-                  actionState={actionState}
-                  action="global-revise"
-                  targetSection={globalTarget?.key ?? null}
-                />
-              </div>
-            </div>
-          </form>
-        </section>
-
-        <section className="canon-section-rows" aria-label="设定列表">
-          {visibleCanonSections.map((section) => (
-            <CanonSectionRow
-              actionState={actionState}
-              expanded={expandedSections.has(section.key)}
-              instruction={sectionInstructions[section.key] ?? ""}
-              key={section.key}
-              readiness={readiness}
-              revisionStatus={selectedRevision?.targetSection === section.key ? selectedRevision.status : null}
-              section={section}
-              onInstructionChange={updateSectionInstruction}
-              onLockToggle={() => void toggleSectionLock(section)}
-              onRevisionSubmit={(event) => void reviseSection(section, event)}
-              onToggle={() => toggleExpandedSection(section.key)}
-            />
-          ))}
-        </section>
-
-        <section className="workbench-panel canon-next-step" aria-label="下一步">
-          <div className="canon-next-step__status" aria-hidden="true">
-            <span className={readiness.complete ? "canon-step-light is-ready" : "canon-step-light"} />
-            <strong>{readiness.complete ? "可以进入下一步" : `${readiness.messages.length || readiness.missingSections.length} 处待修正`}</strong>
-          </div>
-          <div className="canon-next-step__actions">
-            <button
-              className="workbench-action-button canon-next-step__button"
-              disabled={submittingAction !== null}
-              onClick={() => void lockAndContinue()}
-              type="button"
-            >
-              {submittingAction === "next" ? <AiWaitingIndicator label="锁定中..." variant="inline" /> : "下一步"}
-            </button>
-            <InlineActionFeedback actionState={actionState} action="next" targetSection={null} />
-          </div>
-        </section>
-      </main>
+      {content}
     </section>
   );
 }

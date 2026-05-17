@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ArrowRight, BookOpen, FilePlus2, FolderOpen, PenLine } from "lucide-react";
 
 import { getJson } from "@/lib/api";
 import type { BookPayload, BooksPayload } from "@/lib/types";
@@ -48,13 +49,25 @@ export function WorkbenchPage() {
   }, []);
 
   return (
-    <section className="workbench-page" aria-labelledby="workbench-title">
+    <section className="workbench-page workbench-page--home" aria-labelledby="workbench-title">
       <div className="workbench-hero">
-        <p className="eyebrow">Workbench</p>
-        <h1 id="workbench-title">把故事推进到下一步</h1>
-        <p className="lede">
-          从最近作品继续，或开启新的长篇项目。这里会聚合开书、章节、可信设定和质量检查的下一步动作。
-        </p>
+        <div>
+          <p className="eyebrow">工作台</p>
+          <h1 id="workbench-title">把故事推进到下一步</h1>
+          <p className="lede">
+            从最近作品继续，或开启新的长篇项目。这里会聚合开书、章节、可信设定和质量检查的下一步动作。
+          </p>
+        </div>
+        <div className="workbench-hero__actions" aria-label="工作台快捷入口">
+          <a className="workbench-quick-action" href="/books/new">
+            <FilePlus2 aria-hidden="true" size={18} />
+            新开一本书
+          </a>
+          <a className="workbench-quick-action" href="/books/import">
+            <FolderOpen aria-hidden="true" size={18} />
+            导入项目
+          </a>
+        </div>
       </div>
 
       {state.status === "loading" && (
@@ -74,11 +87,11 @@ export function WorkbenchPage() {
 
       {state.status === "ready" && state.books.length > 0 && (
         <div className="workbench-grid">
-          <section className="workbench-panel">
+          <section className="workbench-panel workbench-project-panel">
             <div className="workbench-panel__header">
               <div>
-                <p className="eyebrow">Recent</p>
-                <h2>最近作品</h2>
+                <p className="eyebrow">项目</p>
+                <h2>选择继续哪个项目</h2>
               </div>
               <a className="workbench-action-button" href={bookHref(state.books[0])}>
                 继续推进
@@ -86,26 +99,48 @@ export function WorkbenchPage() {
             </div>
             <ul className="recent-books">
               {state.books.map((book) => (
-                <li className="recent-book" key={book.id ?? book.title}>
-                  <div>
-                    <h3>{book.title}</h3>
-                    <p>
-                      {book.genre} · {book.audience} · {statusLabel(book.status)}
-                    </p>
-                  </div>
-                  {book.premise && <p>{book.premise}</p>}
+                <li key={book.id ?? book.title}>
+                  <a
+                    aria-label={`继续《${book.title}》`}
+                    className="recent-book recent-book--link"
+                    href={bookHref(book)}
+                  >
+                    <span className="recent-book__icon" aria-hidden="true">
+                      <BookOpen size={18} />
+                    </span>
+                    <span className="recent-book__body">
+                      <h3>{book.title}</h3>
+                      <p>
+                        {book.genre} · {book.audience} · {statusLabel(book.status)}
+                      </p>
+                      {book.premise && <small>{book.premise}</small>}
+                    </span>
+                    <span className="recent-book__status">
+                      <PenLine aria-hidden="true" size={15} />
+                      继续
+                    </span>
+                    <ArrowRight aria-hidden="true" size={18} />
+                  </a>
                 </li>
               ))}
             </ul>
           </section>
 
           <aside className="workbench-panel workbench-next-action">
-            <p className="eyebrow">Next Action</p>
+            <p className="eyebrow">下一步</p>
             <h2>从最近作品继续</h2>
-            <p>打开最近项目，检查章节状态、可信设定变更和质量建议。</p>
+            <p>打开最近项目，检查卷纲、可信设定变更和质量建议。</p>
             <a className="workbench-action-button" href={bookHref(state.books[0])}>
               打开最近作品
             </a>
+            <div className="workbench-next-action__list" aria-label="最近项目快捷入口">
+              {state.books.slice(0, 3).map((book) => (
+                <a href={bookHref(book)} key={book.id ?? book.title}>
+                  <span>{book.title}</span>
+                  <strong>{statusLabel(book.status)}</strong>
+                </a>
+              ))}
+            </div>
           </aside>
         </div>
       )}
@@ -117,7 +152,7 @@ function EmptyWorkbench() {
   return (
     <div className="workbench-empty">
       <div>
-        <p className="eyebrow">No Books</p>
+        <p className="eyebrow">暂无作品</p>
         <h2>还没有作品</h2>
         <p>先从一个清晰的题材、受众和核心承诺开始。创建后，这里会显示最近作品和下一步动作。</p>
       </div>
@@ -167,5 +202,5 @@ function statusLabel(status: string): string {
     producing: "生产中",
     paused: "暂停",
   };
-  return labels[status] ?? status;
+  return labels[status] ?? "未知状态";
 }

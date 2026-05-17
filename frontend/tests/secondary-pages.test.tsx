@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, expect, test, vi } from "vitest";
 
 import { routeForPath } from "@/app/AppRoutes";
+import { BookWorkspacePage } from "@/features/books/BookWorkspacePage";
 import { ImportBookPage } from "@/features/books/ImportBookPage";
 import { QualityPage } from "@/features/quality/QualityPage";
 import { UpdatesPage } from "@/features/updates/UpdatesPage";
@@ -15,8 +16,16 @@ afterEach(() => {
 });
 
 test("routes secondary product pages", () => {
+  expect(routeForPath("/books")).toEqual({ activePath: "/books", element: <WorkbenchPage /> });
   expect(routeForPath("/books/import").element).toEqual(<ImportBookPage />);
-  expect(routeForPath("/books/42/quality").element).toEqual(<QualityPage bookId={42} />);
+  expect(routeForPath("/books/42/settings").element).toEqual(<BookWorkspacePage bookId={42} view="settings" />);
+  expect(routeForPath("/books/42/state").element).toEqual(<BookWorkspacePage bookId={42} view="state" />);
+  expect(routeForPath("/books/42/volumes").element).toEqual(<BookWorkspacePage bookId={42} view="volumes" />);
+  expect(routeForPath("/books/42/chapters").element).toEqual(<BookWorkspacePage bookId={42} view="chapters" />);
+  expect(routeForPath("/books/42/chapters/8").element).toEqual(
+    <BookWorkspacePage bookId={42} chapterId={8} view="chapters" />,
+  );
+  expect(routeForPath("/books/42/quality").element).toEqual(<BookWorkspacePage bookId={42} view="quality" />);
   expect(routeForPath("/updates").element).toEqual(<UpdatesPage />);
 });
 
@@ -42,7 +51,7 @@ test("import page posts project json and navigates to imported book", async () =
 
   render(<ImportBookPage />);
 
-  fireEvent.change(screen.getByLabelText("项目 JSON"), {
+  fireEvent.change(screen.getByLabelText("项目数据"), {
     target: { value: "{\"book\":{\"title\":\"星港遗梦\"}}" },
   });
   fireEvent.click(screen.getByRole("button", { name: "导入项目" }));
@@ -64,7 +73,7 @@ test("import page rejects malformed success payloads", async () => {
 
   render(<ImportBookPage />);
 
-  fireEvent.change(screen.getByLabelText("项目 JSON"), {
+  fireEvent.change(screen.getByLabelText("项目数据"), {
     target: { value: "{\"book\":{\"title\":\"星港遗梦\"}}" },
   });
   fireEvent.click(screen.getByRole("button", { name: "导入项目" }));
@@ -94,8 +103,8 @@ test("quality page renders assets and creates a quality snapshot", async () => {
     ),
   );
   expect(screen.getByText("91")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "导出 Markdown" })).toHaveAttribute("href", "/api/books/42/export.md");
-  expect(screen.getByRole("link", { name: "导出 JSON" })).toHaveAttribute("href", "/api/books/42/export.json");
+  expect(screen.getByRole("link", { name: "导出文稿" })).toHaveAttribute("href", "/api/books/42/export.md");
+  expect(screen.getByRole("link", { name: "导出数据" })).toHaveAttribute("href", "/api/books/42/export.json");
 });
 
 test("quality page renders animated AI waiting state while snapshot request is pending", async () => {

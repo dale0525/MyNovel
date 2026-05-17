@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlmodel import Session
 
-from mynovel.domain.models import Book, Chapter
+from mynovel.domain.models import Book, Chapter, ChapterStatus
 from mynovel.domain.repositories import get_book, list_chapters_for_book
 
 TARGET_WORD_COUNT_KEY = "target_word_count"
@@ -100,6 +100,8 @@ def update_book_word_targets(
     session.add(book)
     if update_existing_chapters:
         for chapter in list_chapters_for_book(session, book_id):
+            if chapter.status != ChapterStatus.PLANNED:
+                continue
             chapter.plan = {**(chapter.plan or {}), "word_budget": chapter_count}
             session.add(chapter)
     session.commit()

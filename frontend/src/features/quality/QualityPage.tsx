@@ -23,7 +23,7 @@ type ActionState =
   | { status: "success"; message: string }
   | { status: "error"; message: string };
 
-export function QualityPage({ bookId }: { bookId: number }) {
+export function QualityPage({ bookId, embedded = false }: { bookId: number; embedded?: boolean }) {
   const [state, setState] = useState<QualityState>({
     status: "loading",
     data: null,
@@ -121,8 +121,8 @@ export function QualityPage({ bookId }: { bookId: number }) {
 
   if (state.status === "loading") {
     return (
-      <section className="workbench-page" aria-labelledby="quality-page-title">
-        <div className="workbench-panel" role="status">
+      <section className={embedded ? "quality-page quality-page--embedded" : "workbench-page"} aria-labelledby="quality-page-title">
+        <div className={embedded ? "workspace-result-section" : "workbench-panel"} role="status">
           正在加载质量中心...
         </div>
       </section>
@@ -131,8 +131,8 @@ export function QualityPage({ bookId }: { bookId: number }) {
 
   if (state.status === "error") {
     return (
-      <section className="workbench-page" aria-labelledby="quality-page-title">
-        <div className="workbench-panel workbench-panel--alert" role="alert">
+      <section className={embedded ? "quality-page quality-page--embedded" : "workbench-page"} aria-labelledby="quality-page-title">
+        <div className={embedded ? "workspace-result-section workspace-result-section--alert" : "workbench-panel workbench-panel--alert"} role="alert">
           <h1 id="quality-page-title">质量中心加载失败</h1>
           <p>{state.error}</p>
           <a className="workbench-action-button" href={`/books/${bookId}`}>
@@ -146,15 +146,8 @@ export function QualityPage({ bookId }: { bookId: number }) {
   const { book, styleAssets, deconstructionStudies, latestSnapshot, costStrategy } = state.data;
   const submitting = actionState.status === "submitting";
   const submittingAction = actionState.status === "submitting" ? actionState.action : null;
-
-  return (
-    <section className="workbench-page" aria-labelledby="quality-page-title">
-      <div className="workbench-hero">
-        <p className="eyebrow">Quality System</p>
-        <h1 id="quality-page-title">质量中心</h1>
-        <p className="lede">{book.title} · 风格资产、拆书学习、长期质量分析和导出入口。</p>
-      </div>
-
+  const content = (
+    <>
       {actionState.status === "success" ? (
         <p className="setup-message" role="status">
           {actionState.message}
@@ -170,7 +163,7 @@ export function QualityPage({ bookId }: { bookId: number }) {
         <main className="workbench-panel">
           <div className="workspace-section-head">
             <div>
-              <p className="eyebrow">Long View</p>
+              <p className="eyebrow">长期视图</p>
               <h2>长期质量分析</h2>
             </div>
             <button
@@ -215,22 +208,22 @@ export function QualityPage({ bookId }: { bookId: number }) {
 
         <aside className="workspace-result-sidebar">
           <section className="workspace-result-section">
-            <p className="eyebrow">Exports</p>
+            <p className="eyebrow">导出</p>
             <h2>下载</h2>
             <a className="workbench-secondary-link" href={`/api/books/${bookId}/export.md`}>
-              导出 Markdown
+              导出文稿
             </a>
             <a className="workbench-secondary-link" href={`/api/books/${bookId}/export.json`}>
-              导出 JSON
+              导出数据
             </a>
           </section>
           <section className="workspace-result-section">
-            <p className="eyebrow">Cost Strategy</p>
+            <p className="eyebrow">成本策略</p>
             <h2>成本策略</h2>
             {costStrategy ? (
               <p>
-                {costStrategy.mode} · 建议批量数 {costStrategy.batch_limit} ·{" "}
-                {costStrategy.context_policy}
+                {costModeLabel(costStrategy.mode)} · 建议批量数 {costStrategy.batch_limit} ·{" "}
+                {contextPolicyLabel(costStrategy.context_policy)}
               </p>
             ) : (
               <p>刷新质量分析后生成成本策略。</p>
@@ -262,6 +255,25 @@ export function QualityPage({ bookId }: { bookId: number }) {
           onSubmit={(event) => void createStudy(event)}
         />
       </div>
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <section className="quality-page quality-page--embedded" aria-label="质量">
+        {content}
+      </section>
+    );
+  }
+
+  return (
+    <section className="workbench-page" aria-labelledby="quality-page-title">
+      <div className="workbench-hero">
+        <p className="eyebrow">质量系统</p>
+        <h1 id="quality-page-title">质量中心</h1>
+        <p className="lede">{book.title} · 风格资产、拆书学习、长期质量分析和导出入口。</p>
+      </div>
+      {content}
     </section>
   );
 }
@@ -289,7 +301,7 @@ function AssetPanel({
 }) {
   return (
     <section className="workbench-panel">
-      <p className="eyebrow">Style Assets</p>
+      <p className="eyebrow">风格资产</p>
       <h2>风格资产</h2>
       {assets.length ? (
         <ul className="workspace-mini-list">
@@ -345,7 +357,7 @@ function StudyPanel({
 }) {
   return (
     <section className="workbench-panel">
-      <p className="eyebrow">Reference Study</p>
+      <p className="eyebrow">拆书学习</p>
       <h2>拆书学习</h2>
       {studies.length ? (
         <ul className="workspace-mini-list">
@@ -470,6 +482,24 @@ function isCostStrategyPayload(value: unknown): boolean {
 function metric(metrics: Record<string, unknown>, key: string): string {
   const value = metrics[key];
   return typeof value === "number" || typeof value === "string" ? String(value) : "0";
+}
+
+function costModeLabel(mode: string): string {
+  const labels: Record<string, string> = {
+    balanced: "均衡",
+    economy: "节省",
+    premium: "高质量",
+  };
+  return labels[mode] ?? "自定义";
+}
+
+function contextPolicyLabel(policy: string): string {
+  const labels: Record<string, string> = {
+    "recent-first": "优先保留最近章节",
+    "canon-first": "优先保留可信设定",
+    balanced: "均衡保留上下文",
+  };
+  return labels[policy] ?? "自定义上下文";
 }
 
 function errorMessage(error: unknown, fallback: string): string {

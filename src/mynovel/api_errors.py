@@ -22,4 +22,4 @@ def api_error(
 
 
 def invalid_json_response() -> ApiResponse:
-    return api_error(HTTPStatus.BAD_REQUEST, "invalid_json", "Invalid JSON request body.")
+    return api_error(HTTPStatus.BAD_REQUEST, "invalid_json", "请求数据格式无效。")

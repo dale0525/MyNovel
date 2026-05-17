@@ -20,16 +20,32 @@ REQUIRED_BLUEPRINT_FIELDS = {
     "chapter_directions",
 }
 
+BLUEPRINT_FIELD_LABELS = {
+    "title_options": "书名候选",
+    "genre": "题材",
+    "audience": "目标读者",
+    "selling_points": "卖点",
+    "protagonist": "主角",
+    "world": "世界基础",
+    "central_conflict": "核心冲突",
+    "reader_promises": "读者承诺",
+    "chapter_directions": "章节方向",
+}
+
 
 def parse_blueprint_json(raw_text: str) -> dict[str, Any]:
     text = _strip_code_fence(raw_text.strip())
-    data = json.loads(text)
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError("蓝图返回格式无效。") from error
     if not isinstance(data, dict):
-        raise ValueError("Blueprint response must be a JSON object.")
+        raise ValueError("蓝图返回格式无效。")
 
     missing = sorted(REQUIRED_BLUEPRINT_FIELDS - set(data))
     if missing:
-        raise ValueError(f"Blueprint response missing fields: {', '.join(missing)}")
+        missing_labels = "、".join(BLUEPRINT_FIELD_LABELS.get(field, field) for field in missing)
+        raise ValueError(f"蓝图返回缺少字段：{missing_labels}")
 
     return data
 

@@ -12,7 +12,7 @@ export function ChapterStageBoard({ slots, traces }: ChapterStageBoardProps) {
     <section className="chapter-stage-board workbench-panel" aria-labelledby="chapter-stage-board-title">
       <div className="workspace-section-head">
         <div>
-          <p className="eyebrow">Run Flow</p>
+          <p className="eyebrow">运行流程</p>
           <h2 id="chapter-stage-board-title">生产阶段</h2>
         </div>
         <span>{recentTrace ? `最近：${recentTrace.stage}` : "暂无运行记录"}</span>
@@ -24,7 +24,7 @@ export function ChapterStageBoard({ slots, traces }: ChapterStageBoardProps) {
             data-slot={slot.key}
             key={slot.key}
           >
-            <span>{slot.ready ? "Ready" : "Pending"}</span>
+            <span>{slot.ready ? "已产出" : "待产出"}</span>
             <strong>{slot.label}</strong>
             <p>{slot.summary || "待产出"}</p>
           </article>

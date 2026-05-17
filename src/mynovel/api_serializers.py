@@ -112,6 +112,8 @@ def chapter_detail_payload(chapter: Chapter) -> dict[str, Any]:
 
 def _chapter_volume_number(plan: dict[str, Any]) -> int | None:
     value = plan.get("volume_number", plan.get("volumeNumber"))
+    if not isinstance(value, (str, bytes, bytearray, int, float)):
+        return None
     try:
         parsed = int(value)
     except (TypeError, ValueError):

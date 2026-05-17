@@ -14,11 +14,11 @@ afterEach(cleanup);
 test("ProjectIdentityBar renders compact context without a page hero", () => {
   const { container } = render(
     <ProjectIdentityBar
-      eyebrow="Project"
+      eyebrow="项目"
       title="星港遗梦"
       meta={[
         { label: "状态", value: "生产中" },
-        { label: "Canon", value: "v2" },
+        { label: "设定", value: "第 2 版" },
       ]}
     />,
   );
@@ -28,8 +28,8 @@ test("ProjectIdentityBar renders compact context without a page hero", () => {
   expect(screen.getByText("星港遗梦")).toBeInTheDocument();
   expect(screen.getByText("状态")).toBeInTheDocument();
   expect(screen.getByText("生产中")).toBeInTheDocument();
-  expect(screen.getByText("Canon")).toBeInTheDocument();
-  expect(screen.getByText("v2")).toBeInTheDocument();
+  expect(screen.getByText("设定")).toBeInTheDocument();
+  expect(screen.getByText("第 2 版")).toBeInTheDocument();
 });
 
 test("ImpactPanel renders visual impact items with tones", () => {

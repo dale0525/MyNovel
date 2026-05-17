@@ -134,7 +134,7 @@ export function OpenBookPage() {
   return (
     <section className="workbench-page open-book-page" aria-labelledby="open-book-title">
       <div className="workbench-hero open-book-hero">
-        <p className="eyebrow">Open Book</p>
+        <p className="eyebrow">开书</p>
         <h1 id="open-book-title">开一本新书</h1>
         <p className="lede">输入一句有效灵感，系统会生成可修订的开书蓝图。</p>
       </div>

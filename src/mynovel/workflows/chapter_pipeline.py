@@ -9,7 +9,6 @@ from sqlmodel import Session
 
 from mynovel.domain.models import BookStatus, Canon, Chapter, ChapterStatus, RunTrace, utc_now
 from mynovel.domain.repositories import (
-    get_active_volume_plan,
     get_book,
     get_chapter,
     get_latest_canon,
@@ -32,6 +31,7 @@ from mynovel.workflows.chapter_response_parsing import (
     parse_json_stage_response,
 )
 from mynovel.workflows.embedding import TextEmbeddingClient, embedding_client_from_provider_config
+from mynovel.workflows.volume_lookup import get_volume_plan_for_chapter
 from mynovel.workflows.chapter_repair import (
     RepairRequest,
     apply_word_count_patch_bounded,
@@ -127,7 +127,7 @@ def run_chapter_pipeline(
     chapter = _required_chapter(session, chapter_id)
     book = get_book(session, chapter.book_id)
     canon = get_latest_canon(session, chapter.book_id)
-    volume_plan = get_active_volume_plan(session, chapter.book_id)
+    volume_plan = get_volume_plan_for_chapter(session, chapter)
     if book is None or canon is None:
         raise ValueError("Chapter must belong to a book with trusted state.")
     if book.status == BookStatus.DRAFT:

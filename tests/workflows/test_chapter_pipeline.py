@@ -1,7 +1,14 @@
 from sqlmodel import Session
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import BookStatus, BlueprintStatus, ChapterStatus, OpenBookBlueprint
+from mynovel.domain.models import (
+    BookStatus,
+    BlueprintStatus,
+    Chapter,
+    ChapterStatus,
+    OpenBookBlueprint,
+    VolumePlan,
+)
 from mynovel.domain.repositories import get_latest_canon, list_chapters_for_book
 import mynovel.workflows.chapter_pipeline as chapter_pipeline
 from mynovel.workflows.chapter_pipeline import approve_chapter, run_chapter_pipeline
@@ -73,6 +80,36 @@ def test_run_chapter_pipeline_prepares_human_review(tmp_path) -> None:
     assert reviewed.revised_text
     assert reviewed.audit_report["issues"]
     assert reviewed.state_delta["changes"]
+
+
+def test_chapter_pipeline_uses_the_chapter_volume_plan(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        session.add(
+            VolumePlan(
+                book_id=book.id,
+                volume_number=2,
+                title="远行卷",
+                core_conflict="莉拉离开幽谷，追查旧王朝远行线。",
+            )
+        )
+        chapter = Chapter(
+            book_id=book.id,
+            number=11,
+            title="远行之门",
+            plan={"volume_number": 2, "goal": "莉拉踏出幽谷。"},
+        )
+        session.add(chapter)
+        session.commit()
+        session.refresh(chapter)
+
+        reviewed = run_chapter_pipeline(session, chapter.id)
+
+    assert reviewed.context_package["volume_plan"]["volume_number"] == 2
+    assert reviewed.context_package["volume_plan"]["title"] == "远行卷"
 
 
 def test_run_chapter_pipeline_prepares_state_delta_and_audit_for_result_first_review(

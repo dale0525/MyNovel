@@ -1,8 +1,16 @@
 import { type FormEvent, useEffect, useState } from "react";
+import { ArrowRight, BookOpen, FileText, ListChecks, Settings, ShieldCheck } from "lucide-react";
 
-import { AiStreamFeedback } from "@/components/feedback/AiStreamFeedback";
-import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
 import { ProjectIdentityBar } from "@/components/guidance/GuidedPanels";
+import { ProjectChapterListView } from "@/features/books/ChapterListPanel";
+import {
+  ProjectVolumeOutlineView,
+  type VolumeRevisionPayload,
+  volumePlanSections,
+} from "@/features/books/VolumeOutlinePanel";
+import { TrustedStatePage } from "@/features/canon/TrustedStatePage";
+import { ChapterPage } from "@/features/chapters/ChapterPage";
+import { QualityPage } from "@/features/quality/QualityPage";
 import { ApiError, getJson, isAbortError, postJson, postJsonLineStream } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
 import { type LlmStreamEvent, nextStreamSnippets, streamEventPreview } from "@/lib/streaming";
@@ -15,9 +23,13 @@ type BookWorkspaceState =
 
 type BookWorkspacePageProps = {
   bookId: number;
+  chapterId?: number;
+  view?: BookWorkspaceView;
 };
 
-type WorkspaceAction = "run-batch" | "word-targets" | "volume-outline";
+type BookWorkspaceView = "overview" | "settings" | "state" | "volumes" | "chapters" | "quality";
+
+type WorkspaceAction = "run-batch" | "word-targets" | "volume-outline" | "volume-revision";
 
 type ActionRedirectResponse = {
   redirectTo: string;
@@ -27,13 +39,7 @@ type WorkspaceStreamEvent = LlmStreamEvent<
   ActionRedirectResponse & { book?: unknown } & Record<string, unknown>
 >;
 
-type VolumeSection = {
-  key: string;
-  plan: BookResponse["volumePlans"][number] | null;
-  chapters: ChapterPayload[];
-};
-
-export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
+export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: BookWorkspacePageProps) {
   const [state, setState] = useState<BookWorkspaceState>({
     status: "loading",
     data: null,
@@ -45,6 +51,7 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
   const [streamAction, setStreamAction] = useState<WorkspaceAction | null>(null);
   const [streamSnippets, setStreamSnippets] = useState<string[]>([]);
   const [batchLimit, setBatchLimit] = useState(1);
+  const [selectedVolumeKey, setSelectedVolumeKey] = useState<string | null>(null);
   const [targetWordCount, setTargetWordCount] = useState(120000);
   const [chapterWordCount, setChapterWordCount] = useState(2800);
   const [updateExistingChapters, setUpdateExistingChapters] = useState(false);
@@ -107,21 +114,51 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
             setStreamSnippets((current) => nextStreamSnippets(current, snippet));
           }
           if (streamEvent.type === "failed") {
-            throw new Error(typeof streamEvent.message === "string" ? streamEvent.message : "卷纲生成失败。");
+            throw new Error(typeof streamEvent.message === "string" ? streamEvent.message : "卷纲补全失败。");
           }
           if (streamEvent.type === "done") {
             response = parseBookResponse(streamEvent.book);
             if (!response) {
-              throw new Error("卷纲生成结果格式无效。");
+              throw new Error("卷纲补全结果格式无效。");
             }
           }
         },
       );
       if (!response) {
-        throw new Error("卷纲生成没有返回结果。");
+        throw new Error("卷纲补全没有返回结果。");
       }
       setState({ status: "ready", data: response, error: null });
-      setActionStatus("卷纲已生成。");
+      setActionStatus("卷纲已补全。");
+    });
+  }
+
+  async function reviseVolumeOutline(payload: VolumeRevisionPayload) {
+    await runAction("volume-revision", async () => {
+      let response: BookResponse | null = null;
+      await postJsonLineStream<WorkspaceStreamEvent>(
+        `/api/books/${bookId}/volume-outline/revise-stream`,
+        payload,
+        (streamEvent) => {
+          const snippet = streamEventPreview(streamEvent);
+          if (snippet) {
+            setStreamSnippets((current) => nextStreamSnippets(current, snippet));
+          }
+          if (streamEvent.type === "failed") {
+            throw new Error(typeof streamEvent.message === "string" ? streamEvent.message : "卷纲修订失败。");
+          }
+          if (streamEvent.type === "done") {
+            response = parseBookResponse(streamEvent.book);
+            if (!response) {
+              throw new Error("卷纲修订结果格式无效。");
+            }
+          }
+        },
+      );
+      if (!response) {
+        throw new Error("卷纲修订没有返回结果。");
+      }
+      setState({ status: "ready", data: response, error: null });
+      setActionStatus("卷纲修订已应用。");
     });
   }
 
@@ -180,7 +217,7 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
     if (!redirectTo) {
       throw new Error("操作没有返回结果。");
     }
-    navigateTo(redirectTo);
+    navigateTo(projectScopedRedirect(bookId, redirectTo));
   }
 
   if (state.status === "loading") {
@@ -212,16 +249,22 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
   const batchReady = productionReady && chapters.some(canBatchRunChapter);
   const volumeSections = volumePlanSections(volumePlans, chapters);
   const totalWordCount = chapters.reduce((total, chapter) => total + chapter.wordCount, 0);
+  const acceptedChapterCount = chapters.filter((chapter) => chapter.status === "accepted").length;
 
   return (
     <section className="workbench-page book-workspace-page" aria-label={book.title}>
       <ProjectIdentityBar
-        eyebrow="Project"
+        eyebrow="项目"
         title={book.title}
         meta={[
-          { label: "设定", value: latestCanon ? `v${latestCanon.version}` : "尚未定盘" },
+          { label: "状态", value: statusLabel(book.status) },
+          { label: "设定", value: latestCanon ? versionLabel(latestCanon.version) : "尚未定盘" },
+          { label: "章节", value: `${acceptedChapterCount}/${chapters.length}` },
+          { label: "正文", value: `${totalWordCount} 字` },
         ]}
       />
+
+      <ProjectSecondaryNav activeView={view} bookId={bookId} />
 
       {actionError ? (
         <section className="workspace-result-section workspace-result-section--alert" role="alert">
@@ -235,177 +278,264 @@ export function BookWorkspacePage({ bookId }: BookWorkspacePageProps) {
       ) : null}
 
       <div className="book-workspace-sections">
-        <section className="workspace-result-section" aria-labelledby="basic-info-title">
-          <p className="eyebrow">Basic</p>
-          <h2 id="basic-info-title">基本信息</h2>
-          <dl className="book-workspace-facts">
-            <div>
-              <dt>题材</dt>
-              <dd>{book.genre || "未填写"}</dd>
-            </div>
-            <div>
-              <dt>目标读者</dt>
-              <dd>{book.audience || "未填写"}</dd>
-            </div>
-            <div>
-              <dt>状态</dt>
-              <dd>{statusLabel(book.status)}</dd>
-            </div>
-            <div>
-              <dt>已有正文</dt>
-              <dd>{totalWordCount} 字</dd>
-            </div>
-          </dl>
-          <p>{book.premise ?? "这个项目还没有记录核心承诺。"}</p>
-        </section>
+        {view === "overview" ? (
+          <ProjectOverview
+            book={book}
+            bookId={bookId}
+            chapterCount={chapters.length}
+            chapterWordCount={chapterWordCount}
+            latestCanonVersion={latestCanon?.version ?? null}
+            targetWordCount={targetWordCount}
+            totalWordCount={totalWordCount}
+            volumeCount={volumePlans.length}
+          />
+        ) : null}
 
-        <section className="workspace-result-section" aria-labelledby="word-target-title">
-          <p className="eyebrow">Project Settings</p>
-          <h2 id="word-target-title">项目设定</h2>
-          <form className="chapter-action-form book-workspace-inline-form" onSubmit={(event) => void saveWordTargets(event)}>
-            <label>
-              全书目标字数
-              <input
-                min={1}
-                type="number"
-                value={targetWordCount}
-                onChange={(event) => setTargetWordCount(clampedPositiveInt(event.target.value, 1))}
-              />
-            </label>
-            <label>
-              单章目标字数
-              <input
-                min={1}
-                type="number"
-                value={chapterWordCount}
-                onChange={(event) => setChapterWordCount(clampedPositiveInt(event.target.value, 1))}
-              />
-            </label>
-            <label className="chapter-major-change-toggle">
-              <input
-                checked={updateExistingChapters}
-                type="checkbox"
-                onChange={(event) => setUpdateExistingChapters(event.target.checked)}
-              />
-              同步更新已有章节计划
-            </label>
-            <button className="workbench-action-button" disabled={actionBusy !== null} type="submit">
-              {actionBusy === "word-targets" ? "保存中..." : "保存目标字数"}
-            </button>
-          </form>
-        </section>
+        {view === "settings" ? (
+          <ProjectSettingsView
+            actionBusy={actionBusy}
+            chapterWordCount={chapterWordCount}
+            setChapterWordCount={setChapterWordCount}
+            setTargetWordCount={setTargetWordCount}
+            setUpdateExistingChapters={setUpdateExistingChapters}
+            targetWordCount={targetWordCount}
+            updateExistingChapters={updateExistingChapters}
+            onSubmit={saveWordTargets}
+          />
+        ) : null}
 
-        <section className="workspace-result-section" aria-labelledby="canon-summary-title">
-          <div className="workspace-section-head">
-            <div>
-              <p className="eyebrow">Canon</p>
-              <h2 id="canon-summary-title">设定</h2>
-            </div>
-            <a className="workbench-secondary-link" href={`/books/${bookId}/state`}>
-              打开设定
-            </a>
-          </div>
-          <div className="workspace-foundation-grid">
-            {canonSummaryCards(latestCanon?.content ?? {}).map((item) => (
-              <a className="workspace-snapshot-card" href={`/books/${bookId}/state`} key={item.label}>
-                <strong>{item.label}</strong>
-                <p>{item.value}</p>
-              </a>
-            ))}
-          </div>
-        </section>
+        {view === "state" ? <TrustedStatePage bookId={bookId} embedded /> : null}
 
-        <section className="workspace-result-section" aria-labelledby="volume-outline-title">
-          <div className="workspace-section-head">
-            <div>
-              <p className="eyebrow">Outline</p>
-              <h2 id="volume-outline-title">卷纲列表</h2>
-            </div>
-            <button
-              className="workbench-action-button"
-              disabled={actionBusy !== null}
-              type="button"
-              onClick={() => void generateVolumeOutline()}
-            >
-              {actionBusy === "volume-outline" ? (
-                <AiWaitingIndicator label="生成卷纲中..." variant="inline" />
-              ) : (
-                "让 AI 生成卷纲"
-              )}
-            </button>
-          </div>
-          <AiStreamFeedback snippets={streamAction === "volume-outline" ? streamSnippets : []} />
-          <div className="workspace-volume-list">
-            {volumeSections.map((section) => (
-              <article className="workspace-volume-plan" key={section.key}>
-                {section.plan ? (
-                  <>
-                    <strong>
-                      第 {section.plan.volumeNumber} 卷 · {section.plan.title}
-                    </strong>
-                    <p>{section.plan.coreConflict}</p>
-                  </>
-                ) : (
-                  <>
-                    <strong>未分卷章节</strong>
-                    <p>还没有卷纲，先保留当前章节队列。</p>
-                  </>
-                )}
-                <h3>章节列表</h3>
-                {section.chapters.length ? (
-                  <ol className="workspace-mini-list">
-                    {section.chapters.map((chapter) => (
-                      <li key={chapter.id ?? chapter.number}>
-                        {chapter.id === null || chapter.id === undefined ? (
-                          <strong>第 {chapter.number} 章 · {chapter.title}</strong>
-                        ) : (
-                          <a className="workspace-mini-list-link" href={`/chapters/${chapter.id}`}>
-                            第 {chapter.number} 章 · {chapter.title}
-                          </a>
-                        )}
-                        <span>{chapterStatusLabel(chapter.status)} · {chapter.wordCount} 字</span>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <p>这一卷还没有章节规划。</p>
-                )}
-              </article>
-            ))}
-          </div>
-        </section>
+        {view === "volumes" ? (
+          <ProjectVolumeOutlineView
+            actionBusy={actionBusy}
+            bookId={bookId}
+            selectedVolumeKey={selectedVolumeKey}
+            setSelectedVolumeKey={setSelectedVolumeKey}
+            streamAction={streamAction}
+            streamSnippets={streamSnippets}
+            volumeSections={volumeSections}
+            wordTargets={state.data.wordTargets}
+            onGenerateVolumeOutline={generateVolumeOutline}
+            onReviseVolumeOutline={reviseVolumeOutline}
+          />
+        ) : null}
 
-        <section className="workspace-result-section" aria-labelledby="batch-production-title">
-          <p className="eyebrow">Batch</p>
-          <h2 id="batch-production-title">批量操作</h2>
-          {batchReady ? (
-            <form className="chapter-action-form book-workspace-batch-form" onSubmit={(event) => void runBatchProduction(event)}>
-              <label>
-                生成章节数
-                <input
-                  max={10}
-                  min={1}
-                  type="number"
-                  value={batchLimit}
-                  onChange={(event) => setBatchLimit(clampedPositiveInt(event.target.value, 1, 10))}
-                />
-              </label>
-              <button className="workbench-action-button" disabled={actionBusy !== null} type="submit">
-                {actionBusy === "run-batch" ? (
-                  <AiWaitingIndicator label="提交批量中..." variant="inline" />
-                ) : (
-                  "批量生成"
-                )}
-              </button>
-              <AiStreamFeedback snippets={streamAction === "run-batch" ? streamSnippets : []} />
-            </form>
-          ) : productionReady ? (
-            <p>没有可批量生成的章节。</p>
+        {view === "chapters" ? (
+          chapterId === undefined ? (
+            <ProjectChapterListView
+              actionBusy={actionBusy}
+              batchLimit={batchLimit}
+              batchReady={batchReady}
+              bookId={bookId}
+              chapters={chapters}
+              productionReady={productionReady}
+              setBatchLimit={setBatchLimit}
+              streamAction={streamAction}
+              streamSnippets={streamSnippets}
+              volumeSections={volumeSections}
+              wordTargets={state.data.wordTargets}
+              onRunBatchProduction={runBatchProduction}
+            />
           ) : (
-            <p>可信设定锁定后才能批量生成章节。</p>
-          )}
-        </section>
+            <ChapterPage bookId={bookId} chapterId={chapterId} embedded />
+          )
+        ) : null}
+
+        {view === "quality" ? <QualityPage bookId={bookId} embedded /> : null}
       </div>
+    </section>
+  );
+}
+
+function ProjectSecondaryNav({ activeView, bookId }: { activeView: BookWorkspaceView; bookId: number }) {
+  const items = [
+    { label: "概览", href: `/books/${bookId}`, view: "overview" },
+    { label: "设置", href: `/books/${bookId}/settings`, view: "settings" },
+    { label: "设定", href: `/books/${bookId}/state`, view: "state" },
+    { label: "卷纲", href: `/books/${bookId}/volumes`, view: "volumes" },
+    { label: "章节", href: `/books/${bookId}/chapters`, view: "chapters" },
+    { label: "质量", href: `/books/${bookId}/quality`, view: "quality" },
+  ];
+
+  return (
+    <nav className="book-workspace-subnav" aria-label="项目二级导航">
+      {items.map((item) => (
+        <a
+          aria-current={item.view === activeView ? "page" : undefined}
+          className="book-workspace-subnav__link"
+          href={item.href}
+          key={item.label}
+        >
+          {item.label}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+function ProjectOverview({
+  book,
+  bookId,
+  chapterCount,
+  chapterWordCount,
+  latestCanonVersion,
+  targetWordCount,
+  totalWordCount,
+  volumeCount,
+}: {
+  book: BookPayload;
+  bookId: number;
+  chapterCount: number;
+  chapterWordCount: number;
+  latestCanonVersion: number | null;
+  targetWordCount: number;
+  totalWordCount: number;
+  volumeCount: number;
+}) {
+  const overviewCards = [
+    {
+      label: "项目设置",
+      description: "字数目标与生产节奏",
+      href: `/books/${bookId}/settings`,
+      icon: Settings,
+      value: `${targetWordCount} / ${chapterWordCount} 字`,
+    },
+    {
+      label: "可信设定",
+      description: "世界规则、人物和伏笔账本",
+      href: `/books/${bookId}/state`,
+      icon: ShieldCheck,
+      value: latestCanonVersion === null ? "尚未定盘" : versionLabel(latestCanonVersion),
+    },
+    {
+      label: "卷纲",
+      description: "卷结构、卷概括与章节规划",
+      href: `/books/${bookId}/volumes`,
+      icon: BookOpen,
+      value: `${volumeCount} 卷`,
+    },
+    {
+      label: "章节",
+      description: "章节队列、状态与批量生成",
+      href: `/books/${bookId}/chapters`,
+      icon: ListChecks,
+      value: `${chapterCount} 章`,
+    },
+    {
+      label: "质量",
+      description: "风格资产、复审和导出",
+      href: `/books/${bookId}/quality`,
+      icon: FileText,
+      value: `${totalWordCount} 字`,
+    },
+  ];
+
+  return (
+    <>
+      <section className="workspace-result-section book-workspace-summary" aria-labelledby="project-summary-title">
+        <div>
+          <p className="eyebrow">项目概览</p>
+          <h2 id="project-summary-title">项目概括</h2>
+        </div>
+        <p className="book-workspace-premise">{book.premise ?? "这个项目还没有记录核心承诺。"}</p>
+        <dl className="book-workspace-facts book-workspace-facts--compact">
+          <div>
+            <dt>题材</dt>
+            <dd>{book.genre || "未填写"}</dd>
+          </div>
+          <div>
+            <dt>目标读者</dt>
+            <dd>{book.audience || "未填写"}</dd>
+          </div>
+          <div>
+            <dt>状态</dt>
+            <dd>{statusLabel(book.status)}</dd>
+          </div>
+          <div>
+            <dt>已有正文</dt>
+            <dd>{totalWordCount} 字</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="book-workspace-navigation" aria-label="项目二级入口">
+        {overviewCards.map((item) => {
+          const Icon = item.icon;
+          return (
+            <a className="book-workspace-nav-card" href={item.href} key={item.label}>
+              <span className="book-workspace-nav-card__icon" aria-hidden="true">
+                <Icon size={20} />
+              </span>
+              <span>
+                <strong>{item.label}</strong>
+                <small>{item.description}</small>
+              </span>
+              <em>{item.value}</em>
+              <ArrowRight aria-hidden="true" size={18} />
+            </a>
+          );
+        })}
+      </section>
+    </>
+  );
+}
+
+function ProjectSettingsView({
+  actionBusy,
+  chapterWordCount,
+  setChapterWordCount,
+  setTargetWordCount,
+  setUpdateExistingChapters,
+  targetWordCount,
+  updateExistingChapters,
+  onSubmit,
+}: {
+  actionBusy: WorkspaceAction | null;
+  chapterWordCount: number;
+  setChapterWordCount: (value: number) => void;
+  setTargetWordCount: (value: number) => void;
+  setUpdateExistingChapters: (value: boolean) => void;
+  targetWordCount: number;
+  updateExistingChapters: boolean;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+}) {
+  return (
+    <section className="workspace-result-section" aria-labelledby="word-target-title">
+      <p className="eyebrow">项目设置</p>
+      <h2 id="word-target-title">项目设定</h2>
+      <form className="chapter-action-form book-workspace-inline-form" onSubmit={(event) => void onSubmit(event)}>
+        <label>
+          全书目标字数
+          <input
+            min={1}
+            type="number"
+            value={targetWordCount}
+            onChange={(event) => setTargetWordCount(clampedPositiveInt(event.target.value, 1))}
+          />
+        </label>
+        <label>
+          单章目标字数
+          <input
+            min={1}
+            type="number"
+            value={chapterWordCount}
+            onChange={(event) => setChapterWordCount(clampedPositiveInt(event.target.value, 1))}
+          />
+        </label>
+        <label className="chapter-major-change-toggle">
+          <input
+            checked={updateExistingChapters}
+            type="checkbox"
+            onChange={(event) => setUpdateExistingChapters(event.target.checked)}
+          />
+          同步更新待生产章节计划
+        </label>
+        <p className="book-workspace-form-note">已生成、待审核、需修订和已接受章节不会被改动。</p>
+        <button className="workbench-action-button" disabled={actionBusy !== null} type="submit">
+          {actionBusy === "word-targets" ? "保存中..." : "保存目标字数"}
+        </button>
+      </form>
     </section>
   );
 }
@@ -490,80 +620,16 @@ function isSafeAppPath(value: unknown): value is string {
   return typeof value === "string" && value.startsWith("/") && !value.startsWith("//");
 }
 
+function projectScopedRedirect(bookId: number, redirectTo: string): string {
+  const chapterMatch = redirectTo.match(/^\/chapters\/(\d+)$/);
+  if (chapterMatch) {
+    return `/books/${bookId}/chapters/${chapterMatch[1]}`;
+  }
+  return redirectTo;
+}
+
 function canBatchRunChapter(chapter: ChapterPayload): boolean {
   return ["planned", "running", "needs_revision"].includes(chapter.status);
-}
-
-function volumePlanSections(
-  volumePlans: BookResponse["volumePlans"],
-  chapters: ChapterPayload[],
-): VolumeSection[] {
-  const sortedChapters = [...chapters].sort((left, right) => left.number - right.number);
-  if (volumePlans.length === 0) {
-    return [{ key: "unassigned", plan: null, chapters: sortedChapters }];
-  }
-
-  return [...volumePlans]
-    .sort((left, right) => left.volumeNumber - right.volumeNumber)
-    .map((plan) => {
-      const start = (plan.volumeNumber - 1) * 10 + 1;
-      const end = plan.volumeNumber * 10;
-      const matchedChapters = sortedChapters.filter(
-        (chapter) => {
-          const volumeNumber = chapterVolumeNumber(chapter);
-          if (volumeNumber !== null) {
-            return volumeNumber === plan.volumeNumber;
-          }
-          return chapter.number >= start && chapter.number <= end;
-        },
-      );
-      return {
-        key: String(plan.id ?? plan.volumeNumber),
-        plan,
-        chapters: matchedChapters,
-      };
-    });
-}
-
-function chapterVolumeNumber(chapter: ChapterPayload): number | null {
-  if (typeof chapter.volumeNumber === "number" && Number.isFinite(chapter.volumeNumber)) {
-    const volumeNumber = Math.trunc(chapter.volumeNumber);
-    return volumeNumber > 0 ? volumeNumber : null;
-  }
-  return null;
-}
-
-function canonSummaryCards(content: Record<string, unknown>) {
-  return [
-    { label: "世界规则", value: summarizeCanonValue(content.world_rules) },
-    { label: "人物", value: summarizeCanonValue(content.characters) },
-    { label: "章节摘要", value: summarizeCanonValue(content.chapter_summaries) },
-    { label: "伏笔账本", value: summarizeCanonValue(content.foreshadowing) },
-  ];
-}
-
-function summarizeCanonValue(value: unknown): string {
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      return "暂无记录";
-    }
-    return value.slice(0, 2).map(shortValue).join("；");
-  }
-  return shortValue(value);
-}
-
-function shortValue(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (isRecord(value)) {
-    const first = Object.values(value).find((item) => item !== null && item !== "");
-    return shortValue(first);
-  }
-  if (value === null || value === undefined) {
-    return "暂无记录";
-  }
-  return String(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -593,16 +659,9 @@ function statusLabel(status: string): string {
     producing: "生产中",
     paused: "暂停",
   };
-  return labels[status] ?? status;
+  return labels[status] ?? "未知状态";
 }
 
-function chapterStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    planned: "待生产",
-    running: "生成中",
-    awaiting_review: "待审阅",
-    needs_revision: "需修订",
-    accepted: "已接受",
-  };
-  return labels[status] ?? status;
+function versionLabel(version: number): string {
+  return `第 ${version} 版`;
 }

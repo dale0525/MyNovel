@@ -166,12 +166,14 @@ def _chapters_from_blueprint(
     directions = content.get("chapter_directions")
     if not isinstance(directions, list):
         directions = []
+    volume_number = _blueprint_volume_number(content)
 
     chapters = []
     for number in range(1, 11):
         raw_direction = directions[number - 1] if number <= len(directions) else {}
         title, goal = _chapter_title_and_goal(number, raw_direction)
         plan: dict[str, Any] = {
+            "volume_number": volume_number,
             "goal": goal,
             "must_write": _list_values(content.get("reader_promises")),
             "ending_hook": "留下一个明确的新问题，推动读者进入下一章。",
@@ -189,22 +191,49 @@ def _chapters_from_blueprint(
     return chapters
 
 
+def _blueprint_volume_number(content: dict) -> int:
+    raw_plan = content.get("volume_plan")
+    plan = raw_plan if isinstance(raw_plan, dict) else {}
+    try:
+        volume_number = int(plan.get("volume_number", 1) or 1)
+    except (TypeError, ValueError):
+        return 1
+    return volume_number if volume_number > 0 else 1
+
+
 def _volume_plan_from_blueprint(book_id: int, content: dict) -> VolumePlan:
     raw_plan = content.get("volume_plan")
     plan = raw_plan if isinstance(raw_plan, dict) else {}
+    volume_number = _blueprint_volume_number(content)
     core_conflict = str(
         plan.get("core_conflict") or content.get("central_conflict") or "推进首卷核心冲突。"
     ).strip()
     return VolumePlan(
         book_id=book_id,
-        volume_number=int(plan.get("volume_number", 1) or 1),
-        title=str(plan.get("title") or "第一卷").strip(),
+        volume_number=volume_number,
+        title=_volume_title_from_blueprint(plan.get("title"), volume_number),
         core_conflict=core_conflict,
         pacing_curve=_list_values(plan.get("pacing_curve") or content.get("chapter_directions")),
         payoff_distribution=_list_values(plan.get("payoff_distribution")),
         key_turns=_list_values(plan.get("key_turns")),
         commitments=_list_values(plan.get("commitments") or content.get("reader_promises")),
     )
+
+
+def _volume_title_from_blueprint(value: object, volume_number: int) -> str:
+    title = str(value or "").strip()
+    if title and not _is_generic_volume_title(title, volume_number):
+        return title
+    return "开篇卷" if volume_number == 1 else f"第 {volume_number} 卷"
+
+
+def _is_generic_volume_title(title: str, volume_number: int) -> bool:
+    normalized = "".join(str(title).split())
+    chinese_numbers = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
+    generic_titles = {f"第{volume_number}卷"}
+    if 0 < volume_number < len(chinese_numbers):
+        generic_titles.add(f"第{chinese_numbers[volume_number]}卷")
+    return normalized in generic_titles
 
 
 def _chapter_title_and_goal(number: int, raw_direction: object) -> tuple[str, str]:

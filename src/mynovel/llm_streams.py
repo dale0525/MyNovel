@@ -33,7 +33,7 @@ from mynovel.workflows.open_book_blueprint import (
     create_blueprint_job,
     parse_blueprint_json,
 )
-from mynovel.workflows.volume_planning import generate_volume_outline
+from mynovel.workflows.volume_planning import generate_volume_outline, revise_volume_outline
 from mynovel.word_targets import book_idea_from_form
 
 StreamEvent = dict[str, Any]
@@ -342,6 +342,38 @@ def stream_generate_volume_outline(
     yield from _events_from_worker(worker)
 
 
+def stream_revise_volume_outline(
+    db_path: Path,
+    book_id: int,
+    body: dict[str, Any],
+    *,
+    model_client=None,
+    provider_config: ProviderConfig | None = None,
+) -> Iterator[StreamEvent]:
+    def worker(emit: EmitEvent) -> None:
+        emit({"type": "started", "message": "AI 已开始修订卷纲。"})
+        with Session(create_engine_for_path(db_path)) as session:
+            revise_volume_outline(
+                session,
+                book_id,
+                body,
+                model_client=_eventing_volume_client(db_path, model_client, provider_config, emit),
+                model_name=_model_name(model_client, provider_config),
+            )
+        payload = book_detail_payload(db_path, book_id)
+        if payload is None:
+            raise ValueError("Book does not exist.")
+        emit(
+            {
+                "type": "done",
+                "message": "卷纲已修订。",
+                "book": payload,
+            }
+        )
+
+    yield from _events_from_worker(worker)
+
+
 def _stream_blueprint_job(
     db_path: Path,
     blueprint_id: int,
@@ -470,7 +502,10 @@ def _eventing_volume_client(
     return EventingCompleteClient(
         source_client,
         emit,
-        stage_labels={"volume_outline": "正在生成卷纲与章节规划。"},
+        stage_labels={
+            "volume_outline": "正在生成卷纲与章节规划。",
+            "volume_outline_revision": "正在按修改意见修订卷纲。",
+        },
     )
 
 

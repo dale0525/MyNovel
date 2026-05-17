@@ -12,6 +12,7 @@ from mynovel.domain.repositories import (
 from mynovel.llm_streams import (
     stream_create_open_book_blueprint,
     stream_generate_volume_outline,
+    stream_revise_volume_outline,
     stream_revise_blueprint,
     stream_run_chapter,
 )
@@ -107,6 +108,36 @@ class FakeVolumeOutlineStreamModel:
         yield payload[midpoint:]
 
 
+class FakeVolumeRevisionStreamModel:
+    model = "卷纲修订模型"
+
+    def stream_complete(self, stage: str, messages, response_format: str):
+        assert stage == "volume_outline_revision"
+        assert messages
+        assert response_format == "json"
+        payload = """
+        {
+          "volumes": [
+            {
+              "volume_number": 1,
+              "title": "旧王朝回声",
+              "core_conflict": "莉拉必须确认符号与旧王朝的关系。",
+              "pacing_curve": ["离乡", "追索", "卷末揭露"],
+              "payoff_distribution": ["确认符号来源"],
+              "key_turns": ["离开村庄", "进入遗迹"],
+              "commitments": ["每章推进一枚符号"],
+              "chapters": [
+                {"number": 2, "title": "提前进入遗迹", "goal": "第二章直接进入遗迹入口。"}
+              ]
+            }
+          ]
+        }
+        """
+        midpoint = max(1, len(payload) // 2)
+        yield payload[:midpoint]
+        yield payload[midpoint:]
+
+
 def test_stream_create_open_book_blueprint_yields_chunks_and_persists_result(tmp_path: Path) -> None:
     db_path = tmp_path / "dev.sqlite"
 
@@ -176,7 +207,9 @@ def test_stream_run_chapter_yields_model_chunks_and_returns_fresh_chapter(tmp_pa
     assert chapter.status == ChapterStatus.AWAITING_REVIEW
 
 
-def test_stream_generate_volume_outline_yields_chunks_and_persists_plan(tmp_path: Path) -> None:
+def test_stream_generate_volume_outline_yields_chunks_and_fills_missing_plan(
+    tmp_path: Path,
+) -> None:
     db_path = tmp_path / "dev.sqlite"
     book_id = _create_locked_book(db_path)
 
@@ -192,14 +225,42 @@ def test_stream_generate_volume_outline_yields_chunks_and_persists_plan(tmp_path
     assert any(event["type"] == "chunk" and "旧王朝回声" in event["text"] for event in events)
     done = events[-1]
     assert done["type"] == "done"
-    assert done["book"]["volumePlans"][0]["title"] == "旧王朝回声"
-    assert done["book"]["chapters"][0]["title"] == "符号发热"
+    assert done["book"]["volumePlans"][0]["title"] == "开篇卷"
+    assert done["book"]["chapters"][0]["title"] == "离开的召唤"
     assert done["book"]["chapters"][0]["volumeNumber"] == 1
+    assert done["book"]["chapters"][10]["title"] == "第 11 章"
+    assert done["book"]["chapters"][10]["volumeNumber"] == 1
 
     with Session(create_engine_for_path(db_path)) as session:
         chapters = list_chapters_for_book(session, book_id)
     assert chapters[0].plan["volume_number"] == 1
-    assert chapters[0].plan["goal"] == "莉拉发现第一枚符号回应远方遗迹。"
+    assert chapters[0].plan["goal"] == "发现第一枚符号"
+    assert chapters[10].plan["goal"] == "莉拉必须确认符号与旧王朝的关系。 衔接第 11 章。"
+
+
+def test_stream_revise_volume_outline_yields_chunks_and_persists_plan(tmp_path: Path) -> None:
+    db_path = tmp_path / "dev.sqlite"
+    book_id = _create_locked_book(db_path)
+
+    events = list(
+        stream_revise_volume_outline(
+            db_path,
+            book_id,
+            {"scope": "volume_chapters", "volumeNumber": 1, "revisionNotes": "第二章提前进入遗迹。"},
+            model_client=FakeVolumeRevisionStreamModel(),
+        )
+    )
+
+    assert events[0]["type"] == "started"
+    assert any(event["type"] == "chunk" and "提前进入遗迹" in event["text"] for event in events)
+    done = events[-1]
+    assert done["type"] == "done"
+    assert done["book"]["chapters"][1]["title"] == "提前进入遗迹"
+    assert done["book"]["chapters"][1]["volumeNumber"] == 1
+
+    with Session(create_engine_for_path(db_path)) as session:
+        chapters = list_chapters_for_book(session, book_id)
+    assert chapters[1].plan["goal"] == "第二章直接进入遗迹入口。"
 
 
 def _save_succeeded_blueprint(db_path: Path) -> int:
