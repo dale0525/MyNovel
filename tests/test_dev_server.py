@@ -327,13 +327,15 @@ def test_queue_chapter_batch_run_redirects_to_first_running_chapter(tmp_path: Pa
         session.add(second)
         session.commit()
         session.refresh(first)
+        session.refresh(second)
         book_id = book.id or 0
         first_id = first.id or 0
+        second_id = second.id or 0
 
     queued_chapter_id = queue_chapter_batch_run(
         db_path,
         book_id,
-        limit=2,
+        chapter_ids=[first_id, second_id],
         start_background=False,
     )
 

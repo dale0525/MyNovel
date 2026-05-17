@@ -412,70 +412,7 @@
   background: #fbfcf8;
 }
 
-.chapter-review-details {
-  display: grid;
-  gap: 1rem;
-}
-
-.chapter-operation-flow {
-  display: grid;
-  width: min(100%, 62rem);
-  gap: 1rem;
-  margin-inline: auto;
-}
-
-.chapter-operation-flow .guided-decision-panel {
-  position: static;
-}
-
-.chapter-identity-actions {
-  display: grid;
-  gap: 0.65rem;
-  justify-items: end;
-}
-
-.chapter-identity-actions .lede {
-  margin: 0;
-  text-align: right;
-}
-
-.chapter-review-details h3 {
-  margin: 0 0 0.55rem;
-  color: #172018;
-  font-size: 0.95rem;
-}
-
-.chapter-detail-list {
-  display: grid;
-  gap: 0.55rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.chapter-detail-list li {
-  border-left: 3px solid rgb(191 127 39 / 0.42);
-  background: #fffdf8;
-  color: #213025;
-  font-weight: 700;
-  padding: 0.55rem 0.7rem;
-}
-
-.chapter-detail-list--changes li {
-  border-left-color: rgb(53 99 66 / 0.38);
-}
-
-.guided-tools-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-}
-
 @media (max-width: 840px) {
-  .guided-tools-grid {
-    grid-template-columns: 1fr;
-  }
-
   .book-workspace-inline-form,
   .book-workspace-batch-form,
   .book-workspace-facts--compact,
@@ -495,14 +432,6 @@
   .book-workspace-nav-card > svg:last-child {
     grid-column: 3;
     grid-row: 1 / span 2;
-  }
-
-  .chapter-identity-actions {
-    justify-items: start;
-  }
-
-  .chapter-identity-actions .lede {
-    text-align: left;
   }
 }
 

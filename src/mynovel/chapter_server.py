@@ -5,6 +5,7 @@ from threading import Thread
 
 from sqlmodel import Session
 
+from mynovel.chapter_batch_payload import validate_chapter_batch_ids
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import BookStatus, ChapterStatus, ProviderConfig, RunTrace, utc_now
 from mynovel.domain.repositories import (
@@ -62,16 +63,16 @@ def queue_chapter_repair(
 def queue_chapter_batch_run(
     db_path: Path,
     book_id: int,
-    limit: int,
+    chapter_ids: list[int],
     provider_config: ProviderConfig | None = None,
     *,
     start_background: bool = True,
 ) -> int:
-    first_chapter_id = _mark_next_batch_chapter_running(db_path, book_id)
+    first_chapter_id = _mark_selected_batch_chapters_running(db_path, book_id, chapter_ids)
     if start_background:
         thread = Thread(
             target=_run_chapter_batch_job,
-            args=(db_path, book_id, limit, provider_config),
+            args=(db_path, book_id, chapter_ids, provider_config),
             daemon=True,
         )
         thread.start()
@@ -125,7 +126,12 @@ def _mark_chapter_repair_running(
         return chapter.id
 
 
-def _mark_next_batch_chapter_running(db_path: Path, book_id: int) -> int:
+def _mark_selected_batch_chapters_running(
+    db_path: Path,
+    book_id: int,
+    chapter_ids: list[int],
+) -> int:
+    selected_chapter_ids = validate_chapter_batch_ids(chapter_ids)
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
@@ -135,23 +141,28 @@ def _mark_next_batch_chapter_running(db_path: Path, book_id: int) -> int:
             missing_book_message="Book does not exist.",
             missing_canon_message="Trusted state must be locked before chapter production.",
         )
-        for chapter in list_chapters_for_book(session, book_id):
-            if chapter.status not in {
-                ChapterStatus.PLANNED,
-                ChapterStatus.NEEDS_REVISION,
-                ChapterStatus.RUNNING,
-            }:
-                continue
-            if chapter.id is None:
-                raise ValueError("Chapter must be persisted before production.")
+        chapters_by_id = {
+            chapter.id: chapter
+            for chapter in list_chapters_for_book(session, book_id)
+            if chapter.id is not None
+        }
+        selected_chapters = []
+        for chapter_id in selected_chapter_ids:
+            chapter = chapters_by_id.get(chapter_id)
+            if chapter is None:
+                raise ValueError("Selected chapter does not belong to this book.")
+            if chapter.status not in {ChapterStatus.PLANNED, ChapterStatus.NEEDS_REVISION}:
+                raise ValueError("Selected chapter is not eligible for production.")
+            selected_chapters.append(chapter)
+        selected_chapters.sort(key=lambda chapter: chapter.number)
+        for chapter in selected_chapters:
             chapter.status = ChapterStatus.RUNNING
             chapter.updated_at = utc_now()
             session.add(chapter)
-            session.commit()
-            session.refresh(chapter)
-            return chapter.id
-    raise ValueError("No chapter is eligible for batch production.")
-
+        session.commit()
+        first_chapter = selected_chapters[0]
+        session.refresh(first_chapter)
+        return first_chapter.id or selected_chapter_ids[0]
 
 def _assert_book_ready_for_chapter_production(
     session: Session,
@@ -215,7 +226,7 @@ def _run_chapter_repair_job(
 def _run_chapter_batch_job(
     db_path: Path,
     book_id: int,
-    limit: int,
+    chapter_ids: list[int],
     provider_config: ProviderConfig | None,
 ) -> None:
     model_client, model_name = chapter_model_client_from_provider_config(provider_config)
@@ -226,7 +237,7 @@ def _run_chapter_batch_job(
             run_chapter_batch(
                 session,
                 book_id,
-                limit,
+                chapter_ids,
                 model_client=model_client,
                 model_name=model_name,
             )

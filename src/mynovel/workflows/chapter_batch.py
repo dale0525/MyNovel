@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlmodel import Session
 
+from mynovel.chapter_batch_payload import validate_chapter_batch_ids
 from mynovel.domain.models import BookStatus, Chapter, ChapterStatus, RunTrace
 from mynovel.domain.repositories import get_book, get_latest_canon, list_chapters_for_book
 from mynovel.workflows.chapter_pipeline import ChapterModelClient, run_chapter_pipeline
@@ -13,7 +14,7 @@ from mynovel.workflows.chapter_pipeline import ChapterModelClient, run_chapter_p
 @dataclass(frozen=True)
 class ChapterBatchResult:
     book_id: int
-    requested_limit: int
+    requested_chapter_ids: list[int]
     completed_chapter_numbers: list[int] = field(default_factory=list)
     paused: bool = False
     paused_chapter_number: int | None = None
@@ -24,12 +25,11 @@ class ChapterBatchResult:
 def run_chapter_batch(
     session: Session,
     book_id: int,
-    limit: int,
+    chapter_ids: list[int],
     model_client: ChapterModelClient | None = None,
     model_name: str | None = None,
 ) -> ChapterBatchResult:
-    if limit < 1:
-        raise ValueError("Batch limit must be at least 1.")
+    requested_chapter_ids = validate_chapter_batch_ids(chapter_ids)
     book = get_book(session, book_id)
     if book is None:
         raise ValueError("Book does not exist.")
@@ -38,7 +38,7 @@ def run_chapter_batch(
     pause_reason: str | None = None
     paused_chapter: Chapter | None = None
 
-    for chapter in _next_batch_candidates(session, book_id)[:limit]:
+    for chapter in _selected_batch_candidates(session, book_id, requested_chapter_ids):
         if chapter.id is None:
             continue
         reviewed = run_chapter_pipeline(
@@ -58,7 +58,7 @@ def run_chapter_batch(
     latest = get_latest_canon(session, book_id)
     return ChapterBatchResult(
         book_id=book_id,
-        requested_limit=limit,
+        requested_chapter_ids=requested_chapter_ids,
         completed_chapter_numbers=completed,
         paused=paused_chapter is not None,
         paused_chapter_number=paused_chapter.number if paused_chapter else None,
@@ -66,14 +66,29 @@ def run_chapter_batch(
         trusted_state_version=latest.version if latest else 0,
     )
 
-
-def _next_batch_candidates(session: Session, book_id: int) -> list[Chapter]:
-    return [
-        chapter
+def _selected_batch_candidates(
+    session: Session,
+    book_id: int,
+    chapter_ids: list[int],
+) -> list[Chapter]:
+    chapters_by_id = {
+        chapter.id: chapter
         for chapter in list_chapters_for_book(session, book_id)
-        if chapter.status
-        in {ChapterStatus.PLANNED, ChapterStatus.RUNNING, ChapterStatus.NEEDS_REVISION}
-    ]
+        if chapter.id is not None
+    }
+    selected: list[Chapter] = []
+    for chapter_id in chapter_ids:
+        chapter = chapters_by_id.get(chapter_id)
+        if chapter is None:
+            raise ValueError("Selected chapter does not belong to this book.")
+        if chapter.status not in {
+            ChapterStatus.PLANNED,
+            ChapterStatus.RUNNING,
+            ChapterStatus.NEEDS_REVISION,
+        }:
+            raise ValueError("Selected chapter is not eligible for production.")
+        selected.append(chapter)
+    return sorted(selected, key=lambda chapter: chapter.number)
 
 
 def _blocking_pause_reason(chapter: Chapter) -> str | None:

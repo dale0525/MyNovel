@@ -65,32 +65,33 @@ class FakeBatchChapterModel:
         raise AssertionError(stage)
 
 
-def test_batch_runs_next_chapters_into_review_queue_without_accepting(tmp_path) -> None:
+def test_batch_runs_selected_chapters_into_review_queue_without_accepting(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
     model = FakeBatchChapterModel(["low", "medium"])
 
     with Session(engine) as session:
         book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapters = list_chapters_for_book(session, book.id)
 
         result = run_chapter_batch(
             session,
             book.id,
-            limit=2,
+            chapter_ids=[chapters[2].id or 0, chapters[0].id or 0],
             model_client=model,
             model_name="章节模型",
         )
         chapters = list_chapters_for_book(session, book.id)
         canon_version = result.trusted_state_version
 
-    assert result.requested_limit == 2
-    assert result.completed_chapter_numbers == [1, 2]
+    assert result.requested_chapter_ids == [chapters[2].id, chapters[0].id]
+    assert result.completed_chapter_numbers == [1, 3]
     assert result.paused is False
     assert canon_version == 1
     assert [chapter.status for chapter in chapters[:3]] == [
         ChapterStatus.AWAITING_REVIEW,
-        ChapterStatus.AWAITING_REVIEW,
         ChapterStatus.PLANNED,
+        ChapterStatus.AWAITING_REVIEW,
     ]
     assert model.calls == [
         "plan",
@@ -113,11 +114,12 @@ def test_batch_pauses_book_on_high_risk_and_leaves_later_chapters_planned(tmp_pa
 
     with Session(engine) as session:
         book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapters = list_chapters_for_book(session, book.id)
 
         result = run_chapter_batch(
             session,
             book.id,
-            limit=3,
+            chapter_ids=[chapter.id or 0 for chapter in chapters[:3]],
             model_client=model,
             model_name="章节模型",
         )

@@ -1,10 +1,9 @@
 import { type FormEvent, useEffect, useState } from "react";
-import { ArrowRight, BookOpen, FileText, ListChecks, Settings, ShieldCheck } from "lucide-react";
+import { ArrowRight, FileText, ListChecks, Settings, ShieldCheck } from "lucide-react";
 
 import { ProjectIdentityBar } from "@/components/guidance/GuidedPanels";
 import { ProjectChapterListView } from "@/features/books/ChapterListPanel";
 import {
-  ProjectVolumeOutlineView,
   type VolumeRevisionPayload,
   volumePlanSections,
 } from "@/features/books/VolumeOutlinePanel";
@@ -40,6 +39,7 @@ type WorkspaceStreamEvent = LlmStreamEvent<
 >;
 
 export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: BookWorkspacePageProps) {
+  const activeView = view === "volumes" ? "chapters" : view;
   const [state, setState] = useState<BookWorkspaceState>({
     status: "loading",
     data: null,
@@ -50,7 +50,6 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [streamAction, setStreamAction] = useState<WorkspaceAction | null>(null);
   const [streamSnippets, setStreamSnippets] = useState<string[]>([]);
-  const [batchLimit, setBatchLimit] = useState(1);
   const [selectedVolumeKey, setSelectedVolumeKey] = useState<string | null>(null);
   const [targetWordCount, setTargetWordCount] = useState(120000);
   const [chapterWordCount, setChapterWordCount] = useState(2800);
@@ -93,11 +92,10 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
     };
   }, [bookId]);
 
-  async function runBatchProduction(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function runBatchProduction(chapterIds: number[]) {
     await runAction("run-batch", async () => {
       await runStreamingRedirect(`/api/books/${bookId}/chapters/run-batch-stream`, {
-        limit: batchLimit,
+        chapterIds,
       });
     });
   }
@@ -264,7 +262,7 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
         ]}
       />
 
-      <ProjectSecondaryNav activeView={view} bookId={bookId} />
+      <ProjectSecondaryNav activeView={activeView} bookId={bookId} />
 
       {actionError ? (
         <section className="workspace-result-section workspace-result-section--alert" role="alert">
@@ -278,7 +276,7 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
       ) : null}
 
       <div className="book-workspace-sections">
-        {view === "overview" ? (
+        {activeView === "overview" ? (
           <ProjectOverview
             book={book}
             bookId={bookId}
@@ -291,7 +289,7 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
           />
         ) : null}
 
-        {view === "settings" ? (
+        {activeView === "settings" ? (
           <ProjectSettingsView
             actionBusy={actionBusy}
             chapterWordCount={chapterWordCount}
@@ -304,45 +302,32 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
           />
         ) : null}
 
-        {view === "state" ? <TrustedStatePage bookId={bookId} embedded /> : null}
+        {activeView === "state" ? <TrustedStatePage bookId={bookId} embedded /> : null}
 
-        {view === "volumes" ? (
-          <ProjectVolumeOutlineView
-            actionBusy={actionBusy}
-            bookId={bookId}
-            selectedVolumeKey={selectedVolumeKey}
-            setSelectedVolumeKey={setSelectedVolumeKey}
-            streamAction={streamAction}
-            streamSnippets={streamSnippets}
-            volumeSections={volumeSections}
-            wordTargets={state.data.wordTargets}
-            onGenerateVolumeOutline={generateVolumeOutline}
-            onReviseVolumeOutline={reviseVolumeOutline}
-          />
-        ) : null}
-
-        {view === "chapters" ? (
+        {activeView === "chapters" ? (
           chapterId === undefined ? (
             <ProjectChapterListView
               actionBusy={actionBusy}
-              batchLimit={batchLimit}
               batchReady={batchReady}
               bookId={bookId}
               chapters={chapters}
               productionReady={productionReady}
-              setBatchLimit={setBatchLimit}
+              selectedVolumeKey={selectedVolumeKey}
+              setSelectedVolumeKey={setSelectedVolumeKey}
               streamAction={streamAction}
               streamSnippets={streamSnippets}
               volumeSections={volumeSections}
               wordTargets={state.data.wordTargets}
+              onGenerateVolumeOutline={generateVolumeOutline}
               onRunBatchProduction={runBatchProduction}
+              onReviseVolumeOutline={reviseVolumeOutline}
             />
           ) : (
             <ChapterPage bookId={bookId} chapterId={chapterId} embedded />
           )
         ) : null}
 
-        {view === "quality" ? <QualityPage bookId={bookId} embedded /> : null}
+        {activeView === "quality" ? <QualityPage bookId={bookId} embedded /> : null}
       </div>
     </section>
   );
@@ -353,7 +338,6 @@ function ProjectSecondaryNav({ activeView, bookId }: { activeView: BookWorkspace
     { label: "概览", href: `/books/${bookId}`, view: "overview" },
     { label: "设置", href: `/books/${bookId}/settings`, view: "settings" },
     { label: "设定", href: `/books/${bookId}/state`, view: "state" },
-    { label: "卷纲", href: `/books/${bookId}/volumes`, view: "volumes" },
     { label: "章节", href: `/books/${bookId}/chapters`, view: "chapters" },
     { label: "质量", href: `/books/${bookId}/quality`, view: "quality" },
   ];
@@ -409,18 +393,11 @@ function ProjectOverview({
       value: latestCanonVersion === null ? "尚未定盘" : versionLabel(latestCanonVersion),
     },
     {
-      label: "卷纲",
-      description: "卷结构、卷概括与章节规划",
-      href: `/books/${bookId}/volumes`,
-      icon: BookOpen,
-      value: `${volumeCount} 卷`,
-    },
-    {
       label: "章节",
-      description: "章节队列、状态与批量生成",
+      description: "卷纲、章节队列与批量生成",
       href: `/books/${bookId}/chapters`,
       icon: ListChecks,
-      value: `${chapterCount} 章`,
+      value: `${volumeCount} 卷 / ${chapterCount} 章`,
     },
     {
       label: "质量",
@@ -629,7 +606,7 @@ function projectScopedRedirect(bookId: number, redirectTo: string): string {
 }
 
 function canBatchRunChapter(chapter: ChapterPayload): boolean {
-  return ["planned", "running", "needs_revision"].includes(chapter.status);
+  return ["planned", "needs_revision"].includes(chapter.status);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

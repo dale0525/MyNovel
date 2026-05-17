@@ -139,7 +139,7 @@ def test_batch_chapter_run_requires_locked_trusted_state(tmp_path: Path) -> None
 
     response = dispatch_api_post(
         f"/api/books/{book_id}/chapters/run-batch",
-        {"limit": 3},
+        {"chapterIds": [chapter_id]},
         db_path,
     )
 
@@ -149,6 +149,18 @@ def test_batch_chapter_run_requires_locked_trusted_state(tmp_path: Path) -> None
         saved_chapter = session.get(Chapter, chapter_id)
     assert saved_chapter is not None
     assert saved_chapter.status == ChapterStatus.PLANNED
+
+
+def test_batch_chapter_run_rejects_limit_payload(tmp_path: Path) -> None:
+    response = dispatch_api_post(
+        "/api/books/1/chapters/run-batch",
+        {"limit": 3},
+        tmp_path / "dev.sqlite",
+    )
+
+    assert response.status == HTTPStatus.BAD_REQUEST
+    assert response.body["error"]["code"] == "chapter_action_failed"
+    assert "chapterIds" in response.body["error"]["message"]
 
 
 def test_updates_metadata_route_returns_json(tmp_path: Path) -> None:

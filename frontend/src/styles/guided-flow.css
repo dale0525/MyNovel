@@ -47,7 +47,7 @@
 }
 
 .guided-identity__actions {
-  justify-self: end;
+  margin-top: 0.85rem;
 }
 
 .primary-action-panel {

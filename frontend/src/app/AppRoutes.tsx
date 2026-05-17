@@ -77,8 +77,8 @@ export function routeForPath(pathname: string): RouteMatch {
   const bookVolumesId = parseBookVolumesPath(path);
   if (bookVolumesId !== null) {
     return {
-      activePath: "/books/:id/volumes",
-      element: <BookWorkspacePage bookId={bookVolumesId} view="volumes" />,
+      activePath: "/books/:id/chapters",
+      element: <BookWorkspacePage bookId={bookVolumesId} view="chapters" />,
     };
   }
 

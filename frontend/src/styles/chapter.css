@@ -1,0 +1,135 @@
+.chapter-review-identity {
+  grid-template-columns: minmax(0, 1fr) minmax(19rem, 28rem);
+  gap: 0.85rem 1.35rem;
+  align-items: start;
+  padding: clamp(1rem, 2.4vw, 1.35rem);
+}
+
+.chapter-review-identity .guided-identity__body {
+  min-width: 0;
+}
+
+.chapter-review-identity h1 {
+  max-width: 18ch;
+  font-size: clamp(2.35rem, 4.8vw, 3.45rem);
+  line-height: 0.98;
+}
+
+.chapter-review-identity .guided-identity__summary {
+  max-width: 44rem;
+  margin: 0.75rem 0 0;
+  color: #3f4d3b;
+  font-size: clamp(1rem, 1.5vw, 1.16rem);
+  line-height: 1.58;
+}
+
+.chapter-review-identity .guided-identity__meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  gap: 0.55rem;
+  justify-content: stretch;
+}
+
+.chapter-review-identity .guided-identity__meta div {
+  min-width: 0;
+  border-radius: 0.65rem;
+  background: rgb(255 253 248 / 0.74);
+  padding: 0.65rem 0.72rem;
+}
+
+.chapter-review-identity .guided-identity__meta div:first-child {
+  grid-column: 1 / -1;
+}
+
+.chapter-review-identity .guided-identity__meta dd {
+  overflow-wrap: anywhere;
+}
+
+.chapter-review-identity .guided-identity__actions {
+  margin-top: 1.4rem;
+}
+
+.chapter-identity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.chapter-back-link {
+  display: inline-flex;
+  width: max-content;
+  gap: 0.4rem;
+  align-items: center;
+  border: 1px solid rgb(123 77 27 / 0.18);
+  border-radius: 0.55rem;
+  background: rgb(255 250 240 / 0.62);
+  line-height: 1;
+  padding: 0.62rem 0.76rem;
+}
+
+.chapter-back-link:hover {
+  border-color: rgb(123 77 27 / 0.32);
+  background: #fffdf8;
+}
+
+.chapter-review-details {
+  display: grid;
+  gap: 1rem;
+}
+
+.chapter-operation-flow {
+  display: grid;
+  width: min(100%, 62rem);
+  gap: 1rem;
+  margin-inline: auto;
+}
+
+.chapter-operation-flow .guided-decision-panel {
+  position: static;
+}
+
+.chapter-review-details h3 {
+  margin: 0 0 0.55rem;
+  color: #172018;
+  font-size: 0.95rem;
+}
+
+.chapter-detail-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chapter-detail-list li {
+  border-left: 3px solid rgb(191 127 39 / 0.42);
+  background: #fffdf8;
+  color: #213025;
+  font-weight: 700;
+  padding: 0.55rem 0.7rem;
+}
+
+.chapter-detail-list--changes li {
+  border-left-color: rgb(53 99 66 / 0.38);
+}
+
+.guided-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+@media (max-width: 840px) {
+  .chapter-review-identity,
+  .chapter-review-identity .guided-identity__meta,
+  .guided-tools-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chapter-review-identity .guided-identity__meta div:first-child {
+    grid-column: auto;
+  }
+}

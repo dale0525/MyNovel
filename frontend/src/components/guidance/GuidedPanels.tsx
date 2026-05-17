@@ -1,6 +1,8 @@
 import { ChevronDown } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 
+import { cn } from "@/lib/utils";
+
 export type IdentityMetaItem = {
   label: string;
   value: ReactNode;
@@ -18,15 +20,26 @@ type ProjectIdentityBarProps = {
   eyebrow: string;
   title: string;
   meta: IdentityMetaItem[];
+  summary?: ReactNode;
   actions?: ReactNode;
+  className?: string;
 };
 
-export function ProjectIdentityBar({ eyebrow, title, meta, actions }: ProjectIdentityBarProps) {
+export function ProjectIdentityBar({
+  eyebrow,
+  title,
+  meta,
+  summary,
+  actions,
+  className,
+}: ProjectIdentityBarProps) {
   return (
-    <div className="guided-identity">
-      <div>
+    <div className={cn("guided-identity", className)}>
+      <div className="guided-identity__body">
         <p className="eyebrow">{eyebrow}</p>
         <h1>{title}</h1>
+        {summary ? <p className="guided-identity__summary lede">{summary}</p> : null}
+        {actions ? <div className="guided-identity__actions">{actions}</div> : null}
       </div>
       <dl className="guided-identity__meta">
         {meta.map((item) => (
@@ -36,7 +49,6 @@ export function ProjectIdentityBar({ eyebrow, title, meta, actions }: ProjectIde
           </div>
         ))}
       </dl>
-      {actions ? <div className="guided-identity__actions">{actions}</div> : null}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { BookWorkspacePage } from "@/features/books/BookWorkspacePage";
@@ -27,7 +27,7 @@ test("renders a compact project overview with second-level navigation", async ()
   expect(screen.getByText("领航员追查失落星港的真相。")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: /项目设置/ })).toHaveAttribute("href", "/books/42/settings");
   expect(screen.getByRole("link", { name: /可信设定/ })).toHaveAttribute("href", "/books/42/state");
-  expect(screen.getAllByRole("link", { name: /卷纲/ }).some((link) => link.getAttribute("href") === "/books/42/volumes")).toBe(true);
+  expect(screen.queryByRole("link", { name: "卷纲" })).not.toBeInTheDocument();
   expect(screen.getAllByRole("link", { name: /章节/ }).some((link) => link.getAttribute("href") === "/books/42/chapters")).toBe(true);
   expect(screen.queryByRole("heading", { name: "项目设定" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "卷纲列表" })).not.toBeInTheDocument();
@@ -73,38 +73,27 @@ test("renders quality center as content inside the project tab frame", async () 
   expect(screen.queryByRole("heading", { name: "质量中心" })).not.toBeInTheDocument();
 });
 
-test("volume outline tab expands one volume row before showing its chapters", async () => {
+test("chapter tab switches selected volume before showing its chapters", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => Response.json(multiVolumeBookPayload())),
   );
 
-  render(<BookWorkspacePage bookId={42} view="volumes" />);
+  render(<BookWorkspacePage bookId={42} view="chapters" />);
 
-  await waitFor(() => expect(screen.getByRole("heading", { name: "卷纲" })).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole("heading", { name: "章节" })).toBeInTheDocument());
   expect(screen.getByRole("textbox", { name: "所有卷修改意见" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /第一卷 · 星港卷/ })).toHaveAttribute("aria-expanded", "false");
-  expect(screen.queryByRole("link", { name: "第 1 章 · 失落灯塔" })).not.toBeInTheDocument();
-
-  fireEvent.click(screen.getByRole("button", { name: /第一卷 · 星港卷/ }));
-
-  expect(screen.getByRole("button", { name: /第一卷 · 星港卷/ })).toHaveAttribute("aria-expanded", "true");
-  expect(screen.getByRole("button", { name: "收起全部" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /第一卷 · 星港卷/ })).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByRole("link", { name: "第 1 章 · 失落灯塔" })).toHaveAttribute(
     "href",
     "/books/42/chapters/8",
   );
   expect(screen.queryByRole("link", { name: "第 11 章 · 深空裂缝" })).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: "收起全部" }));
-
-  expect(screen.getByRole("button", { name: /第一卷 · 星港卷/ })).toHaveAttribute("aria-expanded", "false");
-  expect(screen.queryByRole("button", { name: "收起全部" })).not.toBeInTheDocument();
-
   fireEvent.click(screen.getByRole("button", { name: /第二卷 · 深空卷/ }));
 
-  expect(screen.getByRole("button", { name: /第一卷 · 星港卷/ })).toHaveAttribute("aria-expanded", "false");
-  expect(screen.getByRole("button", { name: /第二卷 · 深空卷/ })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: /第一卷 · 星港卷/ })).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getByRole("button", { name: /第二卷 · 深空卷/ })).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByRole("link", { name: "第 11 章 · 深空裂缝" })).toHaveAttribute(
     "href",
     "/books/42/chapters/9",
@@ -148,7 +137,35 @@ test("chapter tab lists accepted chapters without a current-task panel", async (
   expect(screen.queryByRole("link", { name: "调整可信设定" })).not.toBeInTheDocument();
 });
 
-test("runs batch production through the project batch action", async () => {
+test("chapter tab merges planning progress and status statistics into one overview region", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(
+        bookPayload({
+          chapterStatus: "accepted",
+          chapterTitle: "已完成灯塔",
+          targetWordCount: 1200,
+          chapterWordCount: 1200,
+        }),
+      ),
+    ),
+  );
+
+  render(<BookWorkspacePage bookId={42} view="chapters" />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "章节" })).toBeInTheDocument());
+  const overview = screen.getByRole("region", { name: "章节概览" });
+  const overviewScope = within(overview);
+
+  expect(overviewScope.getByText("覆盖进度")).toBeInTheDocument();
+  expect(overviewScope.getByText("规划缺口")).toBeInTheDocument();
+  expect(overviewScope.getByText("总章数")).toBeInTheDocument();
+  expect(overviewScope.getByText("已接受")).toBeInTheDocument();
+  expect(overview).toContainElement(overviewScope.getByText("1/1 章"));
+});
+
+test("runs batch production with selected chapter ids", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "planned" })))
@@ -159,21 +176,50 @@ test("runs batch production through the project batch action", async () => {
 
   render(<BookWorkspacePage bookId={42} view="chapters" />);
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "批量生成" })).toBeInTheDocument());
-  fireEvent.change(screen.getByLabelText("生成章节数"), { target: { value: "3" } });
-  fireEvent.click(screen.getByRole("button", { name: "批量生成" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "选择章节后生成" })).toBeInTheDocument());
+  fireEvent.click(screen.getByLabelText("选择第 1 章 · 失落灯塔"));
+  fireEvent.click(screen.getByRole("button", { name: "生成选中的 1 章" }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/books/42/chapters/run-batch-stream",
       expect.objectContaining({
         method: "POST",
-        body: "{\"limit\":3}",
+        body: "{\"chapterIds\":[8]}",
       }),
     ),
   );
   expect(screen.getByRole("status")).toHaveTextContent("正在批量推进章节");
   expect(window.location.pathname).toBe("/books/42/chapters/9");
+});
+
+test("volume selection adds every selectable chapter in that volume", async () => {
+  const payload = multiVolumeBookPayload();
+  payload.chapters = payload.chapters.map((chapter) => ({ ...chapter, status: "planned" }));
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(payload))
+    .mockResolvedValueOnce(
+      streamResponse([{ type: "done", chapterId: 8, redirectTo: "/chapters/8" }]),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<BookWorkspacePage bookId={42} view="chapters" />);
+
+  await waitFor(() => expect(screen.getByLabelText("选择第一卷 · 星港卷")).toBeInTheDocument());
+  fireEvent.click(screen.getByLabelText("选择第一卷 · 星港卷"));
+  fireEvent.click(screen.getByLabelText("选择第二卷 · 深空卷"));
+  fireEvent.click(screen.getByRole("button", { name: "生成选中的 2 章" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/books/42/chapters/run-batch-stream",
+      expect.objectContaining({
+        method: "POST",
+        body: "{\"chapterIds\":[8,9]}",
+      }),
+    ),
+  );
 });
 
 test("shows animated waiting state while batch production is pending", async () => {
@@ -190,8 +236,9 @@ test("shows animated waiting state while batch production is pending", async () 
 
   render(<BookWorkspacePage bookId={42} view="chapters" />);
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "批量生成" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "批量生成" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "选择章节后生成" })).toBeInTheDocument());
+  fireEvent.click(screen.getByLabelText("选择第 1 章 · 失落灯塔"));
+  fireEvent.click(screen.getByRole("button", { name: "生成选中的 1 章" }));
 
   await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("提交批量中..."));
   expect(screen.getByRole("button", { name: /提交批量中/ })).toBeDisabled();
@@ -208,7 +255,7 @@ test("hides batch production before trusted state is locked", async () => {
   render(<BookWorkspacePage bookId={42} view="chapters" />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
-  expect(screen.queryByRole("button", { name: "批量生成" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "选择章节后生成" })).not.toBeInTheDocument();
   expect(screen.getByText("可信设定锁定后才能批量生成章节。")).toBeInTheDocument();
 });
 
@@ -300,10 +347,11 @@ test("hides volume completion button when chapter planning already covers the ta
 
   render(<BookWorkspacePage bookId={42} view="volumes" />);
 
-  await waitFor(() => expect(screen.getByRole("heading", { name: "卷纲" })).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole("heading", { name: "章节" })).toBeInTheDocument());
   expect(screen.queryByRole("button", { name: "补全卷纲" })).not.toBeInTheDocument();
-  expect(screen.getByText("规划缺口")).toBeInTheDocument();
-  expect(screen.getByText("0 章")).toBeInTheDocument();
+  const overview = within(screen.getByRole("region", { name: "章节概览" }));
+  expect(overview.getByText("规划缺口")).toBeInTheDocument();
+  expect(overview.getByText("0 章")).toBeInTheDocument();
 });
 
 test("expanded volume row submits chapter notes and refreshes chapters", async () => {
@@ -638,8 +686,9 @@ test("keeps project sections visible when batch action fails", async () => {
 
   render(<BookWorkspacePage bookId={42} view="chapters" />);
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "批量生成" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "批量生成" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "选择章节后生成" })).toBeInTheDocument());
+  fireEvent.click(screen.getByLabelText("选择第 1 章 · 失落灯塔"));
+  fireEvent.click(screen.getByRole("button", { name: "生成选中的 1 章" }));
 
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("批量生成失败。"));
   expect(screen.getByRole("heading", { name: "章节" })).toBeInTheDocument();

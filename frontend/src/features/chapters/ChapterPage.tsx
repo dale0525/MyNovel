@@ -1,3 +1,4 @@
+import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
@@ -191,8 +192,10 @@ export function ChapterPage({
   return (
     <section className={embedded ? "chapter-page chapter-page--embedded" : "workbench-page chapter-page"} aria-label={chapter.title}>
       <ProjectIdentityBar
+        className="chapter-review-identity"
         eyebrow="章节审核"
         title={chapter.title}
+        summary={chapter.summary || "本章尚未形成摘要。"}
         meta={[
           { label: "项目", value: book.title },
           { label: "章节", value: `第 ${chapter.number} 章` },
@@ -201,9 +204,9 @@ export function ChapterPage({
         ]}
         actions={(
           <div className="chapter-identity-actions">
-            <p className="lede">{chapter.summary || "本章尚未形成摘要。"}</p>
             {parentBookId === null ? null : (
-              <a className="workbench-secondary-link" href={`/books/${parentBookId}/chapters`}>
+              <a className="workbench-secondary-link chapter-back-link" href={`/books/${parentBookId}/chapters`}>
+                <ArrowLeft aria-hidden="true" size={16} />
                 返回章节
               </a>
             )}

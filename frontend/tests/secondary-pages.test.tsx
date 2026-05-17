@@ -20,7 +20,10 @@ test("routes secondary product pages", () => {
   expect(routeForPath("/books/import").element).toEqual(<ImportBookPage />);
   expect(routeForPath("/books/42/settings").element).toEqual(<BookWorkspacePage bookId={42} view="settings" />);
   expect(routeForPath("/books/42/state").element).toEqual(<BookWorkspacePage bookId={42} view="state" />);
-  expect(routeForPath("/books/42/volumes").element).toEqual(<BookWorkspacePage bookId={42} view="volumes" />);
+  expect(routeForPath("/books/42/volumes")).toEqual({
+    activePath: "/books/:id/chapters",
+    element: <BookWorkspacePage bookId={42} view="chapters" />,
+  });
   expect(routeForPath("/books/42/chapters").element).toEqual(<BookWorkspacePage bookId={42} view="chapters" />);
   expect(routeForPath("/books/42/chapters/8").element).toEqual(
     <BookWorkspacePage bookId={42} chapterId={8} view="chapters" />,

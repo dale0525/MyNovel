@@ -34,6 +34,7 @@ from mynovel.canon_proposal_server import (
     handle_create_canon_proposal_revision,
     stream_revise_and_apply_canon_proposal,
 )
+from mynovel.chapter_batch_payload import parse_chapter_batch_ids
 from mynovel.chapter_server import queue_chapter_batch_run, queue_chapter_repair, queue_chapter_run
 from mynovel.llm_streams import (
     stream_create_open_book_blueprint,
@@ -826,10 +827,11 @@ def _run_chapter_json(db_path: Path, chapter_id: int) -> ApiResponse:
 
 def _run_chapter_batch_json(db_path: Path, book_id: int, body: dict[str, Any]) -> ApiResponse:
     try:
+        chapter_ids = parse_chapter_batch_ids(body.get("chapterIds"))
         queued_chapter_id = queue_chapter_batch_run(
             db_path,
             book_id,
-            _chapter_batch_limit(body),
+            chapter_ids,
             _load_provider_config(db_path),
         )
     except ValueError as error:
@@ -943,13 +945,6 @@ def _load_provider_config(db_path: Path):
     create_db_and_tables(engine)
     with Session(engine) as session:
         return get_provider_config(session)
-
-
-def _chapter_batch_limit(body: dict[str, Any]) -> int:
-    limit = _body_int(body, "limit")
-    if limit is None:
-        return 1
-    return max(1, min(limit, 10))
 
 
 def _optional_text(body: dict[str, Any], *keys: str) -> str | None:

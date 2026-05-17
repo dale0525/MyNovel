@@ -139,7 +139,7 @@ function MetricCell({
   );
 }
 
-function AllVolumesRevisionPanel({
+export function AllVolumesRevisionPanel({
   actionBusy,
   streamSnippets,
   onSubmit,
@@ -334,7 +334,7 @@ function VolumeChapterList({ bookId, chapters }: { bookId: number; chapters: Cha
   );
 }
 
-function SingleVolumeRevisionPanel({
+export function SingleVolumeRevisionPanel({
   actionBusy,
   section,
   streamSnippets,
@@ -413,7 +413,7 @@ function SingleVolumeRevisionPanel({
   );
 }
 
-function VolumePlanHighlights({ plan }: { plan: BookResponse["volumePlans"][number] }) {
+export function VolumePlanHighlights({ plan }: { plan: BookResponse["volumePlans"][number] }) {
   const groups = [
     { label: "节奏", items: compactPlanItems(plan.pacingCurve) },
     { label: "关键转折", items: compactPlanItems(plan.keyTurns) },

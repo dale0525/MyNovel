@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { routeForPath } from "@/app/AppRoutes";
@@ -46,6 +46,24 @@ test("renders the simplified chapter operation structure without extra sections"
   expect(screen.queryByRole("heading", { name: "生产阶段" })).not.toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "章节结果" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "相邻章节" })).not.toBeInTheDocument();
+});
+
+test("chapter review header keeps the summary with the title before project metadata", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(chapterPayload())));
+
+  const { container } = render(<ChapterPage bookId={42} chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  const header = container.querySelector(".guided-identity");
+  expect(header).toBeInTheDocument();
+
+  const headerScope = within(header as HTMLElement);
+  const title = headerScope.getByRole("heading", { name: "静默港湾" });
+  const summary = headerScope.getByText("岑星抵达港湾。");
+  const projectMeta = headerScope.getByText("项目");
+
+  expect(title.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(summary.compareDocumentPosition(projectMeta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 test("chapter review shows trusted-state impact before approval", async () => {

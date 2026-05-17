@@ -13,6 +13,7 @@ from mynovel.api_serializers import blueprint_payload, book_detail_payload, chap
 from mynovel.blueprint_content import public_blueprint_content
 from mynovel.blueprint_jobs import reset_blueprint_for_retry
 from mynovel.blueprint_revision import create_revision_blueprint_job, revision_notes_from_form
+from mynovel.chapter_batch_payload import parse_chapter_batch_ids
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import BlueprintStatus, ProviderConfig, utc_now
 from mynovel.domain.repositories import (
@@ -275,14 +276,13 @@ def stream_run_chapter_batch(
     model_client=None,
     provider_config: ProviderConfig | None = None,
 ) -> Iterator[StreamEvent]:
-    limit = max(1, min(_int_value(body.get("limit")) or 1, 10))
-
     def worker(emit: EmitEvent) -> None:
+        chapter_ids = parse_chapter_batch_ids(body.get("chapterIds"))
         emit({"type": "started", "message": "AI 已开始批量生产章节。"})
         first_chapter_id = queue_chapter_batch_run(
             db_path,
             book_id,
-            limit,
+            chapter_ids,
             provider_config,
             start_background=False,
         )
@@ -290,7 +290,7 @@ def stream_run_chapter_batch(
             result = run_chapter_batch(
                 session,
                 book_id,
-                limit,
+                chapter_ids,
                 model_client=_eventing_chapter_client(db_path, model_client, provider_config, emit),
                 model_name=_model_name(model_client, provider_config),
             )
@@ -310,7 +310,6 @@ def stream_run_chapter_batch(
         )
 
     yield from _events_from_worker(worker)
-
 
 def stream_generate_volume_outline(
     db_path: Path,
