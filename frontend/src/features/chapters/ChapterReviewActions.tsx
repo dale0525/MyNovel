@@ -1,12 +1,8 @@
-import { useEffect, useState } from "react";
+import { AlertTriangle, ListChecks, ShieldCheck, WandSparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { AiStreamFeedback } from "@/components/feedback/AiStreamFeedback";
 import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
-import {
-  AdvancedDisclosure,
-  ImpactPanel,
-  type ImpactItem,
-} from "@/components/guidance/GuidedPanels";
 import type { ChapterDetailPayload } from "@/lib/types";
 
 export type ChapterReviewAction =
@@ -16,13 +12,23 @@ export type ChapterReviewAction =
   | "edit"
   | "approve";
 
+export type ReviewIssueDisplay = {
+  title: string;
+  resolved: boolean;
+};
+
 type ChapterReviewActionsProps = {
   chapter: ChapterDetailPayload;
   actionBusy: ChapterReviewAction | null;
   highRisk: boolean;
-  impactItems: ImpactItem[];
+  importantChanges: Array<{
+    target: string;
+    detail: string;
+    major: boolean;
+  }>;
   majorChange: boolean;
   onAction: (action: ChapterReviewAction, body: Record<string, unknown>) => void;
+  reviewIssues: ReviewIssueDisplay[];
   streamSnippets: string[];
 };
 
@@ -30,42 +36,63 @@ export function ChapterReviewActions({
   chapter,
   actionBusy,
   highRisk,
-  impactItems,
+  importantChanges,
   majorChange,
   onAction,
+  reviewIssues,
   streamSnippets,
 }: ChapterReviewActionsProps) {
-  const [manualText, setManualText] = useState(chapter.revisedText || chapter.draftText);
-  const [manualNote, setManualNote] = useState("");
   const [repairNote, setRepairNote] = useState("");
-  const [decisionNote, setDecisionNote] = useState("");
   const [allowMajorChanges, setAllowMajorChanges] = useState(false);
   const canReview = chapter.status === "awaiting_review";
   const canRepair = canReview || chapter.status === "needs_revision";
-  const showRepairPanel = highRisk && canRepair;
   const repairNoteTrimmed = repairNote.trim();
   const stateDeltaSignature = JSON.stringify(chapter.stateDelta);
+  const majorChangeConfirmationSignature = [
+    chapter.id ?? "new",
+    chapter.status,
+    majorChange,
+    chapter.updatedAt ?? "",
+    stateDeltaSignature,
+  ].join("|");
+  const lastMajorChangeConfirmationSignature = useRef<string | null>(null);
 
   useEffect(() => {
-    setManualText(chapter.revisedText || chapter.draftText);
-  }, [chapter.draftText, chapter.revisedText]);
+    setRepairNote("");
+  }, [chapter.id, chapter.status, chapter.updatedAt]);
 
   useEffect(() => {
-    setAllowMajorChanges(false);
-  }, [chapter.id, chapter.status, majorChange, chapter.updatedAt, stateDeltaSignature]);
+    if (lastMajorChangeConfirmationSignature.current === null) {
+      lastMajorChangeConfirmationSignature.current = majorChangeConfirmationSignature;
+      return;
+    }
+    if (lastMajorChangeConfirmationSignature.current !== majorChangeConfirmationSignature) {
+      lastMajorChangeConfirmationSignature.current = majorChangeConfirmationSignature;
+      setAllowMajorChanges(false);
+    }
+  }, [majorChangeConfirmationSignature]);
 
   const busy = actionBusy !== null;
   const approveDisabled = busy || (majorChange && !allowMajorChanges);
+  const runActionCopy = chapter.status === "needs_revision"
+    ? { idle: "修改本章", busy: "修改中..." }
+    : { idle: "生成本章", busy: "生成中..." };
+  const showRunAction = chapter.status === "planned";
 
   return (
     <section className="chapter-review-actions guided-decision-panel workbench-panel" aria-labelledby="chapter-actions-title">
-      <div>
-        <p className="eyebrow">章节操作</p>
-        <h2 id="chapter-actions-title">章节操作</h2>
-      </div>
+      <header className="chapter-action-header">
+        <div>
+          <p className="eyebrow">章节操作</p>
+          <h2 id="chapter-actions-title">章节操作</h2>
+        </div>
+        <span className={`chapter-action-status chapter-action-status--${chapter.status}`}>
+          {chapterStatusLabel(chapter.status)}
+        </span>
+      </header>
 
-      {chapter.status === "planned" || (chapter.status === "needs_revision" && !showRepairPanel) ? (
-        <>
+      <div className="chapter-action-primary">
+        {showRunAction ? (
           <button
             className="workbench-action-button"
             disabled={busy}
@@ -73,158 +100,140 @@ export function ChapterReviewActions({
             onClick={() => onAction("run", {})}
           >
             {actionBusy === "run" ? (
-              <AiWaitingIndicator label="提交运行中..." variant="inline" />
+              <AiWaitingIndicator label={runActionCopy.busy} variant="inline" />
             ) : (
-              "运行本章"
+              runActionCopy.idle
             )}
           </button>
-          <AiStreamFeedback snippets={actionBusy === "run" ? streamSnippets : []} />
-        </>
-      ) : null}
-
-      {chapter.status === "running" ? (
-        <AiWaitingIndicator
-          detail="AI 正在执行章节规划、上下文检索、草稿、修订和审计流水线。"
-          label="章节生成中"
-        />
-      ) : null}
-
-      {canReview || showRepairPanel ? (
-        <>
-          <ImpactPanel title="将写入可信设定" items={impactItems} />
-
-          {showRepairPanel ? (
-            <form
-              className="chapter-action-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!repairNoteTrimmed) {
-                  return;
-                }
-                onAction("repair", { reviewerNote: repairNoteTrimmed });
-              }}
-            >
-              <label>
-                修订意图
-                <textarea
-                  value={repairNote}
-                  onChange={(event) => setRepairNote(event.target.value)}
-                  placeholder="说明希望 AI 重点修订的问题"
-                />
-              </label>
-              <button className="workbench-action-button" disabled={busy || !repairNoteTrimmed} type="submit">
-                {actionBusy === "repair" ? (
-                  <AiWaitingIndicator label="提交修复中..." variant="inline" />
-                ) : (
-                  "让 AI 修订"
-                )}
-              </button>
-              <AiStreamFeedback snippets={actionBusy === "repair" ? streamSnippets : []} />
-            </form>
-          ) : (
-            <>
-              {majorChange ? (
-                <label className="chapter-major-change-toggle">
-                  <input
-                    checked={allowMajorChanges}
-                    type="checkbox"
-                    onChange={(event) => setAllowMajorChanges(event.target.checked)}
-                  />
-                  确认写入重大变化
-                </label>
-              ) : null}
-              <button
-                className="workbench-action-button"
-                disabled={approveDisabled}
-                type="button"
-                onClick={() =>
-                  onAction("approve", {
-                    reviewerNote: decisionNote,
-                    allowMajorChanges,
-                  })
-                }
-              >
-                {actionBusy === "approve" ? "批准中..." : "批准并写入可信设定"}
-              </button>
-            </>
-          )}
-
-          {canReview ? (
-            <form
-              className="chapter-action-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                onAction("request-revision", { reviewerNote: decisionNote });
-              }}
-            >
-              <label>
-                决策说明
-                <input value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} />
-              </label>
-              <button className="workbench-secondary-button" disabled={busy} type="submit">
-                {actionBusy === "request-revision" ? "退回中..." : "退回修订"}
-              </button>
-            </form>
-          ) : null}
-        </>
-      ) : null}
-
-      <AdvancedDisclosure title="高级审核工具">
-        {canRepair ? (
-          <form
-            className="chapter-action-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onAction("edit", { revisedText: manualText, reviewerNote: manualNote });
-            }}
-          >
-            <label>
-              手动修正文
-              <textarea value={manualText} onChange={(event) => setManualText(event.target.value)} />
-            </label>
-            <label>
-              修正说明
-              <input value={manualNote} onChange={(event) => setManualNote(event.target.value)} />
-            </label>
-            <button className="workbench-secondary-button" disabled={busy} type="submit">
-              {actionBusy === "edit" ? "保存中..." : "保存手动修正"}
-            </button>
-          </form>
         ) : null}
 
-        {canRepair && !highRisk ? (
+        {chapter.status === "running" ? (
+          <AiWaitingIndicator
+            detail="AI 正在执行章节规划、上下文检索、草稿、修订和审计流水线。"
+            label="章节生成中"
+          />
+        ) : null}
+
+        {canReview && !highRisk ? (
+          <>
+            {majorChange ? (
+              <label className="chapter-major-change-toggle">
+                <input
+                  checked={allowMajorChanges}
+                  type="checkbox"
+                  onChange={(event) => setAllowMajorChanges(event.target.checked)}
+                />
+                确认写入重大变化
+              </label>
+            ) : null}
+            <button
+              className="workbench-action-button"
+              disabled={approveDisabled}
+              type="button"
+              onClick={() => onAction("approve", { allowMajorChanges })}
+            >
+              {actionBusy === "approve" ? (
+                <AiWaitingIndicator label="审核中..." variant="inline" />
+              ) : (
+                <>
+                  <ShieldCheck aria-hidden="true" size={16} />
+                  确定，下一章
+                </>
+              )}
+            </button>
+          </>
+        ) : null}
+      </div>
+
+      {actionBusy === "run" ? <AiStreamFeedback snippets={streamSnippets} /> : null}
+
+      <section className="chapter-action-section chapter-action-section--revision" aria-labelledby="chapter-revision-notes-title">
+        <div className="chapter-action-section__head">
+          <ListChecks aria-hidden="true" size={18} />
+          <h3 id="chapter-revision-notes-title">修正意见</h3>
+        </div>
+        {reviewIssues.length > 0 ? (
+          <ul aria-label="修正意见标签" className="chapter-issue-tag-list">
+            {reviewIssues.map((issue, index) => (
+              <li key={`${issue.title}-${index}`}>
+                <span
+                  aria-label={`${issue.resolved ? "已满足" : "未满足"}：${issue.title}`}
+                  className={`chapter-issue-tag ${issue.resolved ? "chapter-issue-tag--resolved" : "chapter-issue-tag--unmet"}`}
+                >
+                  {issue.title}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="chapter-action-muted">暂无修正意见。</p>
+        )}
+        {canRepair ? (
           <form
-            className="chapter-action-form"
+            className="chapter-action-repair-form"
             onSubmit={(event) => {
               event.preventDefault();
+              if (!repairNoteTrimmed) {
+                return;
+              }
               onAction("repair", { reviewerNote: repairNoteTrimmed });
             }}
           >
-            <label>
-              修复要求
+            <label className="chapter-manual-opinion-field">
+              人工意见
               <textarea
+                disabled={busy}
+                placeholder="写下希望系统重点修复的问题"
                 value={repairNote}
                 onChange={(event) => setRepairNote(event.target.value)}
-                placeholder="说明希望 AI 重点修复的问题"
               />
             </label>
-            <button className="workbench-secondary-button" disabled={busy} type="submit">
+            <button
+              className="workbench-action-button chapter-repair-button"
+              disabled={busy || !repairNoteTrimmed}
+              type="submit"
+            >
               {actionBusy === "repair" ? (
-                <AiWaitingIndicator label="提交修复中..." variant="inline" />
+                <AiWaitingIndicator label="修复中..." variant="inline" />
               ) : (
-                "让 AI 修复"
+                <>
+                  <WandSparkles aria-hidden="true" size={16} />
+                  修复
+                </>
               )}
             </button>
-            <AiStreamFeedback snippets={actionBusy === "repair" ? streamSnippets : []} />
+            {actionBusy === "repair" ? <AiStreamFeedback snippets={streamSnippets} /> : null}
           </form>
         ) : null}
+      </section>
 
-        {chapter.id !== null ? (
-          <a className="workbench-secondary-link" href={`/api/chapters/${chapter.id}/export.txt`}>
-            导出正文
-          </a>
-        ) : null}
-      </AdvancedDisclosure>
+      {importantChanges.length > 0 ? (
+        <section className="chapter-action-section chapter-action-section--changes" aria-labelledby="chapter-important-changes-title">
+          <div className="chapter-action-section__head">
+            <AlertTriangle aria-hidden="true" size={18} />
+            <h3 id="chapter-important-changes-title">重要变动</h3>
+          </div>
+          <dl className="chapter-important-change-list" aria-label="重要变动">
+            {importantChanges.map((change, index) => (
+              <div className={change.major ? "is-major" : undefined} key={`${change.target}-${index}`}>
+                <dt>{change.target || `变化 ${index + 1}`}</dt>
+                <dd>{change.detail || "待写入"}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ) : null}
     </section>
   );
+}
+
+function chapterStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    planned: "已规划",
+    running: "生成中",
+    awaiting_review: "待审核",
+    needs_revision: "需修订",
+    accepted: "已批准",
+  };
+  return labels[status] ?? "未知状态";
 }

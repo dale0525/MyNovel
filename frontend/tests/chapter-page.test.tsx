@@ -6,6 +6,9 @@ import { routeForPath } from "@/app/AppRoutes";
 import { BookWorkspacePage } from "@/features/books/BookWorkspacePage";
 import { ChapterPage } from "@/features/chapters/ChapterPage";
 
+const APPROVE_NEXT_LABEL = "确定，下一章";
+const REPAIR_LABEL = "修复";
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -34,15 +37,17 @@ test("renders the simplified chapter operation structure without extra sections"
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
   expect(screen.getByRole("link", { name: "返回章节" })).toHaveAttribute("href", "/books/42/chapters");
-  const operation = screen.getByRole("heading", { name: "章节操作" });
+  const operationSection = screen.getByRole("region", { name: "章节操作" });
+  const operation = within(operationSection).getByRole("heading", { name: "章节操作" });
   const text = screen.getByRole("heading", { name: "章节正文" });
-  const revision = screen.getByRole("heading", { name: "修正意见" });
-  const stateChanges = screen.getByRole("heading", { name: "设定变动" });
+  const revision = within(operationSection).getByRole("heading", { name: "修正意见" });
   expect(operation.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(text.compareDocumentPosition(revision) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(revision.compareDocumentPosition(stateChanges) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(screen.getByText("暂无修正意见。")).toBeInTheDocument();
-  expect(screen.getByText("暂无设定变动。")).toBeInTheDocument();
+  expect(revision.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(operationSection).getByText("暂无修正意见。")).toBeInTheDocument();
+  expect(within(operationSection).queryByRole("region", { name: "重要变动" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "将写入可信设定" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "设定变动" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "高级审核工具" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "生产阶段" })).not.toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "章节结果" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "相邻章节" })).not.toBeInTheDocument();
@@ -72,9 +77,12 @@ test("chapter review shows trusted-state impact before approval", async () => {
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  expect(screen.getByRole("region", { name: "将写入可信设定" })).toHaveTextContent("港湾");
-  expect(screen.getByRole("button", { name: "批准并写入可信设定" })).toBeInTheDocument();
-  expect(screen.queryByLabelText("手动修正文")).not.toBeInTheDocument();
+  const operationSection = screen.getByRole("region", { name: "章节操作" });
+  expect(within(operationSection).getByRole("region", { name: "重要变动" })).toHaveTextContent("港湾");
+  expect(screen.queryByRole("region", { name: "将写入可信设定" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: APPROVE_NEXT_LABEL })).toBeInTheDocument();
+  expect(screen.queryByLabelText("章节正文手动编辑")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("决策说明")).not.toBeInTheDocument();
 });
 
 test("chapter page orders operation, text, revision notes, and state changes", async () => {
@@ -92,16 +100,22 @@ test("chapter page orders operation, text, revision notes, and state changes", a
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  const operation = screen.getByRole("heading", { name: "章节操作" });
+  const operationSection = screen.getByRole("region", { name: "章节操作" });
+  const operation = within(operationSection).getByRole("heading", { name: "章节操作" });
   const text = screen.getByRole("heading", { name: "章节正文" });
-  const revision = screen.getByRole("heading", { name: "修正意见" });
-  const stateChanges = screen.getByRole("heading", { name: "设定变动" });
+  const revision = within(operationSection).getByRole("heading", { name: "修正意见" });
+  const stateChanges = within(operationSection).getByRole("heading", { name: "重要变动" });
 
   expect(operation.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(text.compareDocumentPosition(revision) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(revision.compareDocumentPosition(stateChanges) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(screen.getByText("结尾动力不足 · medium · 未解决")).toBeInTheDocument();
-  expect(screen.getByText("港湾：首次出现")).toBeInTheDocument();
+  expect(revision.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(stateChanges.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const issueTag = within(operationSection).getByText("结尾动力不足");
+  expect(issueTag).toHaveClass("chapter-issue-tag--unmet");
+  expect(operationSection).not.toHaveTextContent("medium");
+  expect(operationSection).not.toHaveTextContent("未解决");
+  const stateChangeSection = within(operationSection).getByRole("region", { name: "重要变动" });
+  expect(within(stateChangeSection).getByText("港湾")).toBeInTheDocument();
+  expect(within(stateChangeSection).getByText("首次出现")).toBeInTheDocument();
 });
 
 test("chapter review prioritizes AI revision when audit risk is high", async () => {
@@ -110,8 +124,10 @@ test("chapter review prioritizes AI revision when audit risk is high", async () 
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  expect(screen.getByRole("button", { name: "让 AI 修订" })).toHaveClass("workbench-action-button");
-  expect(screen.queryByRole("button", { name: "批准并写入可信设定" })).not.toBeInTheDocument();
+  expect(screen.getByLabelText("人工意见")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: REPAIR_LABEL })).toHaveClass("workbench-action-button");
+  expect(screen.queryByLabelText("修订意图")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: APPROVE_NEXT_LABEL })).not.toBeInTheDocument();
 });
 
 test("chapter review treats high risk values case-insensitively", async () => {
@@ -120,8 +136,9 @@ test("chapter review treats high risk values case-insensitively", async () => {
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  expect(screen.getByRole("button", { name: "让 AI 修订" })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "批准并写入可信设定" })).not.toBeInTheDocument();
+  expect(screen.getByLabelText("人工意见")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: REPAIR_LABEL })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: APPROVE_NEXT_LABEL })).not.toBeInTheDocument();
 });
 
 test("chapter review treats high severity issues case-insensitively", async () => {
@@ -139,8 +156,9 @@ test("chapter review treats high severity issues case-insensitively", async () =
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  expect(screen.getByRole("button", { name: "让 AI 修订" })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "批准并写入可信设定" })).not.toBeInTheDocument();
+  expect(screen.getByLabelText("人工意见")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: REPAIR_LABEL })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: APPROVE_NEXT_LABEL })).not.toBeInTheDocument();
 });
 
 test("chapter review shows audit issues and all state changes without hiding them", async () => {
@@ -149,7 +167,10 @@ test("chapter review shows audit issues and all state changes without hiding the
     vi.fn(async () =>
       Response.json(
         chapterPayload({
-          auditIssues: [{ title: "时间线冲突", severity: "medium", resolved: false }],
+          auditIssues: [
+            { title: "时间线冲突", severity: "medium", resolved: false },
+            { title: "空间取物动作已补足掩饰", severity: "low", resolved: true },
+          ],
           stateDelta: {
             chapter: 2,
             changes: [
@@ -169,8 +190,100 @@ test("chapter review shows audit issues and all state changes without hiding the
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
   expect(screen.queryByRole("button", { name: "审核明细" })).not.toBeInTheDocument();
-  expect(screen.getByText("时间线冲突 · medium · 未解决")).toBeInTheDocument();
-  expect(screen.getByText("旧航道协会：留下新线索")).toBeInTheDocument();
+  const operationSection = screen.getByRole("region", { name: "章节操作" });
+  expect(within(operationSection).getByText("时间线冲突")).toHaveClass("chapter-issue-tag--unmet");
+  expect(within(operationSection).getByText("空间取物动作已补足掩饰")).toHaveClass("chapter-issue-tag--resolved");
+  expect(operationSection).not.toHaveTextContent("medium");
+  expect(operationSection).not.toHaveTextContent("low");
+  expect(operationSection).not.toHaveTextContent("未解决");
+  expect(operationSection).not.toHaveTextContent("已解决");
+  const stateChangeSection = screen.getByRole("region", { name: "重要变动" });
+  expect(within(stateChangeSection).getByText("旧航道协会")).toBeInTheDocument();
+  expect(within(stateChangeSection).getByText("留下新线索")).toBeInTheDocument();
+});
+
+test("chapter review deduplicates resolved word-count issues with positive copy", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(
+        chapterPayload({
+          auditIssues: [
+            { title: "字数不在目标区间", severity: "medium", resolved: true },
+            { title: "反杀过程的体能逻辑支撑略显不足", severity: "medium", resolved: true },
+            { title: "字数不在目标区间", severity: "low", resolved: true },
+          ],
+        }),
+      ),
+    ),
+  );
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  const operationSection = screen.getByRole("region", { name: "章节操作" });
+
+  const wordCountTag = within(operationSection).getByText("字数已在目标区间");
+  expect(wordCountTag).toHaveClass("chapter-issue-tag--resolved");
+  expect(within(operationSection).getAllByText("字数已在目标区间")).toHaveLength(1);
+  expect(operationSection).not.toHaveTextContent("字数不在目标区间");
+  expect(operationSection).not.toHaveTextContent("medium");
+  expect(operationSection).not.toHaveTextContent("low");
+});
+
+test("chapter review keeps an unmet duplicate issue red when any duplicate is unresolved", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(
+        chapterPayload({
+          auditIssues: [
+            { title: "字数不在目标区间", severity: "medium", resolved: true },
+            { title: "字数不在目标区间", severity: "high", resolved: false },
+          ],
+        }),
+      ),
+    ),
+  );
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  const operationSection = screen.getByRole("region", { name: "章节操作" });
+
+  const wordCountTag = within(operationSection).getByText("字数不在目标区间");
+  expect(wordCountTag).toHaveClass("chapter-issue-tag--unmet");
+  expect(within(operationSection).getAllByText("字数不在目标区间")).toHaveLength(1);
+  expect(operationSection).not.toHaveTextContent("high");
+});
+
+test("chapter state changes hide section-key-only labels and show a clear fallback", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(
+        chapterPayload({
+          stateDelta: {
+            chapter: 2,
+            changes: [
+              { type: "状态变化", target: "待确认", change: "characters", risk: "low" },
+              { type: "状态变化", target: "待确认", change: "relationships", risk: "low" },
+            ],
+          },
+        }),
+      ),
+    ),
+  );
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  const operationSection = screen.getByRole("region", { name: "章节操作" });
+
+  expect(within(operationSection).queryByRole("region", { name: "重要变动" })).not.toBeInTheDocument();
+  expect(screen.queryByText("AI 只返回了设定分区标签，未提取到可写入的具体变动。")).not.toBeInTheDocument();
+  expect(document.body).not.toHaveTextContent("characters");
+  expect(document.body).not.toHaveTextContent("relationships");
 });
 
 test("major state changes require confirmation before approval", async () => {
@@ -179,7 +292,7 @@ test("major state changes require confirmation before approval", async () => {
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  const approveButton = screen.getByRole("button", { name: "批准并写入可信设定" });
+  const approveButton = screen.getByRole("button", { name: APPROVE_NEXT_LABEL });
   expect(approveButton).toBeDisabled();
 
   fireEvent.click(screen.getByLabelText("确认写入重大变化"));
@@ -209,7 +322,7 @@ test.each([
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  const approveButton = screen.getByRole("button", { name: "批准并写入可信设定" });
+  const approveButton = screen.getByRole("button", { name: APPROVE_NEXT_LABEL });
   expect(screen.getByLabelText("确认写入重大变化")).toBeInTheDocument();
   expect(approveButton).toBeDisabled();
 });
@@ -232,7 +345,7 @@ test("major state changes include death terms in change type", async () => {
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  const approveButton = screen.getByRole("button", { name: "批准并写入可信设定" });
+  const approveButton = screen.getByRole("button", { name: APPROVE_NEXT_LABEL });
   expect(screen.getByLabelText("确认写入重大变化")).toBeInTheDocument();
   expect(approveButton).toBeDisabled();
 
@@ -257,6 +370,7 @@ test("major change confirmation resets when chapter content changes", async () =
         chapterPayload({
           majorChange: true,
           updatedAt: "2026-05-16T00:05:00+00:00",
+          revisedText: "更新后的正文。",
         }),
       ),
     );
@@ -265,14 +379,17 @@ test("major change confirmation resets when chapter content changes", async () =
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  const approveButton = screen.getByRole("button", { name: "批准并写入可信设定" });
+  const approveButton = screen.getByRole("button", { name: APPROVE_NEXT_LABEL });
   fireEvent.click(screen.getByLabelText("确认写入重大变化"));
   expect(approveButton).toBeEnabled();
 
-  fireEvent.click(screen.getByRole("button", { name: "退回修订" }));
+  const textSection = screen.getByRole("region", { name: "章节正文" });
+  fireEvent.click(within(textSection).getByRole("button", { name: "编辑" }));
+  fireEvent.change(within(textSection).getByLabelText("章节正文手动编辑"), { target: { value: "更新后的正文。" } });
+  fireEvent.click(within(textSection).getByRole("button", { name: "保存" }));
 
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/chapters/12/request-revision", expect.any(Object)));
-  await waitFor(() => expect(screen.getByRole("button", { name: "批准并写入可信设定" })).toBeDisabled());
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/chapters/12/edit", expect.any(Object)));
+  await waitFor(() => expect(screen.getByRole("button", { name: APPROVE_NEXT_LABEL })).toBeDisabled());
 });
 
 test("running chapters hide approval decisions", async () => {
@@ -282,32 +399,34 @@ test("running chapters hide approval decisions", async () => {
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
   expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("章节生成中");
-  expect(screen.queryByRole("button", { name: "批准并写入可信设定" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: APPROVE_NEXT_LABEL })).not.toBeInTheDocument();
 });
 
-test("running chapters hide advanced edit and repair tools", async () => {
+test("running chapters hide manual edit and repair tools", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json(chapterPayload({ status: "running", riskLevel: "high" }))));
 
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "高级审核工具" }));
 
-  expect(screen.queryByLabelText("手动修正文")).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "让 AI 修订" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "批准并写入可信设定" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("章节正文手动编辑")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("人工意见")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: REPAIR_LABEL })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: APPROVE_NEXT_LABEL })).not.toBeInTheDocument();
 });
 
-test("accepted chapters hide advanced edit and repair tools but keep export", async () => {
+test("accepted chapters hide manual edit and repair tools but keep export", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json(chapterPayload({ status: "accepted" }))));
 
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "高级审核工具" }));
 
-  expect(screen.queryByLabelText("手动修正文")).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "让 AI 修复" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("章节正文手动编辑")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("人工意见")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: REPAIR_LABEL })).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "导出正文" })).toHaveAttribute("href", "/api/chapters/12/export.txt");
 });
 
@@ -316,19 +435,19 @@ test("planned chapters only allow the run primary action", async () => {
 
   render(<ChapterPage chapterId={12} />);
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "运行本章" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "高级审核工具" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "生成本章" })).toBeInTheDocument());
 
-  expect(screen.queryByLabelText("手动修正文")).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "让 AI 修复" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "批准并写入可信设定" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("章节正文手动编辑")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("人工意见")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: REPAIR_LABEL })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: APPROVE_NEXT_LABEL })).not.toBeInTheDocument();
 });
 
 test("chapter review hides export link when chapter id is missing", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json(chapterPayload({ chapterId: null }))));
   render(<ChapterPage chapterId={12} />);
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "高级审核工具" }));
   expect(screen.queryByRole("link", { name: "导出正文" })).not.toBeInTheDocument();
 });
 
@@ -365,39 +484,103 @@ test("renders animated AI waiting state while chapter is running", async () => {
   expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("章节生成中");
 });
 
-test("chapter review actions call edit repair approve and export endpoints", async () => {
+test("chapter text card toggles manual edit and saves the revised body", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(chapterPayload()))
-    .mockResolvedValueOnce(Response.json(chapterPayload({ revisedText: "人工修正文。" })))
-    .mockResolvedValueOnce(streamResponse([{ type: "done", chapter: chapterPayload({ revisedText: "人工修正文。" }) }]))
+    .mockResolvedValueOnce(Response.json(chapterPayload({ revisedText: "人工修正文。" })));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  const textSection = screen.getByRole("region", { name: "章节正文" });
+  expect(screen.queryByRole("button", { name: "高级审核工具" })).not.toBeInTheDocument();
+  expect(within(textSection).getByText("岑星抵达静默港湾。")).toBeInTheDocument();
+
+  fireEvent.click(within(textSection).getByRole("button", { name: "编辑" }));
+
+  const editor = within(textSection).getByLabelText("章节正文手动编辑");
+  expect(editor).toHaveValue("岑星抵达静默港湾。");
+  expect(within(textSection).getByRole("button", { name: "保存" })).toBeInTheDocument();
+
+  fireEvent.change(editor, { target: { value: "人工修正文。" } });
+  fireEvent.click(within(textSection).getByRole("button", { name: "保存" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chapters/12/edit",
+      expect.objectContaining({
+        body: JSON.stringify({ revisedText: "人工修正文。" }),
+        method: "POST",
+      }),
+    ),
+  );
+});
+
+test("chapter text edit can cancel and discard unsaved changes", async () => {
+  const fetchMock = vi.fn().mockResolvedValueOnce(Response.json(chapterPayload()));
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("confirm", vi.fn(() => false));
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  const textSection = screen.getByRole("region", { name: "章节正文" });
+  fireEvent.click(within(textSection).getByRole("button", { name: "编辑" }));
+  fireEvent.change(within(textSection).getByLabelText("章节正文手动编辑"), { target: { value: "临时改动。" } });
+
+  fireEvent.click(within(textSection).getByRole("button", { name: "取消" }));
+
+  expect(confirm).toHaveBeenCalledWith("是否保存当前正文修改？");
+  expect(within(textSection).queryByLabelText("章节正文手动编辑")).not.toBeInTheDocument();
+  expect(within(textSection).getByText("岑星抵达静默港湾。")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test("chapter text cancel can save unsaved changes after confirmation", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(chapterPayload()))
+    .mockResolvedValueOnce(Response.json(chapterPayload({ revisedText: "确认保存。" })));
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("confirm", vi.fn(() => true));
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  const textSection = screen.getByRole("region", { name: "章节正文" });
+  fireEvent.click(within(textSection).getByRole("button", { name: "编辑" }));
+  fireEvent.change(within(textSection).getByLabelText("章节正文手动编辑"), { target: { value: "确认保存。" } });
+
+  fireEvent.click(within(textSection).getByRole("button", { name: "取消" }));
+
+  expect(confirm).toHaveBeenCalledWith("是否保存当前正文修改？");
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chapters/12/edit",
+      expect.objectContaining({
+        body: JSON.stringify({ revisedText: "确认保存。" }),
+        method: "POST",
+      }),
+    ),
+  );
+});
+
+test("chapter review keeps export and approval actions without advanced review tools", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(chapterPayload()))
     .mockResolvedValueOnce(Response.json(chapterPayload({ status: "accepted" })));
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "高级审核工具" }));
-  fireEvent.change(screen.getByLabelText("手动修正文"), { target: { value: "人工修正文。" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存手动修正" }));
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/chapters/12/edit",
-      expect.objectContaining({ method: "POST" }),
-    ),
-  );
-
-  fireEvent.change(screen.getByLabelText("修复要求"), { target: { value: "补强结尾。" } });
-  fireEvent.click(screen.getByRole("button", { name: "让 AI 修复" }));
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/chapters/12/repair-stream",
-      expect.objectContaining({ method: "POST" }),
-    ),
-  );
+  expect(screen.queryByRole("button", { name: "高级审核工具" })).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "导出正文" })).toHaveAttribute("href", "/api/chapters/12/export.txt");
 
-  fireEvent.click(screen.getByRole("button", { name: "批准并写入可信设定" }));
+  fireEvent.click(screen.getByRole("button", { name: APPROVE_NEXT_LABEL }));
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/chapters/12/approve",
@@ -422,13 +605,13 @@ test("renders animated AI waiting state while repair request is pending", async 
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  fireEvent.change(screen.getByLabelText("修订意图"), { target: { value: "补强结尾。" } });
-  fireEvent.click(screen.getByRole("button", { name: "让 AI 修订" }));
+  fireEvent.change(screen.getByLabelText("人工意见"), { target: { value: "补强结尾。" } });
+  fireEvent.click(screen.getByRole("button", { name: REPAIR_LABEL }));
 
-  await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("提交修复中..."));
+  await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("修复中..."));
   pushStreamEvent(streamController, { type: "chunk", text: "正在补强结尾冲突" });
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("正在补强结尾冲突"));
-  expect(screen.getByRole("button", { name: /提交修复中/ })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /修复中/ })).toBeDisabled();
 });
 
 test("high-risk AI revision requires a trimmed instruction", async () => {
@@ -441,14 +624,13 @@ test("high-risk AI revision requires a trimmed instruction", async () => {
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  const revisionButton = screen.getByRole("button", { name: "让 AI 修订" });
+  const revisionButton = screen.getByRole("button", { name: REPAIR_LABEL });
   expect(revisionButton).toBeDisabled();
-
-  fireEvent.change(screen.getByLabelText("修订意图"), { target: { value: "   " } });
+  fireEvent.change(screen.getByLabelText("人工意见"), { target: { value: "   " } });
   expect(revisionButton).toBeDisabled();
   expect(fetchMock).toHaveBeenCalledTimes(1);
 
-  fireEvent.change(screen.getByLabelText("修订意图"), { target: { value: "  补强结尾。  " } });
+  fireEvent.change(screen.getByLabelText("人工意见"), { target: { value: "  补强结尾。  " } });
   expect(revisionButton).toBeEnabled();
   fireEvent.click(revisionButton);
 
@@ -473,15 +655,11 @@ test("needs revision with high risk can submit trimmed AI repair", async () => {
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  const revisionButton = screen.getByRole("button", { name: "让 AI 修订" });
+  const revisionButton = screen.getByRole("button", { name: REPAIR_LABEL });
   expect(screen.queryByRole("button", { name: "退回修订" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "批准并写入可信设定" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: APPROVE_NEXT_LABEL })).not.toBeInTheDocument();
   expect(revisionButton).toBeDisabled();
-
-  fireEvent.change(screen.getByLabelText("修订意图"), { target: { value: "   " } });
-  expect(revisionButton).toBeDisabled();
-
-  fireEvent.change(screen.getByLabelText("修订意图"), { target: { value: "  重写冲突段落。  " } });
+  fireEvent.change(screen.getByLabelText("人工意见"), { target: { value: "  重写冲突段落。  " } });
   expect(revisionButton).toBeEnabled();
   fireEvent.click(revisionButton);
 
@@ -499,16 +677,15 @@ test("needs revision with high risk can submit trimmed AI repair", async () => {
 test("rejects action responses without chapter payload", async () => {
   const fetchMock = vi
     .fn()
-    .mockResolvedValueOnce(Response.json(chapterPayload()))
+    .mockResolvedValueOnce(Response.json(chapterPayload({ riskLevel: "high" })))
     .mockResolvedValueOnce(streamResponse([{ type: "done", chapterId: 12, redirectTo: "/chapters/12" }]));
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ChapterPage chapterId={12} />);
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "高级审核工具" }));
-  fireEvent.change(screen.getByLabelText("修复要求"), { target: { value: "补强结尾。" } });
-  fireEvent.click(screen.getByRole("button", { name: "让 AI 修复" }));
+  fireEvent.change(screen.getByLabelText("人工意见"), { target: { value: "补强结尾。" } });
+  fireEvent.click(screen.getByRole("button", { name: REPAIR_LABEL }));
 
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("章节数据格式无效。"));
   expect(screen.queryByText("任务已提交，页面会自动刷新。")).not.toBeInTheDocument();
@@ -525,14 +702,56 @@ test("run action enters running state from the action response", async () => {
 
   render(<ChapterPage chapterId={12} />);
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "运行本章" })).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "运行本章" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "生成本章" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "生成本章" }));
 
   await waitFor(() => expect(screen.getByText("运行中")).toBeInTheDocument());
+  expect(screen.queryByText("任务已提交，页面会自动刷新。")).not.toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith(
     "/api/chapters/12/run-stream",
     expect.objectContaining({ method: "POST" }),
   );
+});
+
+test("approve button writes trusted state and moves to the next chapter workbench", async () => {
+  window.history.pushState(null, "", "/books/42/chapters/12");
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json(
+        chapterPayload({
+          siblingChapters: [
+            chapterSummary({ id: 12, number: 2, status: "awaiting_review" }),
+            chapterSummary({ id: 13, number: 3, status: "planned", title: "潮汐灯塔" }),
+          ],
+        }),
+      ),
+    )
+    .mockResolvedValueOnce(
+      Response.json(
+        chapterPayload({
+          status: "accepted",
+          siblingChapters: [
+            chapterSummary({ id: 12, number: 2, status: "accepted" }),
+            chapterSummary({ id: 13, number: 3, status: "planned", title: "潮汐灯塔" }),
+          ],
+        }),
+      ),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ChapterPage bookId={42} chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: APPROVE_NEXT_LABEL }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chapters/12/approve",
+      expect.objectContaining({ method: "POST" }),
+    ),
+  );
+  await waitFor(() => expect(window.location.pathname).toBe("/books/42/chapters/13"));
 });
 
 function pushStreamEvent(
@@ -559,6 +778,7 @@ function chapterPayload({
   stateDelta,
   updatedAt = "2026-05-16T00:00:00+00:00",
   revisedText = "岑星抵达静默港湾。",
+  siblingChapters = [],
 }: {
   status?: string;
   emptyReview?: boolean;
@@ -569,6 +789,7 @@ function chapterPayload({
   stateDelta?: Record<string, unknown>;
   updatedAt?: string;
   revisedText?: string;
+  siblingChapters?: Array<Record<string, unknown>>;
 } = {}) {
   return {
     book: {
@@ -600,7 +821,7 @@ function chapterPayload({
       },
       stateDelta: emptyReview ? {} : stateDelta ?? { chapter: 2, changes: [{ target: "港湾", change: "首次出现", major: majorChange }] },
     },
-    siblingChapters: [],
+    siblingChapters,
     latestCanon: null,
     traces: [],
     stageSlots: [
@@ -610,5 +831,29 @@ function chapterPayload({
       { key: "delta", label: "状态变化", ready: !emptyReview, status: emptyReview ? "empty" : "ready", summary: "" },
       { key: "audit", label: "审计", ready: !emptyReview, status: emptyReview ? "empty" : "ready", summary: "" },
     ],
+  };
+}
+
+function chapterSummary({
+  id,
+  number,
+  status,
+  title = "静默港湾",
+}: {
+  id: number;
+  number: number;
+  status: string;
+  title?: string;
+}) {
+  return {
+    id,
+    bookId: 42,
+    number,
+    title,
+    status,
+    summary: "",
+    wordCount: 0,
+    reviewerNote: null,
+    updatedAt: "2026-05-16T00:00:00+00:00",
   };
 }

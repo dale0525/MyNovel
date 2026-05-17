@@ -1,17 +1,19 @@
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Download, PencilLine, Save, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
 import {
   ChapterReviewActions,
   type ChapterReviewAction,
+  type ReviewIssueDisplay,
 } from "@/features/chapters/ChapterReviewActions";
 import {
-  type ImpactItem,
   ProjectIdentityBar,
 } from "@/components/guidance/GuidedPanels";
 import { ApiError, getJson, isAbortError, postJson, postJsonLineStream } from "@/lib/api";
+import { navigateTo } from "@/lib/navigation";
 import { type LlmStreamEvent, nextStreamSnippets, streamEventPreview } from "@/lib/streaming";
-import type { ChapterDetailPayload, ChapterResponse } from "@/lib/types";
+import type { ChapterDetailPayload, ChapterPayload, ChapterResponse } from "@/lib/types";
 
 type ChapterPageState =
   | { status: "loading"; data: null; error: null }
@@ -21,7 +23,7 @@ type ChapterPageState =
 type ActionState =
   | { status: "idle"; action: null; message: null }
   | { status: "submitting"; action: ChapterReviewAction; message: null; streamSnippets: string[] }
-  | { status: "success"; action: null; message: string }
+  | { status: "success"; action: null; message: string | null }
   | { status: "error"; action: null; message: string };
 
 type ChapterStreamEvent = LlmStreamEvent<{
@@ -106,6 +108,7 @@ export function ChapterPage({
   async function submitAction(action: ChapterReviewAction, body: Record<string, unknown>) {
     setActionState({ status: "submitting", action, message: null, streamSnippets: [] });
     try {
+      let nextPath: string | null = null;
       if (action === "repair" || action === "run") {
         let completed = false;
         await postJsonLineStream<ChapterStreamEvent>(
@@ -147,12 +150,18 @@ export function ChapterPage({
           throw new Error("章节数据格式无效。");
         }
         setState({ status: "ready", data: parsed, error: null });
+        if (action === "approve") {
+          nextPath = nextChapterWorkbenchPath(parsed, chapterId, bookId);
+        }
       }
       setActionState({
         status: "success",
         action: null,
-        message: action === "repair" || action === "run" ? "任务已提交，页面会自动刷新。" : "操作已保存。",
+        message: successMessageForAction(action),
       });
+      if (nextPath) {
+        navigateTo(nextPath);
+      }
     } catch (error) {
       setActionState({
         status: "error",
@@ -188,6 +197,8 @@ export function ChapterPage({
 
   const { book, chapter, latestCanon } = state.data;
   const parentBookId = bookId ?? book.id;
+  const reviewIssues = auditIssueDisplays(auditReportIssues(chapter.auditReport));
+  const importantChanges = meaningfulStateChanges(chapter.stateDelta);
 
   return (
     <section className={embedded ? "chapter-page chapter-page--embedded" : "workbench-page chapter-page"} aria-label={chapter.title}>
@@ -214,7 +225,7 @@ export function ChapterPage({
         )}
       />
 
-      {actionState.status === "success" ? (
+      {actionState.status === "success" && actionState.message ? (
         <p className="setup-message" role="status">
           {actionState.message}
         </p>
@@ -230,73 +241,172 @@ export function ChapterPage({
           actionBusy={actionState.status === "submitting" ? actionState.action : null}
           chapter={chapter}
           highRisk={hasHighRiskAudit(chapter)}
-          impactItems={chapterImpactItems(chapter)}
+          importantChanges={importantChanges}
           majorChange={hasMajorStateChange(chapter.stateDelta)}
           onAction={(action, body) => void submitAction(action, body)}
+          reviewIssues={reviewIssues}
           streamSnippets={actionState.status === "submitting" ? actionState.streamSnippets : []}
         />
-        <section className="workbench-panel chapter-reader" aria-labelledby="chapter-text-title">
-          <p className="eyebrow">正文</p>
-          <h2 id="chapter-text-title">章节正文</h2>
-          <div className="chapter-text-body">{chapter.finalText || chapter.revisedText || chapter.draftText || "正文尚未生成。"}</div>
-        </section>
-        <ChapterReviewDetails chapter={chapter} />
+        <ChapterTextPanel
+          actionBusy={actionState.status === "submitting" ? actionState.action : null}
+          chapter={chapter}
+          onSave={(revisedText) => submitAction("edit", { revisedText })}
+        />
       </main>
     </section>
   );
 }
 
-function chapterImpactItems(chapter: ChapterDetailPayload): ImpactItem[] {
-  const changes = stateDeltaChanges(chapter.stateDelta);
-  if (changes.length === 0) {
-    return [{ label: "可信设定", value: "无状态变化", tone: "neutral" }];
-  }
-
-  return changes.slice(0, 4).map((change, index) => ({
-    label: String(change.target ?? `变化 ${index + 1}`),
-    value: String(change.change ?? "待写入"),
-    tone: isMajorChangeRecord(change) ? "danger" : "warning",
-  }));
+function successMessageForAction(action: ChapterReviewAction): string | null {
+  return action === "edit" || action === "request-revision" ? "操作已保存。" : null;
 }
 
-function ChapterReviewDetails({ chapter }: { chapter: ChapterDetailPayload }) {
-  const auditIssues = auditReportIssues(chapter.auditReport);
-  const changes = stateDeltaChanges(chapter.stateDelta);
+function nextChapterWorkbenchPath(
+  response: ChapterResponse,
+  currentChapterId: number,
+  parentBookId?: number,
+): string | null {
+  const nextChapter = nextChapterAfter(response.siblingChapters, response.chapter, currentChapterId);
+  const bookId = parentBookId ?? response.book.id ?? response.chapter.bookId;
+  if (nextChapter?.id !== null && nextChapter?.id !== undefined) {
+    return `/books/${bookId}/chapters/${nextChapter.id}`;
+  }
+  return `/books/${bookId}/chapters`;
+}
+
+function nextChapterAfter(
+  siblings: ChapterPayload[],
+  currentChapter: ChapterDetailPayload,
+  currentChapterId: number,
+): ChapterPayload | null {
+  const currentNumber = currentChapter.number;
+  const currentId = currentChapter.id ?? currentChapterId;
+  return [...siblings]
+    .filter((chapter) => chapter.id !== null && chapter.id !== currentId && chapter.number > currentNumber)
+    .sort((left, right) => left.number - right.number)[0] ?? null;
+}
+
+type StateChangeDisplay = {
+  target: string;
+  detail: string;
+  major: boolean;
+};
+
+function ChapterTextPanel({
+  actionBusy,
+  chapter,
+  onSave,
+}: {
+  actionBusy: ChapterReviewAction | null;
+  chapter: ChapterDetailPayload;
+  onSave: (revisedText: string) => Promise<void>;
+}) {
+  const bodyText = chapter.finalText || chapter.revisedText || chapter.draftText || "";
+  const displayText = bodyText || "正文尚未生成。";
+  const canEdit = chapter.status === "awaiting_review" || chapter.status === "needs_revision";
+  const [editing, setEditing] = useState(false);
+  const [draftText, setDraftText] = useState(bodyText);
+  const trimmedDraft = draftText.trim();
+  const saving = actionBusy === "edit";
+  const hasUnsavedChanges = draftText !== bodyText;
+
+  useEffect(() => {
+    if (!editing) {
+      setDraftText(bodyText);
+    }
+  }, [bodyText, editing]);
+
+  function startEditing() {
+    setDraftText(bodyText);
+    setEditing(true);
+  }
+
+  function saveDraft() {
+    if (!trimmedDraft || saving) {
+      return;
+    }
+    void onSave(draftText).finally(() => setEditing(false));
+  }
+
+  function cancelEditing() {
+    if (!hasUnsavedChanges) {
+      setDraftText(bodyText);
+      setEditing(false);
+      return;
+    }
+    if (window.confirm("是否保存当前正文修改？")) {
+      saveDraft();
+      return;
+    }
+    setDraftText(bodyText);
+    setEditing(false);
+  }
 
   return (
-    <div className="chapter-review-details">
-      <section className="workbench-panel" aria-labelledby="chapter-revision-notes-title">
-        <p className="eyebrow">修订</p>
-        <h2 id="chapter-revision-notes-title">修正意见</h2>
-        {auditIssues.length > 0 ? (
-          <ol className="chapter-detail-list">
-            {auditIssues.map((issue, index) => (
-              <li key={`${String(issue.title ?? "issue")}-${index}`}>
-                {auditIssueSummary(issue, index)}
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p>暂无修正意见。</p>
-        )}
-      </section>
-
-      <section className="workbench-panel" aria-labelledby="chapter-state-delta-title">
-        <p className="eyebrow">设定变化</p>
-        <h2 id="chapter-state-delta-title">设定变动</h2>
-        {changes.length > 0 ? (
-          <ol className="chapter-detail-list chapter-detail-list--changes">
-            {changes.map((change, index) => (
-              <li key={`${String(change.target ?? "change")}-${index}`}>
-                {stateChangeSummary(change, index)}
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p>暂无设定变动。</p>
-        )}
-      </section>
-    </div>
+    <section className="workbench-panel chapter-reader" aria-labelledby="chapter-text-title">
+      <header className="chapter-reader__head">
+        <div>
+          <p className="eyebrow">正文</p>
+          <h2 id="chapter-text-title">章节正文</h2>
+        </div>
+        <div className="chapter-reader__actions">
+          {chapter.id !== null ? (
+            <a className="workbench-secondary-link chapter-export-link" href={`/api/chapters/${chapter.id}/export.txt`}>
+              <Download aria-hidden="true" size={16} />
+              导出正文
+            </a>
+          ) : null}
+          {canEdit ? (
+            <>
+              <button
+                className={editing ? "workbench-action-button" : "workbench-secondary-button"}
+                disabled={saving || (editing && !trimmedDraft)}
+                type="button"
+                onClick={editing ? saveDraft : startEditing}
+              >
+                {editing ? (
+                  saving ? (
+                    <AiWaitingIndicator label="保存中..." variant="inline" />
+                  ) : (
+                    <>
+                      <Save aria-hidden="true" size={16} />
+                      保存
+                    </>
+                  )
+                ) : (
+                  <>
+                    <PencilLine aria-hidden="true" size={16} />
+                    编辑
+                  </>
+                )}
+              </button>
+              {editing ? (
+                <button
+                  className="workbench-secondary-button"
+                  disabled={saving}
+                  type="button"
+                  onClick={cancelEditing}
+                >
+                  <X aria-hidden="true" size={16} />
+                  取消
+                </button>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      </header>
+      {editing ? (
+        <textarea
+          aria-label="章节正文手动编辑"
+          className="chapter-text-editor"
+          disabled={saving}
+          value={draftText}
+          onChange={(event) => setDraftText(event.target.value)}
+        />
+      ) : (
+        <div className="chapter-text-body">{displayText}</div>
+      )}
+    </section>
   );
 }
 
@@ -355,6 +465,16 @@ function stateDeltaChanges(stateDelta: Record<string, unknown>): Record<string, 
     : [];
 }
 
+function meaningfulStateChanges(stateDelta: Record<string, unknown>): StateChangeDisplay[] {
+  return stateDeltaChanges(stateDelta).flatMap((change, index) => {
+    if (isLowInformationStateChange(change)) {
+      return [];
+    }
+    const display = stateChangeDisplay(change, index);
+    return display === null ? [] : [display];
+  });
+}
+
 function auditReportIssues(auditReport: Record<string, unknown>): Record<string, unknown>[] {
   return Array.isArray(auditReport.issues)
     ? auditReport.issues.filter(isRecord)
@@ -378,17 +498,259 @@ function isMajorChangeRecord(change: Record<string, unknown>): boolean {
   return majorTerms.some((term) => changeText.includes(term));
 }
 
-function auditIssueSummary(issue: Record<string, unknown>, index: number): string {
-  const title = String(issue.title ?? issue.type ?? `问题 ${index + 1}`);
-  const severity = String(issue.severity ?? "未标注");
-  const status = issue.resolved === true ? "已解决" : "未解决";
-  return `${title} · ${severity} · ${status}`;
+type NormalizedReviewIssue = ReviewIssueDisplay & {
+  key: string;
+  wordCountIssue: boolean;
+};
+
+const WORD_COUNT_ISSUE_KEY = "word-count-target";
+const WORD_COUNT_RESOLVED_TITLE = "字数已在目标区间";
+const WORD_COUNT_UNMET_TITLE = "字数不在目标区间";
+
+function auditIssueDisplays(issues: Record<string, unknown>[]): ReviewIssueDisplay[] {
+  const byKey = new Map<string, NormalizedReviewIssue>();
+  for (const [index, issue] of issues.entries()) {
+    const display = auditIssueDisplay(issue, index);
+    const previous = byKey.get(display.key);
+    if (!previous) {
+      byKey.set(display.key, display);
+      continue;
+    }
+    previous.resolved = previous.resolved && display.resolved;
+  }
+
+  return [...byKey.values()].map(({ title, resolved, wordCountIssue }) => ({
+    title: wordCountIssue ? wordCountIssueTitle(resolved) : title,
+    resolved,
+  }));
 }
 
-function stateChangeSummary(change: Record<string, unknown>, index: number): string {
-  const target = String(change.target ?? change.entity ?? `变化 ${index + 1}`);
-  const detail = String(change.change ?? change.summary ?? change.type ?? "待写入");
-  return `${target}：${detail}`;
+function auditIssueDisplay(issue: Record<string, unknown>, index: number): NormalizedReviewIssue {
+  const title = stringValue(issue.title) || stringValue(issue.type) || `问题 ${index + 1}`;
+  const wordCountIssue = isWordCountAuditIssue(issue, title);
+  return {
+    key: wordCountIssue ? WORD_COUNT_ISSUE_KEY : normalizedText(title),
+    title,
+    resolved: issue.resolved === true,
+    wordCountIssue,
+  };
+}
+
+function wordCountIssueTitle(resolved: boolean): string {
+  return resolved ? WORD_COUNT_RESOLVED_TITLE : WORD_COUNT_UNMET_TITLE;
+}
+
+function isWordCountAuditIssue(issue: Record<string, unknown>, title: string): boolean {
+  const issueText = [
+    title,
+    issue.type,
+    issue.detail,
+    issue.description,
+    issue.suggestion,
+    issue.suggested_fix,
+  ].map(stringValue).join(" ");
+  const normalized = issueText.toLowerCase();
+  return (
+    normalized.includes("字数") ||
+    normalized.includes("目标区间") ||
+    normalized.includes("word count") ||
+    normalized.includes("word_count")
+  );
+}
+
+function stateChangeDisplay(change: Record<string, unknown>, index: number): StateChangeDisplay | null {
+  const rawTarget = stateChangeValueText(change.target) || stateChangeValueText(change.entity);
+  const rawDetail = (
+    stateChangeValueText(change.change)
+    || stateChangeValueText(change.summary)
+    || stateChangeValueText(change.detail)
+    || stateChangeValueText(change.description)
+  );
+  const rawType = stringValue(change.type);
+  const [splitTarget, splitDetail] = splitTargetFromDetail(rawDetail);
+  let target = rawTarget || splitTarget;
+  let detail = splitDetail || rawDetail;
+
+  if ((isGenericStateTarget(target) || isSectionKey(target)) && splitTarget) {
+    target = splitTarget;
+  }
+  if (isGenericStateTarget(target) || isSectionKey(target)) {
+    target = "";
+  }
+  if (isSectionKey(detail) || isGenericStateTarget(detail)) {
+    detail = "";
+  }
+  if (!detail && rawType && !isGenericStateTarget(rawType) && !isSectionKey(rawType)) {
+    detail = rawType;
+  }
+  if (!target && !detail) {
+    return null;
+  }
+
+  return {
+    target: target || `变化 ${index + 1}`,
+    detail: detail || "待写入",
+    major: isMajorChangeRecord(change),
+  };
+}
+
+function stateChangeValueText(value: unknown): string {
+  const directValue = stringValue(value);
+  if (directValue) {
+    return directValue;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map(stateChangeValueText)
+      .filter(Boolean)
+      .join("；");
+  }
+  if (isRecord(value)) {
+    return stateChangeObjectSummary(value);
+  }
+  return "";
+}
+
+function stateChangeObjectSummary(value: Record<string, unknown>): string {
+  const direct = (
+    stringValue(value.summary)
+    || stringValue(value.description)
+    || stringValue(value.detail)
+    || stringValue(value.change)
+    || stringValue(value.value)
+    || stringValue(value.text)
+    || stringValue(value.name)
+  );
+  if (direct) {
+    return direct;
+  }
+
+  const before = stateChangeValueText(value.before);
+  const after = stateChangeValueText(value.after);
+  if (before && after) {
+    return `${before} -> ${after}`;
+  }
+  if (after) {
+    return after;
+  }
+  if (before) {
+    return before;
+  }
+
+  return Object.entries(value)
+    .filter(([key]) => !isSectionKey(key) && !isGenericStateTarget(key))
+    .map(([key, itemValue]) => {
+      const summary = stateChangeValueText(itemValue);
+      return summary ? `${key}：${summary}` : "";
+    })
+    .filter(Boolean)
+    .slice(0, 3)
+    .join("；");
+}
+
+function splitTargetFromDetail(value: string): [string, string] {
+  const separatorIndex = value.search(/[：:]/);
+  if (separatorIndex <= 0) {
+    return ["", value];
+  }
+  const target = value.slice(0, separatorIndex).trim();
+  const detail = value.slice(separatorIndex + 1).trim();
+  return target && detail ? [target, detail] : ["", value];
+}
+
+function isLowInformationStateChange(change: Record<string, unknown>): boolean {
+  const target = stateChangeValueText(change.target) || stateChangeValueText(change.entity);
+  const detail = (
+    stateChangeValueText(change.change)
+    || stateChangeValueText(change.summary)
+    || stateChangeValueText(change.detail)
+    || stateChangeValueText(change.description)
+  );
+  const type = stringValue(change.type);
+  const hasConcreteTarget = Boolean(target) && !isGenericStateTarget(target) && !isSectionKey(target);
+  const hasConcreteDetail = Boolean(detail) && !isGenericStateTarget(detail) && !isSectionKey(detail);
+  const typeIsGeneric = !type || isGenericStateTarget(type) || isSectionKey(type);
+  return !hasConcreteTarget && !hasConcreteDetail && typeIsGeneric;
+}
+
+function isGenericStateTarget(value: string): boolean {
+  const normalized = normalizedText(value);
+  return [
+    "待确认",
+    "待定",
+    "待写入",
+    "未确认",
+    "未知",
+    "无",
+    "unknown",
+    "n/a",
+    "none",
+    "todo",
+    "change",
+    "changes",
+    "state change",
+    "状态变化",
+    "设定变化",
+    "变化",
+  ].includes(normalized);
+}
+
+function isSectionKey(value: string): boolean {
+  const normalized = normalizedText(value).replaceAll("-", "_").replaceAll(" ", "_");
+  return [
+    "character",
+    "characters",
+    "relations",
+    "relationship",
+    "relationships",
+    "location",
+    "locations",
+    "resource",
+    "resources",
+    "faction",
+    "factions",
+    "foreshadowing",
+    "information_exposure",
+    "timeline",
+    "timelines",
+    "event",
+    "events",
+    "plot",
+    "plots",
+    "world",
+    "world_rules",
+    "rule",
+    "rules",
+    "item",
+    "items",
+    "人物",
+    "角色",
+    "关系",
+    "地点",
+    "场景",
+    "资源",
+    "阵营",
+    "组织",
+    "伏笔",
+    "信息揭示",
+    "时间线",
+    "事件",
+    "剧情",
+    "世界观",
+    "规则",
+    "道具",
+    "设定",
+  ].includes(normalized);
+}
+
+function stringValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
 }
 
 function normalizedText(value: unknown): string {
