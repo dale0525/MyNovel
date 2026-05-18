@@ -2,10 +2,10 @@ from pathlib import Path
 
 import yaml
 
-FRONTEND_INSTALL_COMMAND = "pixi run -- npm --prefix frontend install --package-lock=false"
-FRONTEND_TEST_COMMAND = "pixi run -- npm --prefix frontend run test"
-FRONTEND_TYPECHECK_COMMAND = "pixi run -- npm --prefix frontend run typecheck"
-FRONTEND_BUILD_COMMAND = "pixi run -- npm --prefix frontend run build"
+FRONTEND_INSTALL_COMMAND = "pixi run npm install --package-lock=false"
+FRONTEND_TEST_COMMAND = "pixi run npm run test"
+FRONTEND_TYPECHECK_COMMAND = "pixi run npm run typecheck"
+FRONTEND_BUILD_COMMAND = "pixi run npm run build"
 SYNC_FRONTEND_DIST_COMMAND = (
     "pixi run python -m mynovel.release_package sync-frontend-dist "
     "--source frontend/dist --target src/mynovel/frontend/dist"
@@ -26,7 +26,11 @@ def test_ci_workflow_runs_project_verification_with_pixi() -> None:
     assert FRONTEND_TEST_COMMAND in commands
     assert FRONTEND_TYPECHECK_COMMAND in commands
     assert FRONTEND_BUILD_COMMAND in commands
-    assert all(not command.startswith("pixi run npm --prefix ") for command in commands)
+    _assert_frontend_working_directory(workflow, FRONTEND_INSTALL_COMMAND)
+    _assert_frontend_working_directory(workflow, FRONTEND_TEST_COMMAND)
+    _assert_frontend_working_directory(workflow, FRONTEND_TYPECHECK_COMMAND)
+    _assert_frontend_working_directory(workflow, FRONTEND_BUILD_COMMAND)
+    assert all("--prefix frontend" not in command for command in commands)
 
     pixi = Path("pixi.toml").read_text(encoding="utf-8")
     assert 'mypy = "' in pixi
@@ -60,7 +64,9 @@ def test_release_workflow_builds_packaged_frontend_before_python_tests() -> None
     assert package_commands.index(FRONTEND_INSTALL_COMMAND) < pytest_index
     assert package_commands.index(FRONTEND_BUILD_COMMAND) < pytest_index
     assert package_commands.index(SYNC_FRONTEND_DIST_COMMAND) < pytest_index
-    assert all(not command.startswith("pixi run npm --prefix ") for command in package_commands)
+    _assert_frontend_working_directory(workflow, FRONTEND_INSTALL_COMMAND)
+    _assert_frontend_working_directory(workflow, FRONTEND_BUILD_COMMAND)
+    assert all("--prefix frontend" not in command for command in package_commands)
 
 
 def test_release_workflow_publishes_main_push_with_generated_version() -> None:
@@ -103,3 +109,15 @@ def _workflow_run_commands(workflow: dict) -> list[str]:
             if command:
                 commands.append(command)
     return commands
+
+
+def _assert_frontend_working_directory(workflow: dict, command: str) -> None:
+    matching_steps = [
+        step
+        for job in workflow["jobs"].values()
+        for step in job["steps"]
+        if step.get("run") == command
+    ]
+
+    assert matching_steps
+    assert all(step.get("working-directory") == "frontend" for step in matching_steps)
