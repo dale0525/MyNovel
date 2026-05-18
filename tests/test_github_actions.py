@@ -2,6 +2,15 @@ from pathlib import Path
 
 import yaml
 
+FRONTEND_INSTALL_COMMAND = "pixi run -- npm --prefix frontend install --package-lock=false"
+FRONTEND_TEST_COMMAND = "pixi run -- npm --prefix frontend run test"
+FRONTEND_TYPECHECK_COMMAND = "pixi run -- npm --prefix frontend run typecheck"
+FRONTEND_BUILD_COMMAND = "pixi run -- npm --prefix frontend run build"
+SYNC_FRONTEND_DIST_COMMAND = (
+    "pixi run python -m mynovel.release_package sync-frontend-dist "
+    "--source frontend/dist --target src/mynovel/frontend/dist"
+)
+
 
 def test_ci_workflow_runs_project_verification_with_pixi() -> None:
     workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
@@ -13,10 +22,11 @@ def test_ci_workflow_runs_project_verification_with_pixi() -> None:
     assert "pixi run ruff format --check src tests" in commands
     assert "pixi run mypy src" in commands
     assert "pixi run python -m mynovel.schema_check" in commands
-    assert "pixi run npm --prefix frontend install --package-lock=false" in commands
-    assert "pixi run npm --prefix frontend run test" in commands
-    assert "pixi run npm --prefix frontend run typecheck" in commands
-    assert "pixi run npm --prefix frontend run build" in commands
+    assert FRONTEND_INSTALL_COMMAND in commands
+    assert FRONTEND_TEST_COMMAND in commands
+    assert FRONTEND_TYPECHECK_COMMAND in commands
+    assert FRONTEND_BUILD_COMMAND in commands
+    assert all(not command.startswith("pixi run npm --prefix ") for command in commands)
 
     pixi = Path("pixi.toml").read_text(encoding="utf-8")
     assert 'mypy = "' in pixi
@@ -47,17 +57,10 @@ def test_release_workflow_builds_packaged_frontend_before_python_tests() -> None
     ]
 
     pytest_index = package_commands.index("pixi run pytest")
-    assert (
-        package_commands.index("pixi run npm --prefix frontend install --package-lock=false")
-        < pytest_index
-    )
-    assert package_commands.index("pixi run npm --prefix frontend run build") < pytest_index
-    assert (
-        package_commands.index(
-            "pixi run python -m mynovel.release_package sync-frontend-dist --source frontend/dist --target src/mynovel/frontend/dist"
-        )
-        < pytest_index
-    )
+    assert package_commands.index(FRONTEND_INSTALL_COMMAND) < pytest_index
+    assert package_commands.index(FRONTEND_BUILD_COMMAND) < pytest_index
+    assert package_commands.index(SYNC_FRONTEND_DIST_COMMAND) < pytest_index
+    assert all(not command.startswith("pixi run npm --prefix ") for command in package_commands)
 
 
 def test_release_workflow_publishes_main_push_with_generated_version() -> None:
