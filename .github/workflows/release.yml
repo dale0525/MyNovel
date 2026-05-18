@@ -30,14 +30,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: prefix-dev/setup-pixi@v0.8.8
+      - run: pixi run npm --prefix frontend install --package-lock=false
+      - run: pixi run npm --prefix frontend run build
+      - run: pixi run python -m mynovel.release_package sync-frontend-dist --source frontend/dist --target src/mynovel/frontend/dist
       - run: pixi run pytest
       - run: pixi run ruff check src tests
       - run: pixi run ruff format --check src tests
       - run: pixi run mypy src
       - run: pixi run python -m mynovel.schema_check
-      - run: pixi run npm --prefix frontend install --package-lock=false
-      - run: pixi run npm --prefix frontend run build
-      - run: pixi run python -m mynovel.release_package sync-frontend-dist --source frontend/dist --target src/mynovel/frontend/dist
       - run: pixi run pyinstaller --name MyNovel --onefile --collect-all mynovel --workpath build/pyinstaller --specpath build src/mynovel/desktop.py
       - name: Install free WiX toolset
         if: runner.os == 'Windows'

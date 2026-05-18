@@ -39,6 +39,27 @@ def test_release_workflow_reserves_desktop_release_metadata_steps() -> None:
     assert "tags" not in workflow["on"]["push"]
 
 
+def test_release_workflow_builds_packaged_frontend_before_python_tests() -> None:
+    workflow = yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8"))
+
+    package_commands = [
+        step["run"] for step in workflow["jobs"]["package"]["steps"] if "run" in step
+    ]
+
+    pytest_index = package_commands.index("pixi run pytest")
+    assert (
+        package_commands.index("pixi run npm --prefix frontend install --package-lock=false")
+        < pytest_index
+    )
+    assert package_commands.index("pixi run npm --prefix frontend run build") < pytest_index
+    assert (
+        package_commands.index(
+            "pixi run python -m mynovel.release_package sync-frontend-dist --source frontend/dist --target src/mynovel/frontend/dist"
+        )
+        < pytest_index
+    )
+
+
 def test_release_workflow_publishes_main_push_with_generated_version() -> None:
     workflow = yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8"))
     workflow_text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
