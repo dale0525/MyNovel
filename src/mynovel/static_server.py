@@ -6,6 +6,10 @@ from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import unquote
 
+STABLE_CONTENT_TYPES = {
+    ".js": "text/javascript",
+}
+
 
 @dataclass(frozen=True)
 class StaticResponse:
@@ -33,8 +37,16 @@ def _resolve_asset_response(path: str, dist_dir: Path) -> StaticResponse:
         return _not_found_response()
     if not asset_path.is_file():
         return _not_found_response()
-    content_type = mimetypes.guess_type(asset_path.name)[0] or "application/octet-stream"
+    content_type = _asset_content_type(asset_path)
     return StaticResponse(HTTPStatus.OK, content_type, asset_path.read_bytes())
+
+
+def _asset_content_type(asset_path: Path) -> str:
+    return (
+        STABLE_CONTENT_TYPES.get(asset_path.suffix.lower())
+        or mimetypes.guess_type(asset_path.name)[0]
+        or "application/octet-stream"
+    )
 
 
 def _resolve_index_response(dist_dir: Path) -> StaticResponse:

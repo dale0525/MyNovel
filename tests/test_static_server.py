@@ -51,6 +51,23 @@ def test_asset_route_serves_asset(tmp_path: Path) -> None:
     assert response.content_type == "text/javascript"
 
 
+def test_javascript_asset_type_is_stable_across_platform_mimetypes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "assets" / "app.js").write_text("console.log('ok')", encoding="utf-8")
+    monkeypatch.setattr(
+        "mynovel.static_server.mimetypes.guess_type",
+        lambda _: ("application/javascript", None),
+    )
+
+    response = resolve_spa_response("/assets/app.js", dist)
+
+    assert response.status == HTTPStatus.OK
+    assert response.content_type == "text/javascript"
+
+
 def test_path_traversal_is_not_served(tmp_path: Path) -> None:
     dist = tmp_path / "dist"
     dist.mkdir()

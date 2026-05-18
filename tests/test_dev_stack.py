@@ -17,7 +17,7 @@ def test_dev_stack_starts_python_api_and_vite_frontend() -> None:
         "--port",
         "8765",
         "--db",
-        ".mynovel/dev.sqlite",
+        str(db_path),
         "--frontend-origin",
         "http://127.0.0.1:5173",
     ]
