@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from mynovel.release_package import normalize_release_version, sync_frontend_dist
+from mynovel.release_package import _write_metadata, normalize_release_version, sync_frontend_dist
 
 
 def test_desktop_entrypoint_and_build_task_are_configured() -> None:
@@ -102,3 +102,24 @@ def test_release_workflow_uploads_unsigned_native_installers_without_paid_signin
 def test_release_package_normalizes_github_tag_versions() -> None:
     assert normalize_release_version("v0.2.0") == "0.2.0"
     assert normalize_release_version("refs/tags/v1.0.0") == "1.0.0"
+
+
+def test_release_metadata_checksum_uses_lf_on_windows_text_mode(
+    monkeypatch, tmp_path: Path
+) -> None:
+    original_write_text = Path.write_text
+
+    def windows_write_text(self: Path, data: str, *args, **kwargs) -> int:
+        if kwargs.get("newline") is None:
+            data = data.replace("\n", "\r\n")
+        return original_write_text(self, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", windows_write_text)
+    artifact = tmp_path / "MyNovel-windows-x64.msi"
+    artifact.write_bytes(b"placeholder msi")
+
+    _write_metadata(tmp_path, artifact, "0.1.9", "windows-x64")
+
+    checksum = (tmp_path / "checksums-windows-x64.sha256").read_bytes()
+    assert checksum.endswith(b"MyNovel-windows-x64.msi\n")
+    assert b"\r" not in checksum

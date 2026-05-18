@@ -106,7 +106,11 @@ def _write_metadata(dist_dir: Path, artifact: Path, version: str, platform_name:
     version = normalize_release_version(version)
     digest = sha256(artifact.read_bytes()).hexdigest()
     checksum_path = dist_dir / f"checksums-{platform_name}.sha256"
-    checksum_path.write_text(f"{digest}  {artifact.name}\n", encoding="utf-8")
+    checksum_path.write_text(
+        f"{digest}  {artifact.name}\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     manifest_path = dist_dir / f"update-{platform_name}.json"
     manifest_path.write_text(
         json.dumps(
@@ -131,6 +135,7 @@ def _write_metadata(dist_dir: Path, artifact: Path, version: str, platform_name:
         )
         + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     return manifest_path
 
