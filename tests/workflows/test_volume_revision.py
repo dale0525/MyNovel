@@ -1,7 +1,13 @@
 from sqlmodel import Session
 
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import BlueprintStatus, Chapter, ChapterStatus, OpenBookBlueprint, VolumePlan
+from mynovel.domain.models import (
+    BlueprintStatus,
+    Chapter,
+    ChapterStatus,
+    OpenBookBlueprint,
+    VolumePlan,
+)
 from mynovel.domain.repositories import list_chapters_for_book, list_volume_plans_for_book
 from mynovel.workflows.open_book import create_draft_book_from_blueprint, lock_canon_foundation
 from mynovel.workflows.volume_planning import generate_volume_outline, revise_volume_outline
@@ -61,7 +67,10 @@ class FakeMultiVolumeOutlineWithoutNumbersModel:
         volumes = []
         for volume_number, chapter_count in [(1, 10), (2, 25), (3, 25), (4, 7)]:
             chapters = [
-                {"title": f"第{volume_number}-{index}章", "goal": f"推进第{volume_number}-{index}章。"}
+                {
+                    "title": f"第{volume_number}-{index}章",
+                    "goal": f"推进第{volume_number}-{index}章。",
+                }
                 for index in range(1, chapter_count + 1)
             ]
             volumes.append(
@@ -88,7 +97,10 @@ class FakeAllVolumesRevisionWithoutNumbersModel:
         volumes = []
         for volume_number, chapter_count in [(1, 10), (2, 25), (3, 25), (4, 7)]:
             chapters = [
-                {"title": f"修复后第{volume_number}-{index}章", "goal": f"推进修复后第{volume_number}-{index}章。"}
+                {
+                    "title": f"修复后第{volume_number}-{index}章",
+                    "goal": f"推进修复后第{volume_number}-{index}章。",
+                }
                 for index in range(1, chapter_count + 1)
             ]
             volumes.append(
@@ -106,7 +118,9 @@ class FakeAllVolumesRevisionWithoutNumbersModel:
         return str({"volumes": volumes}).replace("'", '"')
 
 
-def test_generate_volume_outline_extends_short_model_result_to_target_chapter_count(tmp_path) -> None:
+def test_generate_volume_outline_extends_short_model_result_to_target_chapter_count(
+    tmp_path,
+) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
     model = FakeShortVolumeOutlineModel(chapter_count=37)

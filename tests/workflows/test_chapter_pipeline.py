@@ -131,6 +131,42 @@ def test_run_chapter_pipeline_prepares_state_delta_and_audit_for_result_first_re
     assert "changes" in reviewed.state_delta
 
 
+def test_run_chapter_pipeline_keeps_high_risk_audit_until_explicit_repair(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "review.sqlite")
+    create_db_and_tables(engine)
+    model = _PipelineModel()
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        lock_canon_foundation(session, book.id)
+        chapter = list_chapters_for_book(session, book.id)[0]
+
+        reviewed = run_chapter_pipeline(session, chapter.id, model_client=model)
+
+    assert reviewed.status == ChapterStatus.AWAITING_REVIEW
+    assert reviewed.revised_text == "莉拉补足动机，并在结尾让符号回应。"
+    assert reviewed.audit_report["risk_level"] == "high"
+    assert reviewed.audit_report["issues"] == [
+        {
+            "severity": "high",
+            "title": "人物动机不清",
+            "resolved": False,
+        },
+        {
+            "severity": "medium",
+            "title": "结尾钩子不足",
+            "resolved": False,
+        },
+    ]
+    assert model.calls == [
+        ("plan", "json"),
+        ("draft", "text"),
+        ("extract_state", "json"),
+        ("audit", "json"),
+        ("revise", "json"),
+    ]
+
+
 def test_approve_chapter_writes_state_delta_to_latest_canon(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
@@ -220,6 +256,41 @@ class _FixedEmbeddingClient:
 
     def embed_text(self, text: str) -> list[float]:
         return [1.0, 0.0] if "莉拉" in text or "符号" in text else [0.5, 0.5]
+
+
+class _PipelineModel:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def complete(self, stage: str, messages, response_format: str) -> str:
+        self.calls.append((stage, response_format))
+        match stage, response_format:
+            case "plan", "json":
+                return (
+                    '{"goal":"莉拉离开村庄。","must_write":["符号回应"],'
+                    '"forbidden_drift":[],"word_budget":40,"ending_hook":"符号回应"}'
+                )
+            case "draft", "text":
+                return "莉拉离开村庄。"
+            case "extract_state", "json":
+                return '{"chapter":1,"changes":[{"target":"莉拉","change":"离开村庄"}]}'
+            case "audit", "json":
+                return (
+                    '{"risk_level":"high","issues":['
+                    '{"severity":"high","title":"人物动机不清","resolved":false},'
+                    '{"severity":"medium","title":"结尾钩子不足","resolved":false}'
+                    '],"suggestions":["补足动机和钩子"]}'
+                )
+            case "revise", "json":
+                prompt = "\n".join(message["content"] for message in messages)
+                assert "人物动机不清" in prompt
+                assert "结尾钩子不足" in prompt
+                return (
+                    '{"operations":[{"op":"replace","paragraph_id":1,'
+                    '"text":"莉拉补足动机，并在结尾让符号回应。",'
+                    '"addresses":["人物动机不清","结尾钩子不足"]}]}'
+                )
+        raise AssertionError(f"Unexpected call: {stage}/{response_format}")
 
 
 def test_chapter_pipeline_adds_retrieved_context_from_embedding(tmp_path) -> None:

@@ -321,7 +321,9 @@ def test_create_draft_book_from_blueprint_assigns_first_ten_chapters_to_first_vo
             "title_options": ["长夜图书馆"],
             "genre": "玄幻",
             "audience": "男频网文读者",
-            "chapter_directions": [{"title": f"第{i}章", "goal": f"推进第{i}章"} for i in range(1, 11)],
+            "chapter_directions": [
+                {"title": f"第{i}章", "goal": f"推进第{i}章"} for i in range(1, 11)
+            ],
             "volume_plan": {
                 "volume_number": 1,
                 "title": "禁书馆重启",

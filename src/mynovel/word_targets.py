@@ -23,6 +23,10 @@ def parse_word_count(value: object) -> int | None:
     return count if count > 0 else None
 
 
+def count_chapter_words(text: str | None) -> int:
+    return sum(1 for character in str(text or "") if not character.isspace())
+
+
 def book_idea_from_form(form: dict[str, str]) -> str:
     idea = form.get("idea", "").strip()
     if not idea:

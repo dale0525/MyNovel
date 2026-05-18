@@ -120,7 +120,9 @@ def stream_create_open_book_blueprint(
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
-        blueprint = create_blueprint_job(session, idea=idea, version=1, instruction=None, parent_id=None)
+        blueprint = create_blueprint_job(
+            session, idea=idea, version=1, instruction=None, parent_id=None
+        )
         blueprint_id = blueprint.id
     if blueprint_id is None:
         yield _failed("蓝图任务创建失败。")
@@ -207,7 +209,9 @@ def stream_run_chapter(
 ) -> Iterator[StreamEvent]:
     def worker(emit: EmitEvent) -> None:
         emit({"type": "started", "message": "AI 已开始生成章节。"})
-        queued_chapter_id = queue_chapter_run(db_path, chapter_id, provider_config, start_background=False)
+        queued_chapter_id = queue_chapter_run(
+            db_path, chapter_id, provider_config, start_background=False
+        )
         with Session(create_engine_for_path(db_path)) as session:
             run_chapter_pipeline(
                 session,
@@ -310,6 +314,7 @@ def stream_run_chapter_batch(
         )
 
     yield from _events_from_worker(worker)
+
 
 def stream_generate_volume_outline(
     db_path: Path,

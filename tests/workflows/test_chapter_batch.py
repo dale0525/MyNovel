@@ -61,7 +61,18 @@ class FakeBatchChapterModel:
                 }}
                 """
             case "revise":
-                return "莉拉沿着雾谷继续前进，旧王朝符号在结尾指向新的遗迹。"
+                return """
+                {
+                  "operations": [
+                    {
+                      "op": "replace",
+                      "paragraph_id": 1,
+                      "text": "莉拉沿着雾谷继续前进，旧王朝符号在结尾指向新的遗迹。",
+                      "addresses": ["章节风险"]
+                    }
+                  ]
+                }
+                """
         raise AssertionError(stage)
 
 

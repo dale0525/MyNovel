@@ -49,6 +49,7 @@ from mynovel.word_targets import (
     CHAPTER_WORD_COUNT_KEY,
     DEFAULT_CHAPTER_WORD_COUNT,
     book_target_word_count,
+    count_chapter_words,
     parse_word_count,
 )
 
@@ -317,14 +318,10 @@ def quality_payload(db_path: Path, book_id: int) -> dict[str, Any] | None:
                 for study in list_deconstruction_studies_for_book(session, book_id)
             ],
             "latestSnapshot": (
-                quality_snapshot_payload(latest_snapshot)
-                if latest_snapshot is not None
-                else None
+                quality_snapshot_payload(latest_snapshot) if latest_snapshot is not None else None
             ),
             "costStrategy": (
-                recommend_cost_strategy(latest_snapshot)
-                if latest_snapshot is not None
-                else None
+                recommend_cost_strategy(latest_snapshot) if latest_snapshot is not None else None
             ),
         }
 
@@ -341,7 +338,9 @@ def chapter_review_payload(db_path: Path, chapter_id: int) -> dict[str, Any] | N
             return None
         canon = get_latest_canon(session, chapter.book_id)
         chapters = list_chapters_for_book(session, chapter.book_id)
-        run_traces = _chapter_run_traces(list_run_traces_for_book(session, chapter.book_id), chapter)
+        run_traces = _chapter_run_traces(
+            list_run_traces_for_book(session, chapter.book_id), chapter
+        )
         return {
             "book": book_payload(book),
             "chapter": chapter_detail_payload(chapter),
@@ -355,11 +354,7 @@ def chapter_review_payload(db_path: Path, chapter_id: int) -> dict[str, Any] | N
 def _chapter_run_traces(run_traces: list[RunTrace], chapter: Chapter) -> list[RunTrace]:
     identifiers = {chapter.number, str(chapter.number)}
     return sorted(
-        [
-            trace
-            for trace in run_traces
-            if (trace.metadata_ or {}).get("chapter") in identifiers
-        ],
+        [trace for trace in run_traces if (trace.metadata_ or {}).get("chapter") in identifiers],
         key=lambda trace: (trace.created_at, trace.id or 0),
     )
 
@@ -489,7 +484,7 @@ def _context_summary(context_package: dict[str, Any]) -> str:
 
 
 def _text_summary(text: str) -> str:
-    return f"{len(text)} 字" if text else ""
+    return f"{count_chapter_words(text)} 字" if text else ""
 
 
 def _delta_summary(state_delta: dict[str, Any]) -> str:

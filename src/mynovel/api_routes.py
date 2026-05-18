@@ -501,7 +501,9 @@ def _toggle_canon_proposal_section_lock_json(
     section = str(body.get("section") or "")
     locked = _body_bool(body, "locked")
     if locked is None:
-        return _canon_proposal_action_error(ValueError("Canon proposal lock value must be boolean."))
+        return _canon_proposal_action_error(
+            ValueError("Canon proposal lock value must be boolean.")
+        )
     try:
         engine = create_engine_for_path(db_path)
         create_db_and_tables(engine)
@@ -583,7 +585,9 @@ def _canon_proposal_auto_complete_form(
         canon = get_latest_canon(session, book_id)
         if canon is None:
             return _canon_proposal_action_error(ValueError("Trusted state proposal is required."))
-        target_section = canon_proposal_completion_target(canon.content, section_locks_for_book(book))
+        target_section = canon_proposal_completion_target(
+            canon.content, section_locks_for_book(book)
+        )
     if target_section is None:
         return _canon_proposal_action_error(ValueError("No editable missing canon section."))
     return {
@@ -761,6 +765,7 @@ def _stage_update_json(db_path: Path, body: dict[str, Any]) -> ApiResponse:
             },
         },
     )
+
 
 def _update_result_payload(result) -> dict[str, Any]:
     return {

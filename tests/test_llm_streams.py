@@ -59,9 +59,20 @@ class FakeChapterStreamModel:
               "suggestions": ["补强符号回应"]
             }
             """,
-            "revise": "莉拉离开村庄，雾气在谷口低伏。她掌心的符号忽然发热，远处也亮起同样的微光。",
+            "revise": """
+            {
+              "operations": [
+                {
+                  "op": "replace",
+                  "paragraph_id": 1,
+                  "text": "莉拉离开村庄，雾气在谷口低伏。她掌心的符号忽然发热，远处也亮起同样的微光。",
+                  "addresses": ["结尾钩子还不够强"]
+                }
+              ]
+            }
+            """,
         }[stage]
-        assert response_format == ("text" if stage in {"draft", "revise"} else "json")
+        assert response_format == ("text" if stage == "draft" else "json")
         midpoint = max(1, len(payload) // 2)
         yield payload[:midpoint]
         yield payload[midpoint:]
@@ -138,7 +149,9 @@ class FakeVolumeRevisionStreamModel:
         yield payload[midpoint:]
 
 
-def test_stream_create_open_book_blueprint_yields_chunks_and_persists_result(tmp_path: Path) -> None:
+def test_stream_create_open_book_blueprint_yields_chunks_and_persists_result(
+    tmp_path: Path,
+) -> None:
     db_path = tmp_path / "dev.sqlite"
 
     events = list(
@@ -246,7 +259,11 @@ def test_stream_revise_volume_outline_yields_chunks_and_persists_plan(tmp_path: 
         stream_revise_volume_outline(
             db_path,
             book_id,
-            {"scope": "volume_chapters", "volumeNumber": 1, "revisionNotes": "第二章提前进入遗迹。"},
+            {
+                "scope": "volume_chapters",
+                "volumeNumber": 1,
+                "revisionNotes": "第二章提前进入遗迹。",
+            },
             model_client=FakeVolumeRevisionStreamModel(),
         )
     )

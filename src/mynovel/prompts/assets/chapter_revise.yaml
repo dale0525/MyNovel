@@ -12,6 +12,9 @@ input_schema:
     - draft_text
     - audit_report
 output_schema:
-  type: text
+  type: object
+  required:
+    - operations
 template: |
-  根据审计意见修订《{chapter_title}》正文，只输出修订后的完整正文。
+  根据审计意见为《{chapter_title}》生成可应用的局部 JSON 补丁。
+  只返回 {"operations":[...]}，不要返回完整正文。

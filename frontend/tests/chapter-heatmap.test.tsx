@@ -27,6 +27,15 @@ test("chapter heatmap click focuses the matching volume and selects the batch ta
   expect(screen.getByRole("button", { name: "生成选中的 1 章" })).toBeInTheDocument();
 });
 
+test("chapter heatmap exposes a focusable horizontal scroll area", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json(multiVolumeBookPayload())));
+
+  render(<BookWorkspacePage bookId={42} view="chapters" />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "章节" })).toBeInTheDocument());
+  expect(screen.getByRole("region", { name: "横向滚动章节地图" })).toHaveAttribute("tabindex", "0");
+});
+
 test("clicking a selected heatmap cell again clears that batch target", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json(multiVolumeBookPayload())));
 

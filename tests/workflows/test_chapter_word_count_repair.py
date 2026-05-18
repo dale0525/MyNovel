@@ -5,6 +5,7 @@ from sqlmodel import Session
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import BlueprintStatus, OpenBookBlueprint
 from mynovel.domain.repositories import list_chapters_for_book, list_run_traces_for_book
+from mynovel.word_targets import count_chapter_words
 from mynovel.workflows.chapter_pipeline import repair_chapter_with_ai, run_chapter_pipeline
 from mynovel.workflows.open_book import create_draft_book_from_blueprint
 
@@ -261,7 +262,9 @@ def test_non_word_repair_rejects_response_that_breaks_stable_word_count_window(
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
     source_text = "莉" * 40
-    model = TextRepairModel("短" * 10)
+    model = RepairPatchModel(
+        {"operations": [{"op": "replace", "paragraph_id": 1, "text": "短" * 10}]}
+    )
 
     with Session(engine) as session:
         book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
@@ -294,7 +297,7 @@ def test_non_word_repair_rejects_response_that_breaks_stable_word_count_window(
             reviewer_note=None,
         )
 
-    assert model.calls == [("revise", "text")]
+    assert model.calls == [("repair_patch", "json")]
     assert repaired.status.value == "needs_revision"
     assert repaired.revised_text == source_text
     assert repaired.word_count == len(source_text)
@@ -364,7 +367,9 @@ def test_non_word_repair_marks_side_description_issue_resolved_from_revised_text
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
     revised_text = "青黛惊恐地看着莉拉，两个小丫鬟吓得瘫软在地。" + "莉" * 15
-    model = TextRepairModel(revised_text)
+    model = RepairPatchModel(
+        {"operations": [{"op": "replace", "paragraph_id": 1, "text": revised_text}]}
+    )
 
     with Session(engine) as session:
         book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
@@ -478,7 +483,7 @@ def test_repair_chapter_records_prompt_response_and_word_count_diagnostics(tmp_p
     assert repair_trace.cost["prompt_chars"] > 0
     assert repair_trace.cost["completion_chars"] == len(repair_trace.metadata_["raw_response_text"])
     assert repair_trace.metadata_["before_word_count"] == 1
-    assert repair_trace.metadata_["after_word_count"] == len(repaired.revised_text)
+    assert repair_trace.metadata_["after_word_count"] == count_chapter_words(repaired.revised_text)
     assert repair_trace.metadata_["target_word_count"] == 40
     assert repair_trace.metadata_["word_count_window"] == [36, 46]
     assert repair_trace.metadata_["word_count_repair_mode"] == "expand"
@@ -572,8 +577,8 @@ def test_repair_chapter_rejects_word_count_patch_that_moves_farther_from_window(
         "AI 修复结果被拒绝：模型将正文从 88 字扩写到 132 字，更偏离 36-46 字目标区间。"
     )
     assert traces[-1].metadata_["validation_warning"] == repaired.reviewer_note
-    assert traces[-1].metadata_["after_word_count"] == len(source_text)
-    assert traces[-1].metadata_["model_response_word_count"] == len(worse_response)
+    assert traces[-1].metadata_["after_word_count"] == count_chapter_words(source_text)
+    assert traces[-1].metadata_["model_response_word_count"] == count_chapter_words(worse_response)
     assert traces[-1].metadata_["rejected_response_text"] == worse_response
 
 
@@ -623,6 +628,61 @@ def test_repair_chapter_uses_structured_patch_to_compress_overlong_text(tmp_path
     ]
 
 
+def test_repair_chapter_applies_compress_patch_that_merges_paragraph_range(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    source_text = "\n\n".join(["甲" * 10, "乙" * 20, "丙" * 20, "丁" * 20, "戊" * 10])
+    patch = {
+        "operations": [
+            {
+                "op": "compress",
+                "paragraph_id": 2,
+                "text": "合" * 16,
+                "reason": "合并2-4段，删去重复铺陈。",
+                "addresses": ["字数不在目标区间", "章节过度跳跃", "逻辑闭环缺失"],
+            }
+        ]
+    }
+    model = WordCountPatchModel(patch)
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = book_chapter(session, book.id, 1)
+        reviewed = run_chapter_pipeline(session, chapter.id)
+        reviewed.plan = {**reviewed.plan, "word_budget": 40}
+        reviewed.revised_text = source_text
+        reviewed.word_count = len(source_text)
+        reviewed.audit_report = {
+            "risk_level": "medium",
+            "issues": [
+                {"severity": "high", "title": "字数不在目标区间", "resolved": False},
+                {"severity": "medium", "title": "章节过度跳跃", "resolved": False},
+                {"severity": "medium", "title": "逻辑闭环缺失", "resolved": False},
+            ],
+            "suggestions": ["压缩到目标字数，同时补足跳跃和闭环问题。"],
+        }
+        session.add(reviewed)
+        session.commit()
+
+        repaired = repair_chapter_with_ai(
+            session,
+            reviewed.id,
+            model_client=model,
+            model_name="章节模型",
+            reviewer_note=None,
+        )
+
+    assert repaired.status.value == "awaiting_review"
+    assert "end_paragraph_id" in model.prompts[0]
+    assert repaired.revised_text == "\n\n".join(["甲" * 10, "合" * 16, "戊" * 10])
+    assert repaired.word_count == 36
+    assert [issue["resolved"] for issue in repaired.audit_report["issues"]] == [
+        True,
+        True,
+        True,
+    ]
+
+
 def test_repair_chapter_accepts_json_patch_with_trailing_markdown_fence(tmp_path) -> None:
     engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
     create_db_and_tables(engine)
@@ -655,7 +715,7 @@ def test_repair_chapter_accepts_json_patch_with_trailing_markdown_fence(tmp_path
         traces = list_run_traces_for_book(session, book.id)
 
     assert repaired.status.value == "awaiting_review"
-    assert repaired.word_count == 46
+    assert repaired.word_count == 40
     assert traces[-1].metadata_["raw_response_text"].endswith("```")
 
 
@@ -697,7 +757,7 @@ def test_repair_chapter_uses_best_in_window_prefix_when_patch_over_compresses(tm
         traces = list_run_traces_for_book(session, book.id)
 
     assert repaired.status.value == "awaiting_review"
-    assert repaired.word_count == 46
+    assert repaired.word_count == 40
     assert repaired.revised_text == "\n\n".join("甲" * 10 for _ in range(4))
     assert traces[-1].metadata_["patch_operations"] == [
         {"op": "delete", "paragraph_id": 2, "reason": "删除重复段落"},
@@ -718,7 +778,7 @@ def test_repair_chapter_uses_structured_patch_to_expand_short_text(tmp_path) -> 
                 {
                     "op": "insert_after",
                     "paragraph_id": 1,
-                    "text": "新" * 15,
+                    "text": "新" * 16,
                     "reason": "补足动作因果",
                 }
             ]
@@ -753,11 +813,11 @@ def test_repair_chapter_uses_structured_patch_to_expand_short_text(tmp_path) -> 
     assert "扩写模式" in model.prompts[0]
     assert "至少净增" in model.prompts[0]
     assert repaired.status.value == "awaiting_review"
-    assert repaired.revised_text == "甲" * 10 + "\n\n" + "新" * 15 + "\n\n" + "乙" * 10
+    assert repaired.revised_text == "甲" * 10 + "\n\n" + "新" * 16 + "\n\n" + "乙" * 10
     assert 36 <= repaired.word_count <= 46
     assert traces[-1].prompt_id == "chapter_word_count_patch"
     assert traces[-1].metadata_["word_count_repair_mode"] == "expand"
-    assert traces[-1].metadata_["patch_operations"][0]["text"] == "新" * 15
+    assert traces[-1].metadata_["patch_operations"][0]["text"] == "新" * 16
 
 
 def test_repair_chapter_refreshes_stale_word_count_issue_when_text_is_too_long(tmp_path) -> None:
@@ -884,16 +944,16 @@ class RawWordCountPatchModel:
         return self.response
 
 
-class TextRepairModel:
-    def __init__(self, response: str) -> None:
+class RepairPatchModel:
+    def __init__(self, response: dict) -> None:
         self.calls: list[tuple[str, str]] = []
         self.response = response
 
     def complete(self, stage: str, messages, response_format: str) -> str:
         self.calls.append((stage, response_format))
-        assert stage == "revise"
-        assert response_format == "text"
-        return self.response
+        assert stage == "repair_patch"
+        assert response_format == "json"
+        return json.dumps(self.response, ensure_ascii=False)
 
 
 def book_chapter(session: Session, book_id: int, number: int):

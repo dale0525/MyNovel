@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from copy import deepcopy
 from typing import Any, Protocol
 
 from sqlmodel import Session
@@ -22,7 +21,6 @@ from mynovel.workflows.chapter_prompting import (
     build_draft_messages as _build_draft_messages,
     build_extract_state_messages as _build_extract_state_messages,
     build_plan_messages as _build_plan_messages,
-    build_revise_messages as _build_revise_messages,
 )
 from mynovel.workflows.chapter_response_parsing import (
     ChapterJsonStageFormatError,
@@ -30,14 +28,16 @@ from mynovel.workflows.chapter_response_parsing import (
     normalize_state_delta,
     parse_json_stage_response,
 )
+from mynovel.workflows.chapter_state_updates import (
+    accepted_chapter_content,
+    trusted_state_index_text,
+)
 from mynovel.workflows.embedding import TextEmbeddingClient, embedding_client_from_provider_config
 from mynovel.workflows.volume_lookup import get_volume_plan_for_chapter
 from mynovel.workflows.chapter_repair import (
     RepairRequest,
-    apply_word_count_patch_bounded,
-    build_repair_request,
+    build_stable_repair_patch_request,
     build_word_count_patch_request,
-    patch_addressed_issue_titles,
     recheck_repair_audit,
     repair_response_should_be_rejected,
     repair_text_locally,
@@ -47,9 +47,12 @@ from mynovel.workflows.chapter_repair import (
     repair_validation_warning,
     word_count_patch_mode,
 )
+from mynovel.workflows.chapter_repair_execution import complete_repair_with_model
+from mynovel.workflows.chapter_repair_patches import apply_word_count_patch_bounded
 from mynovel.workflows.open_book_blueprint import extract_chat_content
 from mynovel.workflows.retrieval import RetrievedContext, index_text, retrieve_book_context
 from mynovel.workflows.state_validation import validate_state_delta
+from mynovel.word_targets import count_chapter_words
 
 
 class ChapterModelClient(Protocol):
@@ -160,7 +163,7 @@ def run_chapter_pipeline(
         failed_stage = error.stage if isinstance(error, ChapterStageError) else "unknown"
         return _record_pipeline_failure(session, chapter, model_label, failed_stage, error)
     chapter.summary = _summarize_chapter(chapter)
-    chapter.word_count = len(chapter.revised_text)
+    chapter.word_count = count_chapter_words(chapter.revised_text)
     recheck_repair_audit(chapter)
     chapter.status = ChapterStatus.AWAITING_REVIEW
     chapter.updated_at = utc_now()
@@ -197,7 +200,7 @@ def approve_chapter(
     chapter.updated_at = utc_now()
 
     trusted_state_version = latest.version + 1
-    updated_content = _content_with_accepted_chapter(latest.content, chapter)
+    updated_content = accepted_chapter_content(latest.content, chapter)
     session.add(chapter)
     session.add(
         Canon(book_id=chapter.book_id, version=trusted_state_version, content=updated_content)
@@ -239,7 +242,7 @@ def apply_manual_chapter_edit(
         raise ValueError("Only review-stage chapters can be edited.")
 
     chapter.revised_text = text
-    chapter.word_count = len(text)
+    chapter.word_count = count_chapter_words(text)
     recheck_repair_audit(chapter)
     chapter.status = ChapterStatus.AWAITING_REVIEW
     chapter.reviewer_note = reviewer_note
@@ -303,7 +306,7 @@ def repair_chapter_with_ai(
 
     source_text = chapter.revised_text or chapter.final_text or chapter.draft_text
     recheck_repair_audit(chapter)
-    before_word_count = len(source_text)
+    before_word_count = count_chapter_words(source_text)
     repair_request: RepairRequest | None = None
     raw_response_text: str
     applied_response_text: str
@@ -316,44 +319,21 @@ def repair_chapter_with_ai(
         applied_response_text = repair_text_locally(chapter, _revise_text)
         raw_response_text = applied_response_text
     else:
-        repair_request = build_repair_request(chapter, reviewer_note)
-        word_count_repair_mode = word_count_patch_mode(
-            repair_request.before_word_count,
-            repair_request.word_count_window,
+        repair_result = complete_repair_with_model(
+            chapter,
+            reviewer_note,
+            source_text,
+            model_client,
+            _complete_json_stage_with_raw,
         )
-        if word_count_repair_mode is None:
-            raw_response_text = _complete_text_stage(
-                model_client,
-                "revise",
-                repair_request.messages,
-            )
-            applied_response_text = raw_response_text
-        else:
-            repair_request = build_word_count_patch_request(chapter, reviewer_note)
-            patch_payload, raw_response_text = _complete_json_stage_with_raw(
-                model_client,
-                "word_count_patch",
-                repair_request.messages,
-                {"operations"},
-            )
-            patch_operations = [
-                operation
-                for operation in patch_payload.get("operations", [])
-                if isinstance(operation, dict)
-            ]
-            patch_application = apply_word_count_patch_bounded(
-                source_text,
-                patch_payload,
-                repair_request.word_count_window,
-                repair_request.target_word_count,
-            )
-            applied_response_text = patch_application.text
-            applied_patch_operations = patch_application.operations
-            patch_application_strategy = patch_application.strategy
-            addressed_issue_titles = patch_addressed_issue_titles(
-                applied_patch_operations,
-                repair_request.unresolved_audit_issues,
-            )
+        repair_request = repair_result.request
+        raw_response_text = repair_result.raw_response_text
+        applied_response_text = repair_result.applied_response_text
+        word_count_repair_mode = repair_result.word_count_repair_mode
+        patch_operations = repair_result.patch_operations
+        applied_patch_operations = repair_result.applied_patch_operations
+        patch_application_strategy = repair_result.patch_application_strategy
+        addressed_issue_titles = repair_result.addressed_issue_titles
     validation_warning = repair_validation_warning(
         repair_request, source_text, applied_response_text
     )
@@ -363,10 +343,11 @@ def repair_chapter_with_ai(
         applied_response_text,
     )
     chapter.revised_text = source_text if rejected_response else applied_response_text
-    chapter.word_count = len(chapter.revised_text)
+    chapter.word_count = count_chapter_words(chapter.revised_text)
     recheck_repair_audit(
         chapter,
         addressed_issue_titles=[] if rejected_response else addressed_issue_titles,
+        previous_text=None if rejected_response else source_text,
     )
     chapter.status = (
         ChapterStatus.NEEDS_REVISION if validation_warning else ChapterStatus.AWAITING_REVIEW
@@ -379,7 +360,11 @@ def repair_chapter_with_ai(
         RunTrace(
             book_id=chapter.book_id,
             stage="修复问题",
-            prompt_id=repair_trace_prompt_id(repair_request, word_count_repair_mode),
+            prompt_id=repair_trace_prompt_id(
+                repair_request,
+                word_count_repair_mode,
+                patch_operations,
+            ),
             prompt_version=PROMPT_VERSION if repair_request is not None else None,
             model=model_name or "本地演示模型",
             cost=repair_trace_cost(repair_request, raw_response_text),
@@ -456,14 +441,14 @@ def _run_model_pipeline(
         "draft",
         _build_draft_messages(book_title, chapter),
     )
+    raw_state_delta, raw_state_delta_text = _complete_json_stage_with_raw(
+        model_client,
+        "extract_state",
+        _build_extract_state_messages(chapter),
+        {"chapter", "changes"},
+    )
     chapter.state_delta = normalize_state_delta(
-        chapter.number,
-        _complete_json_stage(
-            model_client,
-            "extract_state",
-            _build_extract_state_messages(chapter),
-            {"chapter", "changes"},
-        ),
+        chapter.number, raw_state_delta, raw_response_text=raw_state_delta_text
     )
     try:
         chapter.audit_report = _complete_json_stage(
@@ -476,11 +461,27 @@ def _run_model_pipeline(
         if not _is_recoverable_json_stage_error(error):
             raise
         chapter.audit_report = fallback_audit_report(error.error)
-    chapter.revised_text = _complete_text_stage(
+    chapter.revised_text = _complete_revise_patch_stage(model_client, chapter)
+
+
+def _complete_revise_patch_stage(model_client: ChapterModelClient, chapter: Chapter) -> str:
+    source_text = chapter.draft_text
+    request = build_stable_repair_patch_request(chapter, None)
+    repair_mode = word_count_patch_mode(request.before_word_count, request.word_count_window)
+    if repair_mode is not None:
+        request = build_word_count_patch_request(chapter, None)
+    patch_payload, _ = _complete_json_stage_with_raw(
         model_client,
         "revise",
-        _build_revise_messages(chapter),
+        request.messages,
+        {"operations"},
     )
+    return apply_word_count_patch_bounded(
+        source_text,
+        patch_payload,
+        request.word_count_window,
+        request.target_word_count,
+    ).text
 
 
 def _complete_json_stage(
@@ -607,7 +608,13 @@ def _recent_items(value: Any, limit: int) -> Any:
 
 
 def _retrieved_context_payload(item: RetrievedContext) -> dict[str, Any]:
-    return {"source_type": item.source_type, "source_id": item.source_id, "score": round(item.score, 4), "text": item.text, "metadata": dict(item.metadata or {})}
+    return {
+        "source_type": item.source_type,
+        "source_id": item.source_id,
+        "score": round(item.score, 4),
+        "text": item.text,
+        "metadata": dict(item.metadata or {}),
+    }
 
 
 def _volume_plan_payload(volume_plan: Any) -> dict[str, Any]:
@@ -767,90 +774,6 @@ def _is_major_state_change(change: dict[str, Any]) -> bool:
     return any(term in text for term in major_terms)
 
 
-def _content_with_accepted_chapter(content: dict, chapter: Chapter) -> dict:
-    updated = deepcopy(content)
-    updated.setdefault("chapter_summaries", []).append(
-        {
-            "chapter": chapter.number,
-            "title": chapter.title,
-            "summary": chapter.summary,
-            "word_count": chapter.word_count,
-        }
-    )
-    updated.setdefault("state_history", []).append(chapter.state_delta)
-    for change in chapter.state_delta.get("changes", []):
-        if isinstance(change, dict):
-            _append_structured_state_change(updated, chapter, change)
-    updated.setdefault("accepted_chapters", []).append(
-        {"chapter": chapter.number, "title": chapter.title, "accepted_at": utc_now().isoformat()}
-    )
-    return updated
-
-
-def _append_structured_state_change(
-    content: dict[str, Any],
-    chapter: Chapter,
-    change: dict[str, Any],
-) -> None:
-    bucket = _state_bucket_for_change(change)
-    if bucket is None:
-        return
-
-    target = str(change.get("target") or change.get("name") or "").strip()
-    detail = str(change.get("change") or change.get("detail") or "").strip()
-    if not target and not detail:
-        return
-    if _is_low_information_state_change(target, detail):
-        return
-
-    content.setdefault(bucket, []).append(
-        {
-            "name": target or detail[:32],
-            "detail": detail,
-            "type": str(change.get("type") or "").strip(),
-            "chapter": chapter.number,
-        }
-    )
-
-
-def _state_bucket_for_change(change: dict[str, Any]) -> str | None:
-    text = " ".join(str(change.get(key, "")) for key in ("type", "target", "change"))
-    if any(term in text for term in ("人物", "角色")):
-        return "characters"
-    if "关系" in text:
-        return "relationships"
-    if any(term in text for term in ("地点", "场景", "位置")):
-        return "locations"
-    if any(term in text for term in ("势力", "组织", "阵营")):
-        return "factions"
-    if any(term in text for term in ("资源", "道具", "物品", "地图")):
-        return "resources"
-    if any(term in text for term in ("伏笔", "线索", "信息")):
-        return "foreshadowing"
-    return None
-
-
-def _is_low_information_state_change(target: str, detail: str) -> bool:
-    if target != "待确认":
-        return False
-    return detail in {
-        "人物",
-        "关系",
-        "地点",
-        "资源",
-        "伏笔",
-        "信息暴露",
-        "characters",
-        "relationships",
-        "locations",
-        "resources",
-        "foreshadowing",
-        "information_exposure",
-        "foreshadowing_and_info",
-        "foreshadowing_and_information",
-    }
-
-
 def _index_accepted_chapter(
     session: Session,
     chapter: Chapter,
@@ -888,7 +811,7 @@ def _index_accepted_chapter(
         commit=False,
     )
 
-    state_text = _trusted_state_index_text(chapter, trusted_state)
+    state_text = trusted_state_index_text(chapter, trusted_state)
     if state_text:
         embedding_vector, embedding_model, embedding_error = _embedding_for_index(
             embedding_client,
@@ -929,36 +852,6 @@ def _embedding_for_index(
         return client.embed_text(text), client.model, None
     except Exception as error:  # noqa: BLE001
         return None, None, str(error) or type(error).__name__
-
-
-def _trusted_state_index_text(chapter: Chapter, trusted_state: dict[str, Any]) -> str:
-    lines = [f"第 {chapter.number:02d} 章《{chapter.title}》状态变化"]
-    for change in chapter.state_delta.get("changes", []):
-        if not isinstance(change, dict):
-            continue
-        lines.append(
-            " / ".join(
-                text
-                for text in (
-                    str(change.get("type") or "").strip(),
-                    str(change.get("target") or "").strip(),
-                    str(change.get("change") or "").strip(),
-                )
-                if text
-            )
-        )
-    for bucket in (
-        "characters",
-        "relationships",
-        "locations",
-        "factions",
-        "resources",
-        "foreshadowing",
-    ):
-        values = trusted_state.get(bucket, [])
-        if values:
-            lines.append(f"{bucket}: {json.dumps(values[-3:], ensure_ascii=False)}")
-    return "\n".join(line for line in lines if line)
 
 
 def _trace_prompt_metadata(chapter: Chapter, prompt_id: str) -> tuple[str, str, int]:

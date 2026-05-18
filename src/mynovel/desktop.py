@@ -39,3 +39,7 @@ def _available_port(host: str, start_port: int) -> int:
 
 def _open_browser(host: str, port: int) -> None:
     webbrowser.open(f"http://{host}:{port}")
+
+
+if __name__ == "__main__":
+    main()

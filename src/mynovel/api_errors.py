@@ -18,7 +18,9 @@ def api_error(
     message: str,
     details: dict[str, Any] | None = None,
 ) -> ApiResponse:
-    return ApiResponse(status, {"error": {"code": code, "message": message, "details": details or {}}})
+    return ApiResponse(
+        status, {"error": {"code": code, "message": message, "details": details or {}}}
+    )
 
 
 def invalid_json_response() -> ApiResponse:

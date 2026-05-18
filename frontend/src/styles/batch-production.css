@@ -1,0 +1,179 @@
+.workspace-chapter-command--batch {
+  grid-template-columns: 1fr;
+  gap: 0.9rem;
+  overflow: hidden;
+  border-color: rgb(53 99 66 / 0.2);
+  background:
+    linear-gradient(135deg, rgb(244 250 239 / 0.96), rgb(255 253 248 / 0.92)),
+    #fbfcf8;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.7);
+}
+
+.workspace-batch-heading {
+  display: flex;
+  gap: 0.9rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.workspace-batch-heading h3 {
+  margin: 0;
+}
+
+.workspace-batch-control {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.62fr) minmax(18rem, 1.65fr) max-content;
+  gap: 0.85rem;
+  align-items: center;
+}
+
+.workspace-batch-selection {
+  display: grid;
+  grid-template-columns: auto max-content auto;
+  gap: 0.36rem;
+  align-items: baseline;
+  justify-content: start;
+  min-height: 4.25rem;
+  border-radius: 0.5rem;
+  background: rgb(255 255 255 / 0.48);
+  color: #43513f;
+  padding: 0.8rem 0.9rem;
+}
+
+.workspace-batch-selection span {
+  font-size: 0.84rem;
+  font-weight: 850;
+}
+
+.workspace-batch-selection strong {
+  color: #172018;
+  font-size: 1.45rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.workspace-batch-progress {
+  display: grid;
+  gap: 0.54rem;
+  min-width: 0;
+}
+
+.workspace-batch-progress__head {
+  display: flex;
+  gap: 0.8rem;
+  align-items: end;
+  justify-content: space-between;
+}
+
+.workspace-batch-progress__head > div {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.workspace-batch-progress__head span {
+  color: #172018;
+  font-size: 0.9rem;
+  font-weight: 950;
+}
+
+.workspace-batch-progress__head small {
+  overflow: hidden;
+  color: #596954;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-batch-progress__head strong {
+  color: #356342;
+  font-size: 0.88rem;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.workspace-batch-progress__bar {
+  height: 0.58rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(53 99 66 / 0.12);
+}
+
+.workspace-batch-progress__bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #356342, #6d8f4f, #d47a37);
+  transition: width 180ms ease;
+}
+
+.workspace-batch-stage-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workspace-batch-stage-strip li {
+  min-width: 0;
+  border: 1px solid rgb(53 99 66 / 0.12);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.42);
+  color: #596954;
+  font-size: 0.72rem;
+  font-weight: 850;
+  line-height: 1;
+  padding: 0.4rem 0.48rem;
+  text-align: center;
+}
+
+.workspace-batch-stage-strip li.is-active {
+  border-color: rgb(123 77 27 / 0.24);
+  background: #fff5df;
+  color: #7b4d1b;
+}
+
+.workspace-batch-submit {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.workspace-batch-submit .workbench-action-button {
+  min-width: 12rem;
+  justify-content: center;
+}
+
+.workspace-batch-control .ai-stream-feedback {
+  grid-column: 2 / 4;
+  max-width: 38rem;
+}
+
+@media (max-width: 840px) {
+  .workspace-batch-control {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-batch-progress__head {
+    align-items: start;
+  }
+
+  .workspace-batch-stage-strip {
+    grid-template-columns: repeat(5, minmax(2.75rem, 1fr));
+    overflow-x: auto;
+  }
+
+  .workspace-batch-submit {
+    justify-content: stretch;
+  }
+
+  .workspace-batch-submit .workbench-action-button {
+    width: 100%;
+  }
+
+  .workspace-batch-control .ai-stream-feedback {
+    grid-column: 1;
+  }
+}

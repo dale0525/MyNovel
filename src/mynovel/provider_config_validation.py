@@ -32,9 +32,7 @@ class ProviderValidationReport:
 
     @property
     def passed(self) -> bool:
-        return all(
-            result.status != "failed" for result in self.results if result.kind == "llm"
-        )
+        return all(result.status != "failed" for result in self.results if result.kind == "llm")
 
 
 class ProviderConfigChecker(Protocol):
@@ -103,9 +101,7 @@ async def validate_provider_config(
         missing_message = _missing_required_message(config, kind)
         if missing_message:
             _clear_fingerprint(validation, kind)
-            results.append(
-                ProviderCheckResult(kind, _model_label(kind), "failed", missing_message)
-            )
+            results.append(ProviderCheckResult(kind, _model_label(kind), "failed", missing_message))
             continue
 
         fingerprint = provider_model_fingerprint(config, kind)
@@ -135,9 +131,7 @@ async def validate_provider_config(
             continue
 
         _set_fingerprint(validation, kind, fingerprint)
-        results.append(
-            ProviderCheckResult(kind, _model_label(kind), "passed", "连接测试通过")
-        )
+        results.append(ProviderCheckResult(kind, _model_label(kind), "passed", "连接测试通过"))
 
     return ProviderValidationReport(results=results, validation=validation)
 

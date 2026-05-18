@@ -3,7 +3,11 @@ from sqlmodel import Session
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import Book, Chapter, ChapterStatus
 from mynovel.domain.repositories import add_book, add_chapter, get_book, list_chapters_for_book
-from mynovel.word_targets import update_book_word_targets
+from mynovel.word_targets import count_chapter_words, update_book_word_targets
+
+
+def test_count_chapter_words_ignores_whitespace_but_keeps_visible_punctuation() -> None:
+    assert count_chapter_words("沈惊鸿。\n\n 百草堂\t开门  ") == 9
 
 
 def test_update_book_word_targets_can_leave_existing_chapters_unchanged(tmp_path) -> None:

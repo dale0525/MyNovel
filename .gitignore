@@ -19,6 +19,7 @@ venv/
 pixi.lock
 
 # Frontend generated artifacts
+.vite/
 frontend/node_modules/
 frontend/.vite/
 frontend/playwright-report/

@@ -35,7 +35,9 @@ from mynovel.provider_config_validation import provider_model_fingerprint
 
 
 def test_open_book_requires_validated_provider(tmp_path: Path) -> None:
-    response = dispatch_api_post("/api/open-book", {"idea": "一座会遗忘人的图书馆"}, tmp_path / "dev.sqlite")
+    response = dispatch_api_post(
+        "/api/open-book", {"idea": "一座会遗忘人的图书馆"}, tmp_path / "dev.sqlite"
+    )
 
     assert response.status == HTTPStatus.BAD_REQUEST
     assert response.body["error"]["code"] == "provider_not_configured"
@@ -58,7 +60,10 @@ def test_open_book_creates_blueprint_job_and_returns_redirect(
     db_path = tmp_path / "dev.sqlite"
     _save_validated_provider(db_path)
     started: list[int] = []
-    monkeypatch.setattr("mynovel.api_open_book.start_blueprint_job", lambda _db, blueprint_id, _config: started.append(blueprint_id))
+    monkeypatch.setattr(
+        "mynovel.api_open_book.start_blueprint_job",
+        lambda _db, blueprint_id, _config: started.append(blueprint_id),
+    )
 
     response = dispatch_api_post(
         "/api/open-book",
@@ -140,7 +145,10 @@ def test_retry_blueprint_resets_and_starts_job(tmp_path: Path, monkeypatch) -> N
         error_message="bad json",
     )
     started: list[int] = []
-    monkeypatch.setattr("mynovel.api_open_book.start_blueprint_job", lambda _db, blueprint_id, _config: started.append(blueprint_id))
+    monkeypatch.setattr(
+        "mynovel.api_open_book.start_blueprint_job",
+        lambda _db, blueprint_id, _config: started.append(blueprint_id),
+    )
 
     response = dispatch_api_post(f"/api/blueprints/{blueprint_id}/retry", {}, db_path)
 
@@ -161,7 +169,10 @@ def test_retry_rejects_second_attempt_after_first_reset(tmp_path: Path, monkeypa
     _save_validated_provider(db_path)
     blueprint_id = _save_blueprint(db_path, status=BlueprintStatus.FAILED)
     started: list[int] = []
-    monkeypatch.setattr("mynovel.api_open_book.start_blueprint_job", lambda _db, blueprint_id, _config: started.append(blueprint_id))
+    monkeypatch.setattr(
+        "mynovel.api_open_book.start_blueprint_job",
+        lambda _db, blueprint_id, _config: started.append(blueprint_id),
+    )
 
     first = dispatch_api_post(f"/api/blueprints/{blueprint_id}/retry", {}, db_path)
     second = dispatch_api_post(f"/api/blueprints/{blueprint_id}/retry", {}, db_path)
@@ -180,7 +191,10 @@ def test_retry_rejects_running_blueprint_without_starting_job(
     _save_validated_provider(db_path)
     blueprint_id = _save_blueprint(db_path, status=BlueprintStatus.RUNNING)
     started: list[int] = []
-    monkeypatch.setattr("mynovel.api_open_book.start_blueprint_job", lambda _db, blueprint_id, _config: started.append(blueprint_id))
+    monkeypatch.setattr(
+        "mynovel.api_open_book.start_blueprint_job",
+        lambda _db, blueprint_id, _config: started.append(blueprint_id),
+    )
 
     response = dispatch_api_post(f"/api/blueprints/{blueprint_id}/retry", {}, db_path)
 
@@ -213,7 +227,10 @@ def test_revise_blueprint_creates_revision_job(tmp_path: Path, monkeypatch) -> N
     _save_validated_provider(db_path)
     blueprint_id = _save_blueprint(db_path, status=BlueprintStatus.SUCCEEDED)
     started: list[int] = []
-    monkeypatch.setattr("mynovel.api_open_book.start_blueprint_job", lambda _db, blueprint_id, _config: started.append(blueprint_id))
+    monkeypatch.setattr(
+        "mynovel.api_open_book.start_blueprint_job",
+        lambda _db, blueprint_id, _config: started.append(blueprint_id),
+    )
 
     response = dispatch_api_post(
         f"/api/blueprints/{blueprint_id}/revise",
@@ -294,7 +311,10 @@ def test_revise_rejects_failed_blueprint_without_creating_revision(
     _save_validated_provider(db_path)
     blueprint_id = _save_blueprint(db_path, status=BlueprintStatus.FAILED)
     started: list[int] = []
-    monkeypatch.setattr("mynovel.api_open_book.start_blueprint_job", lambda _db, blueprint_id, _config: started.append(blueprint_id))
+    monkeypatch.setattr(
+        "mynovel.api_open_book.start_blueprint_job",
+        lambda _db, blueprint_id, _config: started.append(blueprint_id),
+    )
 
     response = dispatch_api_post(
         f"/api/blueprints/{blueprint_id}/revise",
@@ -318,7 +338,10 @@ def test_revise_missing_blueprint_does_not_fallback_to_existing_blueprint(
     _save_validated_provider(db_path)
     existing_id = _save_blueprint(db_path, status=BlueprintStatus.SUCCEEDED)
     started: list[int] = []
-    monkeypatch.setattr("mynovel.api_open_book.start_blueprint_job", lambda _db, blueprint_id, _config: started.append(blueprint_id))
+    monkeypatch.setattr(
+        "mynovel.api_open_book.start_blueprint_job",
+        lambda _db, blueprint_id, _config: started.append(blueprint_id),
+    )
 
     response = dispatch_api_post(
         "/api/blueprints/999/revise",

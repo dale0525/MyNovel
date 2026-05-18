@@ -6,6 +6,7 @@ from typing import Any
 from sqlmodel import Session
 
 from mynovel.domain.models import Book, BookStatus, Canon, Chapter, ChapterStatus
+from mynovel.word_targets import count_chapter_words
 from mynovel.workflows.canon_proposal import sanitize_canon_content
 
 
@@ -57,7 +58,10 @@ def import_book_json(session: Session, raw_json: str) -> Book:
                     status=ChapterStatus.ACCEPTED if text else ChapterStatus.PLANNED,
                     final_text=text,
                     revised_text=text,
-                    word_count=_positive_int(chapter_payload.get("word_count"), len(text)),
+                    word_count=_positive_int(
+                        chapter_payload.get("word_count"),
+                        count_chapter_words(text),
+                    ),
                 )
             )
         session.commit()

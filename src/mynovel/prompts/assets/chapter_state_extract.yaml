@@ -14,5 +14,14 @@ output_schema:
   required:
     - chapter
     - changes
+  change_item:
+    required:
+      - type
+      - target
+      - change
+      - risk
 template: |
-  从《{chapter_title}》草稿提取人物、关系、地点、资源和伏笔变化，只输出 JSON。
+  从《{chapter_title}》草稿提取人物、关系、地点、资源、伏笔和信息暴露变化，只输出 JSON。
+  changes 必须是数组，每项必须包含 type、target、change、risk。
+  不要只返回 characters、relationships、locations、resources 或 foreshadowing 这类分区名。
+  若正文出现新线索、资源增减、身份暴露、关系转折、地点控制权变化或伏笔兑现，必须提取为具体变动。

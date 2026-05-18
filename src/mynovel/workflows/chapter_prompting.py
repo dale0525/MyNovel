@@ -55,7 +55,10 @@ def build_extract_state_messages(chapter: Chapter) -> list[dict[str, str]]:
     )
     return _json_instruction_messages(
         "你是小说状态变化提取器。从草稿提取待人工验证的状态变化，只输出 JSON。",
-        "必须包含 chapter 与 changes。changes 只记录人物、关系、地点、资源、伏笔和信息暴露变化。",
+        "必须包含 chapter 与 changes。changes 只记录人物、关系、地点、资源、伏笔和信息暴露变化。"
+        "changes 必须是数组，每项必须包含 type、target、change、risk；"
+        "不要只返回 characters、relationships、locations、resources 或 foreshadowing 这类分区名。"
+        "若正文出现新线索、资源增减、身份暴露、关系转折、地点控制权变化或伏笔兑现，必须提取为具体变动。",
         body,
     )
 
@@ -74,23 +77,6 @@ def build_audit_messages(chapter: Chapter) -> list[dict[str, str]]:
         "你是连载章节审计员。检查连续性、因果、动机、伏笔、节奏、字数和结尾钩子，只输出 JSON。",
         "必须包含 risk_level, issues, suggestions。issues 内每项包含 severity, title, resolved。"
         "不要输出 Markdown、表格、标题或解释。",
-        body,
-    )
-
-
-def build_revise_messages(chapter: Chapter) -> list[dict[str, str]]:
-    body = _join_prompt_sections(
-        [
-            _chapter_heading(chapter),
-            _chapter_plan_text(chapter.plan),
-            _revision_word_count_text(chapter),
-            _audit_report_text(chapter.audit_report or {}),
-            "待修订正文：\n" + chapter.draft_text,
-        ]
-    )
-    return _text_instruction_messages(
-        "你是连载章节修订器。根据审计报告修订正文，尽量解决可自动修复的问题。",
-        "只输出修订后的最终候选正文，不要解释。",
         body,
     )
 
@@ -296,52 +282,6 @@ def _retrieved_metadata_line(metadata: object) -> str:
         if value is not None and str(value).strip():
             labels.append(f"{label}：{value}")
     return "；".join(labels)
-
-
-def _audit_report_text(audit_report: dict[str, Any]) -> str:
-    lines = ["AI 审核问题："]
-    issues = audit_report.get("issues") if isinstance(audit_report, dict) else None
-    unresolved = [
-        issue for issue in issues or [] if isinstance(issue, dict) and not issue.get("resolved")
-    ]
-    if not unresolved:
-        lines.append("- 无未解决审计问题。")
-    for issue in unresolved:
-        title = str(issue.get("title") or "未命名问题").strip()
-        detail = str(
-            issue.get("detail")
-            or issue.get("description")
-            or issue.get("message")
-            or issue.get("suggested_fix")
-            or ""
-        ).strip()
-        lines.append(f"- {title}" + (f"：{detail}" if detail else ""))
-    suggestions = audit_report.get("suggestions") if isinstance(audit_report, dict) else None
-    suggestion_lines = [str(item).strip() for item in suggestions or [] if str(item).strip()]
-    if suggestion_lines:
-        lines.append("AI 建议：")
-        lines.extend(f"- {item}" for item in suggestion_lines)
-    return "\n".join(lines)
-
-
-def _revision_word_count_text(chapter: Chapter) -> str:
-    target = parse_word_count(chapter.plan.get("word_budget"))
-    if target is None:
-        return ""
-    current = len(chapter.draft_text or "")
-    minimum = max(1, round(target * 0.9))
-    maximum = max(minimum, round(target * 1.15))
-    lines = [
-        f"字数要求：目标 {target} 字，建议区间 {minimum}-{maximum} 字，当前约 {current} 字。",
-        "不要用提纲、摘要、重复段落或冗余扩写凑字。",
-    ]
-    if current > maximum:
-        lines.append("当前正文已经超出目标，请以删减和合并为主，不要新增支线、回忆或环境铺陈。")
-    elif current < minimum:
-        lines.append("当前正文低于目标，请只补必要的动作、因果和结尾钩子，不要重复已有信息。")
-    else:
-        lines.append("当前正文已在建议区间内，修订时尽量保持篇幅稳定。")
-    return "\n".join(lines)
 
 
 def _book_lines(book: dict[str, Any]) -> list[str]:

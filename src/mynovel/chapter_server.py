@@ -164,6 +164,7 @@ def _mark_selected_batch_chapters_running(
         session.refresh(first_chapter)
         return first_chapter.id or selected_chapter_ids[0]
 
+
 def _assert_book_ready_for_chapter_production(
     session: Session,
     book_id: int,

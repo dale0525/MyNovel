@@ -6,13 +6,15 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from mynovel.domain.models import Chapter
-from mynovel.word_targets import parse_word_count
+from mynovel.word_targets import count_chapter_words, parse_word_count
+from mynovel.workflows.chapter_repair_non_word import (
+    non_word_issue_recheck_detail,
+    non_word_issue_repair_hint,
+    non_word_issue_resolution_source,
+)
 from mynovel.workflows.chapter_repair_terms import (
     EXPANSION_ADVICE_TERMS,
     REDUCTION_ADVICE_TERMS,
-    SIDE_DESCRIPTION_ISSUE_TERMS,
-    SIDE_DESCRIPTION_OBSERVER_TERMS,
-    SIDE_DESCRIPTION_REACTION_TERMS,
     WORD_COUNT_MAX_RATIO,
     WORD_COUNT_MIN_RATIO,
     WORD_COUNT_REPAIR_TERMS,
@@ -24,7 +26,6 @@ class ChapterModelClient(Protocol):
         pass
 
 
-TextStageCompleter = Callable[[ChapterModelClient, str, list[dict[str, str]]], str]
 TextReviser = Callable[[str, dict[str, Any]], str]
 
 
@@ -38,27 +39,6 @@ class RepairRequest:
     needs_word_count_repair: bool = False
 
 
-@dataclass(frozen=True)
-class WordCountPatchApplication:
-    text: str
-    operations: list[dict[str, Any]]
-    strategy: str
-
-
-def repair_text_with_model(
-    chapter: Chapter,
-    model_client: ChapterModelClient,
-    reviewer_note: str | None,
-    complete_text_stage: TextStageCompleter,
-) -> str:
-    request = build_repair_request(chapter, reviewer_note)
-    return complete_text_stage(
-        model_client,
-        "revise",
-        request.messages,
-    )
-
-
 def build_repair_request(chapter: Chapter, reviewer_note: str | None) -> RepairRequest:
     current_text = _latest_revision_text(chapter)
     needs_word_count_repair = _needs_word_count_repair(chapter, reviewer_note)
@@ -68,15 +48,11 @@ def build_repair_request(chapter: Chapter, reviewer_note: str | None) -> RepairR
         needs_word_count_repair=needs_word_count_repair,
     )
     return RepairRequest(
-        messages=_build_repair_messages(
-            chapter,
-            reviewer_note,
-            word_count_window=word_count_window,
-        ),
+        messages=[],
         word_count_window=word_count_window,
         target_word_count=parse_word_count(chapter.plan.get("word_budget")),
-        before_word_count=len(current_text),
-        unresolved_audit_issues=_unresolved_audit_issue_titles(chapter.audit_report or {}),
+        before_word_count=count_chapter_words(current_text),
+        unresolved_audit_issues=unresolved_audit_issue_titles(chapter.audit_report or {}),
         needs_word_count_repair=needs_word_count_repair,
     )
 
@@ -84,7 +60,7 @@ def build_repair_request(chapter: Chapter, reviewer_note: str | None) -> RepairR
 def build_word_count_patch_request(chapter: Chapter, reviewer_note: str | None) -> RepairRequest:
     word_count_window = _word_count_window_from_plan(chapter)
     current_text = _latest_revision_text(chapter)
-    mode = word_count_patch_mode(len(current_text), word_count_window)
+    mode = word_count_patch_mode(count_chapter_words(current_text), word_count_window)
     return RepairRequest(
         messages=_build_word_count_patch_messages(
             chapter,
@@ -95,9 +71,27 @@ def build_word_count_patch_request(chapter: Chapter, reviewer_note: str | None) 
         ),
         word_count_window=word_count_window,
         target_word_count=parse_word_count(chapter.plan.get("word_budget")),
-        before_word_count=len(current_text),
-        unresolved_audit_issues=_unresolved_audit_issue_titles(chapter.audit_report or {}),
+        before_word_count=count_chapter_words(current_text),
+        unresolved_audit_issues=unresolved_audit_issue_titles(chapter.audit_report or {}),
         needs_word_count_repair=True,
+    )
+
+
+def build_stable_repair_patch_request(chapter: Chapter, reviewer_note: str | None) -> RepairRequest:
+    word_count_window = _word_count_window_from_plan(chapter)
+    current_text = _latest_revision_text(chapter)
+    return RepairRequest(
+        messages=_build_stable_repair_patch_messages(
+            chapter,
+            reviewer_note,
+            current_text,
+            word_count_window,
+        ),
+        word_count_window=word_count_window,
+        target_word_count=parse_word_count(chapter.plan.get("word_budget")),
+        before_word_count=count_chapter_words(current_text),
+        unresolved_audit_issues=unresolved_audit_issue_titles(chapter.audit_report or {}),
+        needs_word_count_repair=False,
     )
 
 
@@ -111,65 +105,6 @@ def word_count_patch_mode(word_count: int, word_count_window: tuple[int, int] | 
     return None
 
 
-def apply_word_count_patch(source_text: str, patch_payload: dict[str, Any]) -> str:
-    operations = patch_payload.get("operations")
-    if not isinstance(operations, list):
-        raise ValueError("Word count patch missing operations.")
-    paragraphs = source_text.split("\n\n")
-    paragraph_count = len(paragraphs)
-    deleted: set[int] = set()
-    replacements: dict[int, str] = {}
-    insertions: dict[int, list[str]] = {}
-
-    for operation in operations:
-        if not isinstance(operation, dict):
-            raise ValueError("Word count patch operation must be an object.")
-        op = str(operation.get("op") or "").strip()
-        paragraph_id = _patch_paragraph_id(operation.get("paragraph_id"), paragraph_count)
-        if op == "delete":
-            deleted.add(paragraph_id)
-            continue
-        if op in {"replace", "compress", "expand"}:
-            replacements[paragraph_id] = _patch_text(operation)
-            continue
-        if op == "insert_after":
-            insertions.setdefault(paragraph_id, []).append(_patch_text(operation))
-            continue
-        raise ValueError(f"Unsupported word count patch operation: {op}")
-
-    patched: list[str] = []
-    for index, paragraph in enumerate(paragraphs, start=1):
-        if index not in deleted:
-            patched.append(replacements.get(index, paragraph))
-        patched.extend(insertions.get(index, []))
-    return "\n\n".join(part for part in patched if part.strip()).strip()
-
-
-def apply_word_count_patch_bounded(
-    source_text: str,
-    patch_payload: dict[str, Any],
-    word_count_window: tuple[int, int] | None,
-    target_word_count: int | None,
-) -> WordCountPatchApplication:
-    operations = patch_payload.get("operations")
-    if not isinstance(operations, list):
-        raise ValueError("Word count patch missing operations.")
-    patch_operations = [operation for operation in operations if isinstance(operation, dict)]
-    patched = apply_word_count_patch(source_text, patch_payload)
-    if word_count_window is None or _word_count_in_window(len(patched), word_count_window):
-        return WordCountPatchApplication(patched, patch_operations, "full")
-
-    prefix_application = _best_in_window_patch_prefix(
-        source_text,
-        patch_operations,
-        word_count_window,
-        target_word_count,
-    )
-    if prefix_application is not None:
-        return prefix_application
-    return WordCountPatchApplication(patched, patch_operations, "full")
-
-
 def repair_text_locally(chapter: Chapter, revise_text: TextReviser) -> str:
     source_text = chapter.revised_text or chapter.draft_text
     repaired = revise_text(source_text, chapter.audit_report or {})
@@ -181,6 +116,7 @@ def repair_text_locally(chapter: Chapter, revise_text: TextReviser) -> str:
 def recheck_repair_audit(
     chapter: Chapter,
     addressed_issue_titles: list[str] | None = None,
+    previous_text: str | None = None,
 ) -> None:
     audit_report = deepcopy(chapter.audit_report or {})
     issues = audit_report.get("issues", [])
@@ -189,7 +125,7 @@ def recheck_repair_audit(
 
     changed = False
     current_text = chapter.revised_text or chapter.draft_text or ""
-    current_count = len(current_text)
+    current_count = count_chapter_words(current_text)
     word_count_window = _word_count_window_from_plan(chapter)
     in_window = (
         _word_count_in_window(current_count, word_count_window)
@@ -241,19 +177,19 @@ def recheck_repair_audit(
             continue
         if title in addressed:
             issue["resolved"] = True
-            issue["detail"] = _non_word_issue_recheck_detail(issue.get("detail"), source="patch")
+            issue["detail"] = non_word_issue_recheck_detail(issue.get("detail"), source="patch")
             changed = True
             continue
-        if _non_word_issue_resolved_by_text(issue, current_text):
+        resolution_source = non_word_issue_resolution_source(issue, current_text, previous_text)
+        if resolution_source is not None:
             issue["resolved"] = True
-            issue["detail"] = _non_word_issue_recheck_detail(issue.get("detail"), source="text")
+            issue["detail"] = non_word_issue_recheck_detail(
+                issue.get("detail"),
+                source=resolution_source,
+            )
             changed = True
 
-    if (
-        changed
-        and _all_issues_resolved(issues)
-        and str(audit_report.get("risk_level", "")).lower() != "high"
-    ):
+    if changed and _all_issues_resolved(issues):
         audit_report["risk_level"] = "low"
     if changed and word_count_window is not None:
         audit_report["suggestions"] = _refresh_word_count_suggestions(
@@ -310,12 +246,16 @@ def repair_trace_cost(
 
 
 def repair_trace_prompt_id(
-    request: RepairRequest | None, word_count_repair_mode: str | None
+    request: RepairRequest | None,
+    word_count_repair_mode: str | None,
+    patch_operations: list[dict[str, Any]] | None = None,
 ) -> str | None:
     if request is None:
         return None
     if word_count_repair_mode is not None:
         return "chapter_word_count_patch"
+    if patch_operations is not None:
+        return "chapter_repair_patch"
     return "chapter_repair"
 
 
@@ -337,8 +277,8 @@ def repair_trace_metadata(
     metadata: dict[str, Any] = {
         "chapter": chapter.number,
         "status": chapter.status.value,
-        "after_word_count": len(chapter.revised_text),
-        "model_response_word_count": len(applied_response_text),
+        "after_word_count": count_chapter_words(chapter.revised_text),
+        "model_response_word_count": count_chapter_words(applied_response_text),
         "reviewer_note": reviewer_note,
         "response_text": raw_response_text,
         "raw_response_text": raw_response_text,
@@ -383,7 +323,7 @@ def repair_validation_warning(
     if request is None or request.word_count_window is None:
         return None
     minimum, maximum = request.word_count_window
-    after_count = len(response_text)
+    after_count = count_chapter_words(response_text)
     if minimum <= after_count <= maximum:
         return None
     if response_text == source_text:
@@ -418,7 +358,9 @@ def repair_response_should_be_rejected(
     warning = repair_validation_warning(request, source_text, response_text)
     return warning is not None and (
         response_text == source_text
-        or _word_count_window_distance(len(response_text), request.word_count_window)
+        or _word_count_window_distance(
+            count_chapter_words(response_text), request.word_count_window
+        )
         >= _word_count_window_distance(request.before_word_count, request.word_count_window)
     )
 
@@ -444,7 +386,10 @@ def _stable_repair_word_count_window(
     word_count_window = _word_count_window_from_plan(chapter)
     if word_count_window is None:
         return None
-    if needs_word_count_repair or _word_count_in_window(len(current_text), word_count_window):
+    if needs_word_count_repair or _word_count_in_window(
+        count_chapter_words(current_text),
+        word_count_window,
+    ):
         return word_count_window
     return None
 
@@ -471,41 +416,55 @@ def _needs_word_count_repair(chapter: Chapter, reviewer_note: str | None) -> boo
     return any(_has_word_count_term(text) for text in texts)
 
 
-def _build_repair_messages(
+def _build_stable_repair_patch_messages(
     chapter: Chapter,
     reviewer_note: str | None,
-    word_count_window: tuple[int, int] | None = None,
+    current_text: str,
+    word_count_window: tuple[int, int] | None,
 ) -> list[dict[str, str]]:
-    current_text = _latest_revision_text(chapter)
+    target = parse_word_count(chapter.plan.get("word_budget"))
+    current_count = count_chapter_words(current_text)
+    if word_count_window is not None:
+        minimum, maximum = word_count_window
+        target = target or round((minimum + maximum) / 2)
+        count_line = f"当前字数：{current_count} 字；目标字数：{target} 字；目标区间：{minimum}-{maximum} 字。"
+        count_constraint = "系统会应用补丁并复核正文字符数；应用后必须仍落入目标区间，不要整章扩写或重写，不能新增支线。"
+    else:
+        count_line = f"当前字数：{current_count} 字。"
+        count_constraint = "系统会应用补丁；不要整章扩写或重写，不能新增支线。"
     instructions = [
-        "只输出修复后的完整正文，不要解释。",
         "必须同时处理 AI 审核问题和人工修改意见。",
         "未填写人工修改意见，本次只处理 AI 审核问题。",
-        _word_count_instruction(chapter, current_text, word_count_window),
     ]
     body = "\n\n".join(
         part
         for part in (
+            "\n".join(instructions),
             f"章节：第 {chapter.number:02d} 章《{chapter.title}》",
             _book_boundary_text(chapter),
+            count_line,
+            "只做局部补丁，不要返回完整正文；优先 replace 或 insert_after 跳跃处的 1-3 句，必要时用 compress 抵消新增字数。",
+            count_constraint,
+            '只返回 JSON。格式：{"operations":[{"op":"insert_after|replace|compress|delete","paragraph_id":1,"text":"可选","reason":"原因","addresses":["审核项标题"]}]}',
+            "合并连续段落时，用 paragraph_id 指向合并后的起始段，并提供 end_paragraph_id；例如把第 2-4 段压缩成一段时返回 paragraph_id:2,end_paragraph_id:4。",
             _chapter_goal_text(chapter),
             _audit_issue_text(
                 chapter.audit_report or {},
                 current_text,
                 word_count_window=word_count_window,
-                target_word_count=parse_word_count(chapter.plan.get("word_budget")),
+                target_word_count=target,
             ),
             _manual_instruction_text(reviewer_note),
-            "待修订正文：\n" + current_text,
+            "段落清单：\n" + _numbered_paragraphs(current_text),
         )
         if part
     )
     return [
-        {"role": "system", "content": "你是连载章节修复器。根据审核问题修订小说正文。"},
         {
-            "role": "user",
-            "content": "\n".join(part for part in instructions if part) + "\n\n" + body,
+            "role": "system",
+            "content": "你是章节局部修订补丁规划器。只输出可由系统应用的 JSON 补丁。",
         },
+        {"role": "user", "content": body},
     ]
 
 
@@ -521,7 +480,7 @@ def _build_word_count_patch_messages(
 
     minimum, maximum = word_count_window
     target = parse_word_count(chapter.plan.get("word_budget")) or round((minimum + maximum) / 2)
-    current_count = len(current_text)
+    current_count = count_chapter_words(current_text)
     mode_label = "压缩模式" if mode == "compress" else "扩写模式"
     if mode == "compress":
         allowed_ops = "只允许 delete、compress、replace；不得新增支线或无关铺陈。"
@@ -555,6 +514,7 @@ def _build_word_count_patch_messages(
             f"当前字数：{current_count} 字；目标字数：{target} 字；目标区间：{minimum}-{maximum} 字。",
             issue_priority,
             allowed_ops,
+            "合并连续段落时，用 paragraph_id 指向合并后的起始段，并提供 end_paragraph_id；例如把第 2-4 段压缩成一段时返回 paragraph_id:2,end_paragraph_id:4。",
             count_constraint,
             f'只返回 JSON，不要返回完整正文。格式：{{"operations":[{{"op":"{allowed_op_names}","paragraph_id":1,"text":"可选","reason":"原因","addresses":["审核项标题"]}}]}}',
             _chapter_goal_text(chapter),
@@ -580,77 +540,6 @@ def _numbered_paragraphs(text: str) -> str:
     return "\n".join(
         f"段落 {index}：{paragraph}" for index, paragraph in enumerate(paragraphs, start=1)
     )
-
-
-def _patch_paragraph_id(value: object, paragraph_count: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, str)):
-        raise ValueError("Word count patch paragraph_id must be an integer.")
-    try:
-        paragraph_id = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError("Word count patch paragraph_id must be an integer.") from error
-    if paragraph_id < 1 or paragraph_id > paragraph_count:
-        raise ValueError(f"Word count patch paragraph_id out of range: {paragraph_id}")
-    return paragraph_id
-
-
-def _patch_text(operation: dict[str, Any]) -> str:
-    text = str(operation.get("text") or "").strip()
-    if not text:
-        raise ValueError("Word count patch operation requires non-empty text.")
-    return text
-
-
-def _best_in_window_patch_prefix(
-    source_text: str,
-    operations: list[dict[str, Any]],
-    word_count_window: tuple[int, int],
-    target_word_count: int | None,
-) -> WordCountPatchApplication | None:
-    target = target_word_count or round((word_count_window[0] + word_count_window[1]) / 2)
-    best: WordCountPatchApplication | None = None
-    best_distance: int | None = None
-    for index in range(1, len(operations) + 1):
-        prefix = operations[:index]
-        patched = apply_word_count_patch(source_text, {"operations": prefix})
-        word_count = len(patched)
-        if not _word_count_in_window(word_count, word_count_window):
-            continue
-        distance = abs(word_count - target)
-        if best is None or best_distance is None or distance < best_distance:
-            best = WordCountPatchApplication(patched, prefix, "bounded_prefix")
-            best_distance = distance
-    return best
-
-
-def _word_count_instruction(
-    chapter: Chapter,
-    current_text: str,
-    word_count_window: tuple[int, int] | None,
-) -> str:
-    if word_count_window is None:
-        return ""
-
-    minimum, maximum = word_count_window
-    target = parse_word_count(chapter.plan.get("word_budget"))
-    current_count = len(current_text)
-    target_text = f"目标字数：{target} 字\n" if target is not None else ""
-    base = (
-        f"{target_text}建议区间：{minimum}-{maximum} 字\n不要用提纲、摘要、重复段落或冗余扩写凑字。"
-    )
-    if current_count > maximum:
-        over_by = current_count - maximum
-        return (
-            f"{base}\n当前正文已经超出目标，请以删减和合并为主，不要新增支线、回忆或环境铺陈。"
-            f"本轮输出必须落在 {minimum}-{maximum} 字；至少删减 {over_by} 字，不能原样返回。"
-        )
-    if current_count < minimum:
-        missing = minimum - current_count
-        return (
-            f"{base}\n当前正文低于目标，请只补必要的动作、因果和结尾钩子，不要重复已有信息。"
-            f"本轮输出必须落在 {minimum}-{maximum} 字；至少补足 {missing} 字，不能原样返回。"
-        )
-    return f"{base}\n当前正文已在建议区间内，修订时尽量保持篇幅稳定。"
 
 
 def _latest_revision_text(chapter: Chapter) -> str:
@@ -717,7 +606,7 @@ def _audit_issue_text(
         if word_count_window is not None and _is_word_count_issue(issue):
             lines.append(
                 _normalized_word_count_issue_line(
-                    len(current_text),
+                    count_chapter_words(current_text),
                     word_count_window,
                     target_word_count,
                 )
@@ -731,6 +620,9 @@ def _audit_issue_text(
             or issue.get("suggested_fix")
             or ""
         ).strip()
+        hint = non_word_issue_repair_hint(issue)
+        if hint and hint not in detail:
+            detail = f"{detail} {hint}".strip()
         if detail:
             lines.append(f"- {title}：{detail}")
         else:
@@ -741,7 +633,7 @@ def _audit_issue_text(
     if word_count_window is not None:
         suggestions = _refresh_word_count_suggestions(
             suggestions,
-            len(current_text),
+            count_chapter_words(current_text),
             word_count_window,
             target_word_count,
         )
@@ -751,7 +643,7 @@ def _audit_issue_text(
     return "\n".join(lines)
 
 
-def _unresolved_audit_issue_titles(audit_report: dict[str, Any]) -> list[str]:
+def unresolved_audit_issue_titles(audit_report: dict[str, Any]) -> list[str]:
     titles: list[str] = []
     for issue in audit_report.get("issues", []):
         if not isinstance(issue, dict) or issue.get("resolved"):
@@ -849,50 +741,6 @@ def _audit_recheck_detail(
     if "自动复核" in detail:
         return recheck
     return f"{detail} {recheck}"
-
-
-def _non_word_issue_recheck_detail(existing_detail: object, *, source: str = "patch") -> str:
-    detail = str(existing_detail or "").strip()
-    recheck = (
-        "自动复核：正文已出现明确侧面反应。"
-        if source == "text"
-        else "自动复核：应用补丁已覆盖该审核项。"
-    )
-    if not detail:
-        return recheck
-    if recheck in detail:
-        return detail
-    return f"{detail} {recheck}"
-
-
-def _non_word_issue_resolved_by_text(issue: dict[str, Any], current_text: str) -> bool:
-    issue_text = " ".join(
-        str(issue.get(key) or "")
-        for key in ("title", "detail", "description", "message", "suggested_fix")
-    )
-    if not _contains_any(issue_text, SIDE_DESCRIPTION_ISSUE_TERMS):
-        return False
-    return _has_side_description_evidence(current_text)
-
-
-def _has_side_description_evidence(current_text: str) -> bool:
-    chunks = [
-        chunk.strip()
-        for paragraph in current_text.split("\n\n")
-        for chunk in (
-            paragraph.replace("。", "\n")
-            .replace("！", "\n")
-            .replace("？", "\n")
-            .replace("；", "\n")
-            .splitlines()
-        )
-        if chunk.strip()
-    ]
-    return any(
-        _contains_any(chunk, SIDE_DESCRIPTION_OBSERVER_TERMS)
-        and _contains_any(chunk, SIDE_DESCRIPTION_REACTION_TERMS)
-        for chunk in chunks
-    )
 
 
 def _refresh_word_count_suggestions(

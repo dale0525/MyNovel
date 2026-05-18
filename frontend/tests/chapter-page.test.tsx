@@ -7,7 +7,7 @@ import { BookWorkspacePage } from "@/features/books/BookWorkspacePage";
 import { ChapterPage } from "@/features/chapters/ChapterPage";
 
 const APPROVE_NEXT_LABEL = "确定，下一章";
-const REPAIR_LABEL = "修复";
+const REPAIR_LABEL = "一键让 AI 修正";
 
 afterEach(() => {
   cleanup();
@@ -137,7 +137,7 @@ test("chapter review treats high risk values case-insensitively", async () => {
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
   expect(screen.getByLabelText("人工意见")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: REPAIR_LABEL })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "修复" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: APPROVE_NEXT_LABEL })).not.toBeInTheDocument();
 });
 
@@ -192,7 +192,7 @@ test("chapter review shows audit issues and all state changes without hiding the
   expect(screen.queryByRole("button", { name: "审核明细" })).not.toBeInTheDocument();
   const operationSection = screen.getByRole("region", { name: "章节操作" });
   expect(within(operationSection).getByText("时间线冲突")).toHaveClass("chapter-issue-tag--unmet");
-  expect(within(operationSection).getByText("空间取物动作已补足掩饰")).toHaveClass("chapter-issue-tag--resolved");
+  expect(within(operationSection).getByText("空间取物动作已补足掩饰（已修正）")).toHaveClass("chapter-issue-tag--resolved");
   expect(operationSection).not.toHaveTextContent("medium");
   expect(operationSection).not.toHaveTextContent("low");
   expect(operationSection).not.toHaveTextContent("未解决");
@@ -223,9 +223,9 @@ test("chapter review deduplicates resolved word-count issues with positive copy"
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
   const operationSection = screen.getByRole("region", { name: "章节操作" });
 
-  const wordCountTag = within(operationSection).getByText("字数已在目标区间");
+  const wordCountTag = within(operationSection).getByText("字数已在目标区间（已修正）");
   expect(wordCountTag).toHaveClass("chapter-issue-tag--resolved");
-  expect(within(operationSection).getAllByText("字数已在目标区间")).toHaveLength(1);
+  expect(within(operationSection).getAllByText("字数已在目标区间（已修正）")).toHaveLength(1);
   expect(operationSection).not.toHaveTextContent("字数不在目标区间");
   expect(operationSection).not.toHaveTextContent("medium");
   expect(operationSection).not.toHaveTextContent("low");
@@ -589,6 +589,29 @@ test("chapter review keeps export and approval actions without advanced review t
   );
 });
 
+test("approve action describes trusted-state write while pending", async () => {
+  let resolveApprove: ((response: Response) => void) | null = null;
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(chapterPayload()))
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveApprove = resolve;
+        }),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: APPROVE_NEXT_LABEL }));
+
+  expect(await screen.findByRole("button", { name: "写入可信设定中..." })).toBeDisabled();
+
+  resolveApprove?.(Response.json(chapterPayload({ status: "accepted" })));
+});
+
 test("renders animated AI waiting state while repair request is pending", async () => {
   let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
   const stream = new ReadableStream<Uint8Array>({
@@ -609,12 +632,12 @@ test("renders animated AI waiting state while repair request is pending", async 
   fireEvent.click(screen.getByRole("button", { name: REPAIR_LABEL }));
 
   await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("修复中..."));
-  pushStreamEvent(streamController, { type: "chunk", text: "正在补强结尾冲突" });
-  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("正在补强结尾冲突"));
-  expect(screen.getByRole("button", { name: /修复中/ })).toBeDisabled();
+  pushStreamEvent(streamController, { type: "stage", message: "正在审计风险。" });
+  await waitFor(() => expect(screen.getByRole("button", { name: /正在审计风险/ })).toBeDisabled());
+  expect(screen.queryByText("正在补强结尾冲突")).not.toBeInTheDocument();
 });
 
-test("high-risk AI revision requires a trimmed instruction", async () => {
+test("high-risk AI revision can use a trimmed manual note", async () => {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(chapterPayload({ riskLevel: "high" })))
@@ -625,11 +648,7 @@ test("high-risk AI revision requires a trimmed instruction", async () => {
 
   await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
   const revisionButton = screen.getByRole("button", { name: REPAIR_LABEL });
-  expect(revisionButton).toBeDisabled();
-  fireEvent.change(screen.getByLabelText("人工意见"), { target: { value: "   " } });
-  expect(revisionButton).toBeDisabled();
-  expect(fetchMock).toHaveBeenCalledTimes(1);
-
+  expect(revisionButton).toBeEnabled();
   fireEvent.change(screen.getByLabelText("人工意见"), { target: { value: "  补强结尾。  " } });
   expect(revisionButton).toBeEnabled();
   fireEvent.click(revisionButton);
@@ -658,7 +677,7 @@ test("needs revision with high risk can submit trimmed AI repair", async () => {
   const revisionButton = screen.getByRole("button", { name: REPAIR_LABEL });
   expect(screen.queryByRole("button", { name: "退回修订" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: APPROVE_NEXT_LABEL })).not.toBeInTheDocument();
-  expect(revisionButton).toBeDisabled();
+  expect(revisionButton).toBeEnabled();
   fireEvent.change(screen.getByLabelText("人工意见"), { target: { value: "  重写冲突段落。  " } });
   expect(revisionButton).toBeEnabled();
   fireEvent.click(revisionButton);
@@ -668,6 +687,37 @@ test("needs revision with high risk can submit trimmed AI repair", async () => {
       "/api/chapters/12/repair-stream",
       expect.objectContaining({
         body: JSON.stringify({ reviewerNote: "重写冲突段落。" }),
+        method: "POST",
+      }),
+    ),
+  );
+});
+
+test("unresolved revision tags can trigger one-click AI repair without manual notes", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json(
+        chapterPayload({
+          auditIssues: [{ title: "结尾动力不足", severity: "medium", resolved: false }],
+        }),
+      ),
+    )
+    .mockResolvedValueOnce(streamResponse([{ type: "done", chapter: chapterPayload({ status: "awaiting_review" }) }]));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "静默港湾" })).toBeInTheDocument());
+  const repairButton = screen.getByRole("button", { name: "一键让 AI 修正" });
+  expect(repairButton).toBeEnabled();
+  fireEvent.click(repairButton);
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chapters/12/repair-stream",
+      expect.objectContaining({
+        body: JSON.stringify({}),
         method: "POST",
       }),
     ),
@@ -692,12 +742,16 @@ test("rejects action responses without chapter payload", async () => {
 });
 
 test("run action enters running state from the action response", async () => {
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      streamController = controller;
+    },
+  });
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(Response.json(chapterPayload({ status: "planned" })))
-    .mockResolvedValueOnce(
-      streamResponse([{ type: "chunk", text: "正在生成草稿" }, { type: "done", chapter: chapterPayload({ status: "running" }) }]),
-    );
+    .mockResolvedValueOnce(new Response(stream));
   vi.stubGlobal("fetch", fetchMock);
 
   render(<ChapterPage chapterId={12} />);
@@ -705,8 +759,12 @@ test("run action enters running state from the action response", async () => {
   await waitFor(() => expect(screen.getByRole("button", { name: "生成本章" })).toBeInTheDocument());
   fireEvent.click(screen.getByRole("button", { name: "生成本章" }));
 
+  pushStreamEvent(streamController, { type: "stage", message: "正在生成草稿。" });
+  await waitFor(() => expect(screen.getByRole("button", { name: /正在生成草稿/ })).toBeDisabled());
+  pushStreamEvent(streamController, { type: "done", chapter: chapterPayload({ status: "running" }) });
   await waitFor(() => expect(screen.getByText("运行中")).toBeInTheDocument());
   expect(screen.queryByText("任务已提交，页面会自动刷新。")).not.toBeInTheDocument();
+  expect(screen.queryByRole("status", { name: "正在生成草稿" })).not.toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith(
     "/api/chapters/12/run-stream",
     expect.objectContaining({ method: "POST" }),

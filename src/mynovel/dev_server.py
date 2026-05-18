@@ -87,9 +87,7 @@ def _make_handler(state: DevServerState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(build_health_payload(state.db_path))
                 return
             if route == "api":
-                self._send_api_response(
-                    dispatch_api_get(parsed.path, parsed.query, state.db_path)
-                )
+                self._send_api_response(dispatch_api_get(parsed.path, parsed.query, state.db_path))
                 return
             if state.frontend_origin is not None:
                 self._send_redirect(

@@ -222,28 +222,6 @@ test("volume selection adds every selectable chapter in that volume", async () =
   );
 });
 
-test("shows animated waiting state while batch production is pending", async () => {
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValueOnce(Response.json(bookPayload({ bookStatus: "canon_locked", chapterStatus: "planned" })))
-    .mockImplementationOnce(
-      () =>
-        new Promise<Response>(() => {
-          // Keep the batch request pending so the waiting state stays visible.
-        }),
-    );
-  vi.stubGlobal("fetch", fetchMock);
-
-  render(<BookWorkspacePage bookId={42} view="chapters" />);
-
-  await waitFor(() => expect(screen.getByRole("button", { name: "选择章节后生成" })).toBeInTheDocument());
-  fireEvent.click(screen.getByLabelText("选择第 1 章 · 失落灯塔"));
-  fireEvent.click(screen.getByRole("button", { name: "生成选中的 1 章" }));
-
-  await waitFor(() => expect(screen.getByTestId("ai-waiting-indicator")).toHaveTextContent("提交批量中..."));
-  expect(screen.getByRole("button", { name: /提交批量中/ })).toBeDisabled();
-});
-
 test("hides batch production before trusted state is locked", async () => {
   vi.stubGlobal(
     "fetch",

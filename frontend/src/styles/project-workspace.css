@@ -606,7 +606,38 @@
 .workspace-heatmap-scroll {
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  padding: 0.1rem 0 0.35rem;
+  padding: 0.1rem 0 0.62rem;
+  scrollbar-color: #8f6b3f rgb(53 99 66 / 0.14);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.workspace-heatmap-scroll:focus-visible {
+  border-radius: 0.55rem;
+  box-shadow: 0 0 0 0.16rem rgb(53 99 66 / 0.18);
+  outline: none;
+}
+
+.workspace-heatmap-scroll::-webkit-scrollbar {
+  height: 0.76rem;
+}
+
+.workspace-heatmap-scroll::-webkit-scrollbar-track {
+  border: 1px solid rgb(53 99 66 / 0.12);
+  border-radius: 999px;
+  background: rgb(53 99 66 / 0.09);
+}
+
+.workspace-heatmap-scroll::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: #8f6b3f;
+  background-clip: padding-box;
+}
+
+.workspace-heatmap-scroll::-webkit-scrollbar-thumb:hover {
+  background: #6f5130;
+  background-clip: padding-box;
 }
 
 .workspace-heatmap-volumes {

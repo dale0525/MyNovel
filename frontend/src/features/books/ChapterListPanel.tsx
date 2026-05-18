@@ -15,8 +15,18 @@ import {
 
 type WorkspaceAction = "run-batch" | "word-targets" | "volume-outline" | "volume-revision";
 
+type BatchProgressState = {
+  completedSteps: number;
+  totalSteps: number;
+  currentLabel: string | null;
+};
+
+const BATCH_STAGE_LABELS = ["规划", "草稿", "状态", "审计", "修订"];
+
 export function ProjectChapterListView({
   actionBusy,
+  actionProgressLabel,
+  batchProgress,
   batchReady,
   bookId,
   chapters,
@@ -32,6 +42,8 @@ export function ProjectChapterListView({
   onReviseVolumeOutline,
 }: {
   actionBusy: WorkspaceAction | null;
+  actionProgressLabel: string | null;
+  batchProgress: BatchProgressState | null;
   batchReady: boolean;
   bookId: number;
   chapters: ChapterPayload[];
@@ -109,6 +121,8 @@ export function ProjectChapterListView({
 
       <BatchProductionPanel
         actionBusy={actionBusy}
+        actionProgressLabel={actionProgressLabel}
+        batchProgress={batchProgress}
         batchReady={batchReady}
         chapters={sortedChapters}
         productionReady={productionReady}
@@ -242,7 +256,12 @@ function ChapterHeatmap({
         </dl>
       </div>
 
-      <div className="workspace-heatmap-scroll">
+      <div
+        aria-label="横向滚动章节地图"
+        className="workspace-heatmap-scroll"
+        role="region"
+        tabIndex={0}
+      >
         <div className="workspace-heatmap-volumes" onMouseLeave={() => setHoveredChapter(null)}>
           {volumeSections.map((section) => (
             <section className="workspace-heatmap-volume" aria-label={volumeTitle(section)} key={section.key}>
@@ -514,6 +533,8 @@ function SelectableVolumeChapterList({
 
 function BatchProductionPanel({
   actionBusy,
+  actionProgressLabel,
+  batchProgress,
   batchReady,
   chapters,
   productionReady,
@@ -522,6 +543,8 @@ function BatchProductionPanel({
   onRunBatchProduction,
 }: {
   actionBusy: WorkspaceAction | null;
+  actionProgressLabel: string | null;
+  batchProgress: BatchProgressState | null;
   batchReady: boolean;
   chapters: ChapterPayload[];
   productionReady: boolean;
@@ -541,30 +564,86 @@ function BatchProductionPanel({
   }
 
   return (
-    <section className="workspace-chapter-command" aria-labelledby="batch-production-title">
-      <div>
+    <section className="workspace-chapter-command workspace-chapter-command--batch" aria-labelledby="batch-production-title">
+      <div className="workspace-batch-heading">
         <p className="eyebrow">批量生产</p>
         <h3 id="batch-production-title">批量操作</h3>
       </div>
       {batchReady ? (
-        <form className="chapter-action-form book-workspace-batch-form" onSubmit={submitSelection}>
-          <p className="workspace-selected-chapters">已选择 {selectedCount} 章</p>
-          <button className="workbench-action-button" disabled={actionBusy !== null || selectedCount === 0} type="submit">
-            {actionBusy === "run-batch" ? (
-              <AiWaitingIndicator label="提交批量中..." variant="inline" />
-            ) : (
-              <>
-                <Play aria-hidden="true" size={17} />
-                {selectedCount > 0 ? `生成选中的 ${selectedCount} 章` : "选择章节后生成"}
-              </>
-            )}
-          </button>
+        <form aria-label="批量生成控制" className="book-workspace-batch-form workspace-batch-control" onSubmit={submitSelection}>
+          <div className="workspace-batch-selection" aria-label="批量章节选择">
+            <span>已选择</span>
+            <strong>{selectedCount}</strong>
+            <span>章</span>
+          </div>
+          <BatchProgressMeter
+            progress={batchProgress}
+            selectedCount={selectedCount}
+          />
+          <div className="workspace-batch-submit">
+            <button className="workbench-action-button" disabled={actionBusy !== null || selectedCount === 0} type="submit">
+              {actionBusy === "run-batch" ? (
+                <AiWaitingIndicator label={actionProgressLabel ?? "提交批量中..."} variant="inline" />
+              ) : (
+                <>
+                  <Play aria-hidden="true" size={17} />
+                  {selectedCount > 0 ? `生成选中的 ${selectedCount} 章` : "选择章节后生成"}
+                </>
+              )}
+            </button>
+          </div>
           <AiStreamFeedback snippets={streamSnippets} />
         </form>
       ) : (
         <p>{productionReady ? "没有可批量生成的章节。" : "可信设定锁定后才能批量生成章节。"}</p>
       )}
     </section>
+  );
+}
+
+function BatchProgressMeter({
+  progress,
+  selectedCount,
+}: {
+  progress: BatchProgressState | null;
+  selectedCount: number;
+}) {
+  const fallbackTotal = selectedCount * BATCH_STAGE_LABELS.length;
+  const totalSteps = progress?.totalSteps ?? fallbackTotal;
+  const completedSteps = Math.min(progress?.completedSteps ?? 0, Math.max(totalSteps, 0));
+  const progressMax = Math.max(totalSteps, 1);
+  const progressPercent = Math.min(100, Math.round((completedSteps / progressMax) * 100));
+  const activeStageIndex = progress && progress.completedSteps > 0
+    ? (progress.completedSteps - 1) % BATCH_STAGE_LABELS.length
+    : -1;
+
+  return (
+    <div className="workspace-batch-progress">
+      <div className="workspace-batch-progress__head">
+        <div>
+          <span>批量生成进度</span>
+          <small>{progress?.currentLabel ?? (selectedCount > 0 ? "等待启动" : "未选择章节")}</small>
+        </div>
+        <strong>{completedSteps}/{totalSteps} 步</strong>
+      </div>
+      <div
+        aria-label="批量生成进度"
+        aria-valuemax={progressMax}
+        aria-valuemin={0}
+        aria-valuenow={completedSteps}
+        className="workspace-batch-progress__bar"
+        role="progressbar"
+      >
+        <span style={{ width: `${progressPercent}%` }} />
+      </div>
+      <ol className="workspace-batch-stage-strip" aria-label="批量生成阶段">
+        {BATCH_STAGE_LABELS.map((label, index) => (
+          <li className={index === activeStageIndex ? "is-active" : undefined} key={label}>
+            {label}
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 

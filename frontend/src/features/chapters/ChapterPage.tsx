@@ -12,7 +12,7 @@ import {
 } from "@/components/guidance/GuidedPanels";
 import { ApiError, getJson, isAbortError, postJson, postJsonLineStream } from "@/lib/api";
 import { navigateTo } from "@/lib/navigation";
-import { type LlmStreamEvent, nextStreamSnippets, streamEventPreview } from "@/lib/streaming";
+import { type LlmStreamEvent, streamPreviewLine } from "@/lib/streaming";
 import type { ChapterDetailPayload, ChapterPayload, ChapterResponse } from "@/lib/types";
 
 type ChapterPageState =
@@ -22,7 +22,7 @@ type ChapterPageState =
 
 type ActionState =
   | { status: "idle"; action: null; message: null }
-  | { status: "submitting"; action: ChapterReviewAction; message: null; streamSnippets: string[] }
+  | { status: "submitting"; action: ChapterReviewAction; message: null; progressLabel: string | null }
   | { status: "success"; action: null; message: string | null }
   | { status: "error"; action: null; message: string };
 
@@ -106,7 +106,7 @@ export function ChapterPage({
   }, [state]);
 
   async function submitAction(action: ChapterReviewAction, body: Record<string, unknown>) {
-    setActionState({ status: "submitting", action, message: null, streamSnippets: [] });
+    setActionState({ status: "submitting", action, message: null, progressLabel: null });
     try {
       let nextPath: string | null = null;
       if (action === "repair" || action === "run") {
@@ -115,16 +115,13 @@ export function ChapterPage({
           `/api/chapters/${chapterId}/${action}-stream`,
           body,
           (streamEvent) => {
-            const snippet = streamEventPreview(streamEvent);
-            if (snippet) {
+            const progressLabel = streamEventProgressLabel(streamEvent);
+            if (progressLabel) {
               setActionState((current) => {
                 if (current.status !== "submitting" || current.action !== action) {
                   return current;
                 }
-                return {
-                  ...current,
-                  streamSnippets: nextStreamSnippets(current.streamSnippets, snippet),
-                };
+                return { ...current, progressLabel };
               });
             }
             if (streamEvent.type === "failed") {
@@ -245,7 +242,7 @@ export function ChapterPage({
           majorChange={hasMajorStateChange(chapter.stateDelta)}
           onAction={(action, body) => void submitAction(action, body)}
           reviewIssues={reviewIssues}
-          streamSnippets={actionState.status === "submitting" ? actionState.streamSnippets : []}
+          actionProgressLabel={actionState.status === "submitting" ? actionState.progressLabel : null}
         />
         <ChapterTextPanel
           actionBusy={actionState.status === "submitting" ? actionState.action : null}
@@ -259,6 +256,14 @@ export function ChapterPage({
 
 function successMessageForAction(action: ChapterReviewAction): string | null {
   return action === "edit" || action === "request-revision" ? "操作已保存。" : null;
+}
+
+function streamEventProgressLabel(event: ChapterStreamEvent): string {
+  if (!["started", "stage", "applying"].includes(event.type)) {
+    return "";
+  }
+  const text = typeof event.message === "string" ? event.message : "";
+  return text ? streamPreviewLine(text) : "";
 }
 
 function nextChapterWorkbenchPath(

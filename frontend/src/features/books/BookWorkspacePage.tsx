@@ -38,6 +38,14 @@ type WorkspaceStreamEvent = LlmStreamEvent<
   ActionRedirectResponse & { book?: unknown } & Record<string, unknown>
 >;
 
+type BatchProgressState = {
+  completedSteps: number;
+  totalSteps: number;
+  currentLabel: string | null;
+};
+
+const BATCH_PROGRESS_STEPS_PER_CHAPTER = 5;
+
 export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: BookWorkspacePageProps) {
   const activeView = view === "volumes" ? "chapters" : view;
   const [state, setState] = useState<BookWorkspaceState>({
@@ -48,6 +56,8 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
   const [actionBusy, setActionBusy] = useState<WorkspaceAction | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [actionProgressLabel, setActionProgressLabel] = useState<string | null>(null);
+  const [batchProgress, setBatchProgress] = useState<BatchProgressState | null>(null);
   const [streamAction, setStreamAction] = useState<WorkspaceAction | null>(null);
   const [streamSnippets, setStreamSnippets] = useState<string[]>([]);
   const [selectedVolumeKey, setSelectedVolumeKey] = useState<string | null>(null);
@@ -94,6 +104,11 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
 
   async function runBatchProduction(chapterIds: number[]) {
     await runAction("run-batch", async () => {
+      setBatchProgress({
+        completedSteps: 0,
+        totalSteps: chapterIds.length * BATCH_PROGRESS_STEPS_PER_CHAPTER,
+        currentLabel: null,
+      });
       await runStreamingRedirect(`/api/books/${bookId}/chapters/run-batch-stream`, {
         chapterIds,
       });
@@ -183,6 +198,7 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
     setActionBusy(action);
     setActionError(null);
     setActionStatus(null);
+    setActionProgressLabel(null);
     setStreamAction(action);
     setStreamSnippets([]);
     try {
@@ -191,13 +207,34 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
       setActionError(errorMessage(error, "操作失败。"));
     } finally {
       setActionBusy(null);
+      setActionProgressLabel(null);
+      if (action === "run-batch") {
+        setBatchProgress(null);
+      }
     }
   }
 
   async function runStreamingRedirect(path: string, body: Record<string, unknown>) {
     let redirectTo: string | null = null;
     await postJsonLineStream<WorkspaceStreamEvent>(path, body, (streamEvent) => {
-      const snippet = streamEventPreview(streamEvent);
+      const progressLabel = streamEvent.type === "chunk" ? "" : streamEventPreview(streamEvent);
+      if (progressLabel) {
+        setActionProgressLabel(progressLabel);
+      }
+      if (streamEvent.type === "stage" && progressLabel) {
+        setBatchProgress((current) => {
+          if (!current) {
+            return current;
+          }
+          const nextCompleted = current.completedSteps + 1;
+          return {
+            completedSteps: nextCompleted,
+            totalSteps: Math.max(current.totalSteps, nextCompleted),
+            currentLabel: progressLabel,
+          };
+        });
+      }
+      const snippet = streamEvent.type === "chunk" ? streamEventPreview(streamEvent) : "";
       if (snippet) {
         setStreamSnippets((current) => nextStreamSnippets(current, snippet));
       }
@@ -316,6 +353,8 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
               setSelectedVolumeKey={setSelectedVolumeKey}
               streamAction={streamAction}
               streamSnippets={streamSnippets}
+              actionProgressLabel={actionProgressLabel}
+              batchProgress={batchProgress}
               volumeSections={volumeSections}
               wordTargets={state.data.wordTargets}
               onGenerateVolumeOutline={generateVolumeOutline}

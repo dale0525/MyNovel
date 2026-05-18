@@ -246,7 +246,11 @@ def _scoped_revision_outline(
         elif scope in {"all_chapters", "volume_chapters"}:
             if existing_plan is None:
                 continue
-            volume = {**volume, **_volume_plan_fields(existing_plan), "chapters": volume["chapters"]}
+            volume = {
+                **volume,
+                **_volume_plan_fields(existing_plan),
+                "chapters": volume["chapters"],
+            }
         volumes.append(volume)
     if not volumes:
         raise ValueError("Volume revision response did not include the requested volume.")
@@ -266,12 +270,10 @@ def _apply_volume_outline(
         raise ValueError("Book must be persisted before volume planning.")
 
     existing_plans = {
-        plan.volume_number: plan
-        for plan in list_volume_plans_for_book(session, book.id)
+        plan.volume_number: plan for plan in list_volume_plans_for_book(session, book.id)
     }
     existing_chapters = {
-        chapter.number: chapter
-        for chapter in list_chapters_for_book(session, book.id)
+        chapter.number: chapter for chapter in list_chapters_for_book(session, book.id)
     }
     generated_chapter_count = 0
 
@@ -293,7 +295,9 @@ def _apply_volume_outline(
         for chapter_plan in volume["chapters"]:
             number = chapter_plan["number"]
             chapter = existing_chapters.get(number)
-            if chapter is not None and (preserve_existing_chapters or chapter.status != ChapterStatus.PLANNED):
+            if chapter is not None and (
+                preserve_existing_chapters or chapter.status != ChapterStatus.PLANNED
+            ):
                 continue
             if chapter is None:
                 chapter = Chapter(book_id=book.id, number=number, title=chapter_plan["title"])
@@ -355,9 +359,7 @@ def _ensure_target_chapter_coverage(
         if isinstance(chapter.get("number"), int)
     }
     missing_numbers = [
-        number
-        for number in range(1, target_chapter_count + 1)
-        if number not in planned_numbers
+        number for number in range(1, target_chapter_count + 1) if number not in planned_numbers
     ]
     if not missing_numbers:
         return outline
@@ -371,7 +373,9 @@ def _ensure_target_chapter_coverage(
             {
                 "number": number,
                 "title": existing.title if existing is not None else f"第 {number:02d} 章",
-                "goal": _chapter_goal(existing) if existing is not None else f"{fallback_conflict} 衔接第 {number} 章。",
+                "goal": _chapter_goal(existing)
+                if existing is not None
+                else f"{fallback_conflict} 衔接第 {number} 章。",
                 "ending_hook": "留下一个明确的新问题，推动读者进入下一章。",
                 "must_write": _list_values(fallback_volume.get("commitments")),
                 "word_budget": target["chapter_word_count"],
@@ -386,21 +390,23 @@ def _renumber_generated_outline_chapters(
     existing_chapters: list[Chapter],
 ) -> dict[str, Any]:
     volumes = sorted(outline["volumes"], key=lambda item: item["volume_number"])
-    chapter_plans = [
-        chapter
-        for volume in volumes
-        for chapter in volume["chapters"]
-    ]
+    chapter_plans = [chapter for volume in volumes for chapter in volume["chapters"]]
     if not chapter_plans:
         outline["volumes"] = volumes
         return outline
 
     has_generated_number = False
     for chapter in chapter_plans:
-        has_generated_number = bool(chapter.pop(GENERATED_CHAPTER_NUMBER_KEY, False)) or has_generated_number
-    numbers = [chapter["number"] for chapter in chapter_plans if isinstance(chapter.get("number"), int)]
+        has_generated_number = (
+            bool(chapter.pop(GENERATED_CHAPTER_NUMBER_KEY, False)) or has_generated_number
+        )
+    numbers = [
+        chapter["number"] for chapter in chapter_plans if isinstance(chapter.get("number"), int)
+    ]
     has_duplicate_number = len(numbers) != len(set(numbers))
-    has_backward_number = any(current <= previous for previous, current in zip(numbers, numbers[1:]))
+    has_backward_number = any(
+        current <= previous for previous, current in zip(numbers, numbers[1:])
+    )
     if not has_generated_number and not has_duplicate_number and not has_backward_number:
         outline["volumes"] = volumes
         return outline
@@ -490,7 +496,9 @@ def _normalize_volume(value: object, fallback_number: int) -> dict[str, Any] | N
         fallback_number,
     )
     title = _text(value.get("title")) or f"第 {volume_number} 卷"
-    core_conflict = _text(value.get("core_conflict", value.get("coreConflict"))) or "推进本卷核心冲突。"
+    core_conflict = (
+        _text(value.get("core_conflict", value.get("coreConflict"))) or "推进本卷核心冲突。"
+    )
     chapters = _normalize_chapters(value.get("chapters"), volume_number)
     return {
         "volume_number": volume_number,
@@ -570,8 +578,12 @@ def _simulated_volume_outline(book: Book, canon: Canon, chapters: list[Chapter])
                 "chapters": [
                     {
                         "number": number,
-                        "title": existing[number - 1].title if number <= len(existing) else f"第 {number:02d} 章",
-                        "goal": _chapter_goal(existing[number - 1]) if number <= len(existing) else "推进本卷主线。",
+                        "title": existing[number - 1].title
+                        if number <= len(existing)
+                        else f"第 {number:02d} 章",
+                        "goal": _chapter_goal(existing[number - 1])
+                        if number <= len(existing)
+                        else "推进本卷主线。",
                         "ending_hook": "留下一个明确的新问题，推动读者进入下一章。",
                         "must_write": commitments,
                         "word_budget": None,
@@ -616,7 +628,8 @@ def _current_volume_outline(
                 "chapters": [
                     _chapter_plan_from_chapter(chapter)
                     for chapter in chapters
-                    if _positive_int((chapter.plan or {}).get("volume_number"), 0) == plan.volume_number
+                    if _positive_int((chapter.plan or {}).get("volume_number"), 0)
+                    == plan.volume_number
                 ],
             }
             for plan in volume_plans

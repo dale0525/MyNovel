@@ -1,7 +1,6 @@
 import { AlertTriangle, ListChecks, ShieldCheck, WandSparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { AiStreamFeedback } from "@/components/feedback/AiStreamFeedback";
 import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
 import type { ChapterDetailPayload } from "@/lib/types";
 
@@ -29,7 +28,7 @@ type ChapterReviewActionsProps = {
   majorChange: boolean;
   onAction: (action: ChapterReviewAction, body: Record<string, unknown>) => void;
   reviewIssues: ReviewIssueDisplay[];
-  streamSnippets: string[];
+  actionProgressLabel: string | null;
 };
 
 export function ChapterReviewActions({
@@ -40,7 +39,7 @@ export function ChapterReviewActions({
   majorChange,
   onAction,
   reviewIssues,
-  streamSnippets,
+  actionProgressLabel,
 }: ChapterReviewActionsProps) {
   const [repairNote, setRepairNote] = useState("");
   const [allowMajorChanges, setAllowMajorChanges] = useState(false);
@@ -74,10 +73,12 @@ export function ChapterReviewActions({
 
   const busy = actionBusy !== null;
   const approveDisabled = busy || (majorChange && !allowMajorChanges);
+  const hasUnresolvedIssue = reviewIssues.some((issue) => !issue.resolved);
   const runActionCopy = chapter.status === "needs_revision"
     ? { idle: "修改本章", busy: "修改中..." }
     : { idle: "生成本章", busy: "生成中..." };
   const showRunAction = chapter.status === "planned";
+  const repairButtonIdleLabel = hasUnresolvedIssue ? "一键让 AI 修正" : "修复";
 
   return (
     <section className="chapter-review-actions guided-decision-panel workbench-panel" aria-labelledby="chapter-actions-title">
@@ -100,7 +101,7 @@ export function ChapterReviewActions({
             onClick={() => onAction("run", {})}
           >
             {actionBusy === "run" ? (
-              <AiWaitingIndicator label={runActionCopy.busy} variant="inline" />
+              <AiWaitingIndicator label={actionProgressLabel ?? runActionCopy.busy} variant="inline" />
             ) : (
               runActionCopy.idle
             )}
@@ -133,7 +134,7 @@ export function ChapterReviewActions({
               onClick={() => onAction("approve", { allowMajorChanges })}
             >
               {actionBusy === "approve" ? (
-                <AiWaitingIndicator label="审核中..." variant="inline" />
+                <AiWaitingIndicator label="写入可信设定中..." variant="inline" />
               ) : (
                 <>
                   <ShieldCheck aria-hidden="true" size={16} />
@@ -144,8 +145,6 @@ export function ChapterReviewActions({
           </>
         ) : null}
       </div>
-
-      {actionBusy === "run" ? <AiStreamFeedback snippets={streamSnippets} /> : null}
 
       <section className="chapter-action-section chapter-action-section--revision" aria-labelledby="chapter-revision-notes-title">
         <div className="chapter-action-section__head">
@@ -160,7 +159,7 @@ export function ChapterReviewActions({
                   aria-label={`${issue.resolved ? "已满足" : "未满足"}：${issue.title}`}
                   className={`chapter-issue-tag ${issue.resolved ? "chapter-issue-tag--resolved" : "chapter-issue-tag--unmet"}`}
                 >
-                  {issue.title}
+                  {issue.resolved ? `${issue.title}（已修正）` : issue.title}
                 </span>
               </li>
             ))}
@@ -173,10 +172,10 @@ export function ChapterReviewActions({
             className="chapter-action-repair-form"
             onSubmit={(event) => {
               event.preventDefault();
-              if (!repairNoteTrimmed) {
+              if (!repairNoteTrimmed && !hasUnresolvedIssue) {
                 return;
               }
-              onAction("repair", { reviewerNote: repairNoteTrimmed });
+              onAction("repair", repairNoteTrimmed ? { reviewerNote: repairNoteTrimmed } : {});
             }}
           >
             <label className="chapter-manual-opinion-field">
@@ -190,19 +189,18 @@ export function ChapterReviewActions({
             </label>
             <button
               className="workbench-action-button chapter-repair-button"
-              disabled={busy || !repairNoteTrimmed}
+              disabled={busy || (!repairNoteTrimmed && !hasUnresolvedIssue)}
               type="submit"
             >
               {actionBusy === "repair" ? (
-                <AiWaitingIndicator label="修复中..." variant="inline" />
+                <AiWaitingIndicator label={actionProgressLabel ?? "修复中..."} variant="inline" />
               ) : (
                 <>
                   <WandSparkles aria-hidden="true" size={16} />
-                  修复
+                  {repairButtonIdleLabel}
                 </>
               )}
             </button>
-            {actionBusy === "repair" ? <AiStreamFeedback snippets={streamSnippets} /> : null}
           </form>
         ) : null}
       </section>

@@ -66,6 +66,7 @@ def run_chapter_batch(
         trusted_state_version=latest.version if latest else 0,
     )
 
+
 def _selected_batch_candidates(
     session: Session,
     book_id: int,

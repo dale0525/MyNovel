@@ -1,3 +1,5 @@
+import runpy
+import sys
 import tomllib
 from pathlib import Path
 
@@ -14,6 +16,36 @@ def test_desktop_entrypoint_and_build_task_are_configured() -> None:
     assert "pyinstaller" in pixi["pypi-dependencies"]
     assert "desktop-build" not in pixi["tasks"]
     assert "native-package" not in pixi["tasks"]
+
+
+def test_desktop_script_invokes_main_when_executed_by_pyinstaller(
+    monkeypatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, int, Path]] = []
+
+    def fake_run_server(host: str, port: int, db: Path) -> None:
+        calls.append((host, port, db))
+
+    monkeypatch.setattr("mynovel.dev_server.run_server", fake_run_server)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "desktop.py",
+            "--no-open",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "9987",
+            "--strict-port",
+            "--db",
+            str(tmp_path / "desktop.sqlite"),
+        ],
+    )
+
+    runpy.run_path("src/mynovel/desktop.py", run_name="__main__")
+
+    assert calls == [("127.0.0.1", 9987, tmp_path / "desktop.sqlite")]
 
 
 def test_preview_task_copies_assets_into_python_package() -> None:

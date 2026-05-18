@@ -20,7 +20,11 @@ def parse_json_stage_response(raw_text: str, stage: str) -> dict[str, Any]:
         raise ChapterJsonStageFormatError(str(error)) from error
 
 
-def normalize_state_delta(chapter_number: int, state_delta: dict[str, Any]) -> dict[str, Any]:
+def normalize_state_delta(
+    chapter_number: int,
+    state_delta: dict[str, Any],
+    raw_response_text: str | None = None,
+) -> dict[str, Any]:
     raw_chapter = state_delta.get("chapter")
     if raw_chapter == chapter_number:
         normalized_chapter = chapter_number
@@ -30,13 +34,13 @@ def normalize_state_delta(chapter_number: int, state_delta: dict[str, Any]) -> d
         normalized_chapter = chapter_number
 
     changes = []
-    for raw_change in state_delta.get("changes", []):
+    for default_type, raw_change in _iter_raw_changes(state_delta.get("changes", [])):
         if isinstance(raw_change, str):
             text = raw_change.strip()
             if text:
                 changes.append(
                     {
-                        "type": "状态变化",
+                        "type": default_type or "状态变化",
                         "target": "待确认",
                         "change": text,
                         "risk": "low",
@@ -46,7 +50,7 @@ def normalize_state_delta(chapter_number: int, state_delta: dict[str, Any]) -> d
         if not isinstance(raw_change, dict):
             continue
         change_type = str(
-            raw_change.get("type") or raw_change.get("category") or "状态变化"
+            raw_change.get("type") or raw_change.get("category") or default_type or "状态变化"
         ).strip()
         target = str(
             raw_change.get("target") or raw_change.get("subject") or raw_change.get("name") or ""
@@ -73,16 +77,41 @@ def normalize_state_delta(chapter_number: int, state_delta: dict[str, Any]) -> d
                 "risk": str(raw_change.get("risk") or "low").strip() or "low",
             }
         )
+    result: dict[str, Any] = {"chapter": normalized_chapter, "changes": changes}
     if not changes:
         changes.append(
             {
-                "type": "章节进展",
+                "type": "状态提取待确认",
                 "target": f"第 {chapter_number:02d} 章",
-                "change": "本章已生成，未能自动提取明确状态变化，请人工确认是否写入可信设定。",
+                "change": "AI 未提取到可写入可信设定的明确变化；请核对正文，必要时重新提取状态变化。",
                 "risk": "medium",
             }
         )
-    return {"chapter": normalized_chapter, "changes": changes}
+        extraction = {"status": "needs_manual_review", "reason": "no_valid_changes"}
+        if raw_response_text is not None:
+            extraction["raw_response_preview"] = _response_preview(raw_response_text)
+        result["extraction"] = extraction
+    return result
+
+
+def _iter_raw_changes(raw_changes: Any) -> list[tuple[str | None, Any]]:
+    if isinstance(raw_changes, dict):
+        flattened: list[tuple[str | None, Any]] = []
+        for key, value in raw_changes.items():
+            default_type = str(key).strip() or None
+            if isinstance(value, list):
+                flattened.extend((default_type, item) for item in value)
+            else:
+                flattened.append((default_type, value))
+        return flattened
+    if isinstance(raw_changes, list):
+        return [(None, item) for item in raw_changes]
+    return []
+
+
+def _response_preview(raw_response_text: str) -> str:
+    preview = raw_response_text.strip()
+    return preview if len(preview) <= 1200 else f"{preview[:1200]}..."
 
 
 def fallback_audit_report(error: Exception) -> dict[str, Any]:
