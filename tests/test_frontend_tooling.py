@@ -106,6 +106,7 @@ def test_frontend_generated_artifacts_are_ignored() -> None:
     assert "frontend/.vite/" in ignore_lines
     assert "frontend/playwright-report/" in ignore_lines
     assert "frontend/test-results/" in ignore_lines
+    assert "frontend/dist-electron/" in ignore_lines
 
 
 def test_frontend_tsconfig_separates_browser_and_node_projects() -> None:

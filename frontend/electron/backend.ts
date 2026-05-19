@@ -60,17 +60,28 @@ export function startBackend(options: {
 
 export async function waitForBackendHealth(
   healthUrl: string,
-  options: { fetchImpl?: typeof fetch; intervalMs?: number; timeoutMs?: number } = {},
+  options: {
+    fetchImpl?: typeof fetch;
+    intervalMs?: number;
+    requestTimeoutMs?: number;
+    timeoutMs?: number;
+  } = {},
 ): Promise<void> {
   const fetchImpl = options.fetchImpl !== undefined ? options.fetchImpl : fetch;
   const intervalMs = options.intervalMs !== undefined ? options.intervalMs : 250;
+  const requestTimeoutMs =
+    options.requestTimeoutMs !== undefined ? options.requestTimeoutMs : 5_000;
   const timeoutMs = options.timeoutMs !== undefined ? options.timeoutMs : 15_000;
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() <= deadline) {
     try {
-      const response = await fetchImpl(healthUrl);
-      if (response.ok) {
+      const remainingMs = Math.max(deadline - Date.now(), 0);
+      const response = await withTimeout(
+        fetchImpl(healthUrl),
+        Math.min(requestTimeoutMs, remainingMs),
+      );
+      if (response?.ok) {
         return;
       }
     } catch {
@@ -101,4 +112,8 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+  return Promise.race([promise, delay(timeoutMs).then(() => null)]);
 }

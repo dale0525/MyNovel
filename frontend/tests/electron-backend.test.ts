@@ -1,10 +1,12 @@
 // @vitest-environment node
 import path from "node:path";
+import net from "node:net";
 import { describe, expect, test, vi } from "vitest";
 import {
   backendExecutableName,
   createBackendArgs,
   createBackendUrl,
+  findAvailablePort,
   resolveBackendExecutable,
   startBackend,
   stopBackend,
@@ -75,6 +77,55 @@ describe("Electron backend helpers", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  test("times out a hanging backend health request", async () => {
+    const fetchImpl = vi.fn(() => new Promise<Response>(() => {}));
+
+    await expect(
+      waitForBackendHealth(createBackendUrl("127.0.0.1", 8765, "/health"), {
+        fetchImpl,
+        intervalMs: 1,
+        requestTimeoutMs: 5,
+        timeoutMs: 20,
+      }),
+    ).rejects.toThrow("Backend did not become healthy");
+
+    expect(fetchImpl).toHaveBeenCalled();
+  }, 500);
+
+  test("finds the next available port when the starting port is occupied", async () => {
+    const server = await listenOnAvailablePort("127.0.0.1");
+
+    try {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        throw new Error("Expected a TCP server address.");
+      }
+
+      await expect(findAvailablePort("127.0.0.1", address.port, 2)).resolves.toBe(
+        address.port + 1,
+      );
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  test("throws when available port attempts are exhausted", async () => {
+    const server = await listenOnAvailablePort("127.0.0.1");
+
+    try {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        throw new Error("Expected a TCP server address.");
+      }
+
+      await expect(findAvailablePort("127.0.0.1", address.port, 1)).rejects.toThrow(
+        `No available port found from ${address.port}.`,
+      );
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   test("stops a running backend process", () => {
     const child = {
       killed: false,
@@ -87,3 +138,26 @@ describe("Electron backend helpers", () => {
     expect(child.kill).toHaveBeenCalledWith();
   });
 });
+
+function listenOnAvailablePort(host: string): Promise<net.Server> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, host, () => {
+      server.off("error", reject);
+      resolve(server);
+    });
+  });
+}
+
+function closeServer(server: net.Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
