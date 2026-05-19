@@ -69,6 +69,20 @@ def test_release_workflow_builds_packaged_frontend_before_python_tests() -> None
     assert all("--prefix frontend" not in command for command in package_commands)
 
 
+def test_ci_workflow_builds_packaged_frontend_before_python_tests() -> None:
+    workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+
+    ci_commands = [step["run"] for step in workflow["jobs"]["test"]["steps"] if "run" in step]
+
+    pytest_index = ci_commands.index("pixi run pytest")
+    assert ci_commands.index(FRONTEND_INSTALL_COMMAND) < pytest_index
+    assert ci_commands.index(FRONTEND_BUILD_COMMAND) < pytest_index
+    assert ci_commands.index(SYNC_FRONTEND_DIST_COMMAND) < pytest_index
+    _assert_frontend_working_directory(workflow, FRONTEND_INSTALL_COMMAND)
+    _assert_frontend_working_directory(workflow, FRONTEND_BUILD_COMMAND)
+    assert all("--prefix frontend" not in command for command in ci_commands)
+
+
 def test_release_workflow_publishes_main_push_with_generated_version() -> None:
     workflow = yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8"))
     workflow_text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
