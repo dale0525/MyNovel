@@ -26,33 +26,37 @@ async function createMainWindow(): Promise<void> {
 
     backendProcess = startBackend({ executable, host, port });
     await waitForBackendHealth(createBackendUrl(host, port, "/health"));
+
+    const window = new BrowserWindow({
+      width: 1280,
+      height: 900,
+      minWidth: 1024,
+      minHeight: 700,
+      show: false,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    mainWindow = window;
+    window.once("ready-to-show", () => {
+      mainWindow?.show();
+    });
+    window.on("closed", () => {
+      if (mainWindow === window) {
+        mainWindow = null;
+      }
+    });
+    await window.loadURL(createBackendUrl(host, port));
   } catch (error) {
+    if (mainWindow !== null) {
+      mainWindow.destroy();
+      mainWindow = null;
+    }
     await createStartupErrorWindow(error);
     return;
   }
-
-  const window = new BrowserWindow({
-    width: 1280,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 700,
-    show: false,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  mainWindow = window;
-  window.once("ready-to-show", () => {
-    mainWindow?.show();
-  });
-  window.on("closed", () => {
-    if (mainWindow === window) {
-      mainWindow = null;
-    }
-  });
-  await window.loadURL(createBackendUrl(host, port));
 }
 
 async function createStartupErrorWindow(error: unknown): Promise<void> {
@@ -80,6 +84,8 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  stopBackend(backendProcess);
+  backendProcess = null;
   if (process.platform !== "darwin") {
     app.quit();
   }

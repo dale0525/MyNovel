@@ -165,13 +165,28 @@ def test_electron_main_process_and_builder_config_are_packaged_for_backend() -> 
 
     assert "try:\n" not in main_process
     assert "try {\n    port = await findAvailablePort" in main_process
+    assert "await window.loadURL(createBackendUrl(host, port));\n  } catch (error) {" in main_process
     assert (
         "  } catch (error) {\n"
+        "    if (mainWindow !== null) {\n"
+        "      mainWindow.destroy();\n"
+        "      mainWindow = null;\n"
+        "    }\n"
         "    await createStartupErrorWindow(error);\n"
         "    return;\n"
-        "  }\n\n"
-        "  const window = new BrowserWindow"
+        "  }\n"
     ) in main_process
+
+    window_all_closed = main_process[
+        main_process.index('app.on("window-all-closed"') : main_process.index(
+            'app.on("before-quit"'
+        )
+    ]
+    assert (
+        "  stopBackend(backendProcess);\n"
+        "  backendProcess = null;\n"
+        '  if (process.platform !== "darwin")'
+    ) in window_all_closed
 
     assert builder["appId"] == "com.mynovel.app"
     assert builder["productName"] == "MyNovel"
