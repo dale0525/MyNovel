@@ -222,3 +222,5 @@ def test_electron_main_process_and_builder_config_are_packaged_for_backend() -> 
     assert builder["nsis"]["createDesktopShortcut"] is True
     assert builder["nsis"]["createStartMenuShortcut"] is True
     assert builder["nsis"]["runAfterFinish"] is True
+    assert builder["mac"]["target"] == [{"target": "dmg"}]
+    assert builder["mac"]["category"] == "public.app-category.productivity"
