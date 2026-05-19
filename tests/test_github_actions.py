@@ -96,9 +96,10 @@ def test_release_workflow_pins_free_wix_toolset() -> None:
     commands = _workflow_run_commands(workflow)
 
     assert any(
-        "dotnet tool install --tool-path .tools wix --version 5.0.2" in command
+        "dotnet tool install --tool-path .tool/wix wix --version 5.0.2" in command
         for command in commands
     )
+    assert any("wix extension add WixToolset.Util.wixext/5.0.2" in command for command in commands)
 
 
 def _workflow_run_commands(workflow: dict) -> list[str]:

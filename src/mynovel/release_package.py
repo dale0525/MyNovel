@@ -98,7 +98,20 @@ def _package_windows_msi(dist_dir: Path, executable: Path, version: str) -> Path
     wix_file = dist_dir / "MyNovel.wxs"
     msi_path = dist_dir / "MyNovel-windows-x64.msi"
     wix_file.write_text(_wix_source(executable, version), encoding="utf-8")
-    subprocess.run(["wix", "build", str(wix_file), "-o", str(msi_path)], check=True)
+    subprocess.run(
+        [
+            "wix",
+            "build",
+            str(wix_file),
+            "-arch",
+            "x64",
+            "-ext",
+            "WixToolset.Util.wixext",
+            "-o",
+            str(msi_path),
+        ],
+        check=True,
+    )
     return msi_path
 
 
@@ -183,17 +196,27 @@ def _info_plist() -> str:
 def _wix_source(executable: Path, version: str) -> str:
     version = normalize_release_version(version)
     normalized_version = ".".join((version.split(".") + ["0", "0", "0"])[:3])
-    return f"""<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+    return f"""<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Name="MyNovel" Manufacturer="MyNovel" Version="{normalized_version}" UpgradeCode="8E99D341-7B02-4CB7-90E3-76BE6411B2F1">
     <MajorUpgrade DowngradeErrorMessage="A newer version of MyNovel is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="ProgramFilesFolder">
       <Directory Id="INSTALLFOLDER" Name="MyNovel">
         <Component Id="MyNovelExe" Guid="*">
-          <File Id="MyNovelExeFile" Source="{executable}" KeyPath="yes" />
+          <File Id="MyNovelExeFile" Source="{executable}" KeyPath="yes">
+            <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="MyNovel" Description="Launch MyNovel" WorkingDirectory="INSTALLFOLDER" />
+            <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="MyNovel" Description="Launch MyNovel" WorkingDirectory="INSTALLFOLDER" />
+          </File>
         </Component>
       </Directory>
     </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+    <SetProperty Id="WixUnelevatedShellExecTarget" Value="[#MyNovelExeFile]" Before="LaunchMyNovel" Sequence="execute" />
+    <CustomAction Id="LaunchMyNovel" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixUnelevatedShellExec" Execute="immediate" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="LaunchMyNovel" After="InstallFinalize">NOT Installed AND UILevel &gt;= 3</Custom>
+    </InstallExecuteSequence>
     <Feature Id="DefaultFeature" Title="MyNovel" Level="1">
       <ComponentRef Id="MyNovelExe" />
     </Feature>

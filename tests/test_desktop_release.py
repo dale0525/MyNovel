@@ -5,7 +5,13 @@ from pathlib import Path
 
 import yaml
 
-from mynovel.release_package import _write_metadata, normalize_release_version, sync_frontend_dist
+from mynovel.release_package import (
+    _package_windows_msi,
+    _wix_source,
+    _write_metadata,
+    normalize_release_version,
+    sync_frontend_dist,
+)
 
 
 def test_desktop_entrypoint_and_build_task_are_configured() -> None:
@@ -97,6 +103,65 @@ def test_release_workflow_uploads_unsigned_native_installers_without_paid_signin
     assert "signtool" not in workflow_text
     assert "notarize" not in workflow_text
     assert "--global" not in workflow_text
+
+
+def test_windows_installer_creates_shortcuts_and_launches_after_interactive_install(
+    tmp_path: Path,
+) -> None:
+    source = _wix_source(tmp_path / "MyNovel.exe", "0.1.9")
+
+    assert 'xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"' in source
+    assert '<StandardDirectory Id="ProgramMenuFolder" />' in source
+    assert '<StandardDirectory Id="DesktopFolder" />' in source
+    assert '<Shortcut Id="StartMenuShortcut"' in source
+    assert '<Shortcut Id="DesktopShortcut"' in source
+    assert 'Name="MyNovel"' in source
+    assert 'WorkingDirectory="INSTALLFOLDER"' in source
+    assert (
+        '<SetProperty Id="WixUnelevatedShellExecTarget" '
+        'Value="[#MyNovelExeFile]" Before="LaunchMyNovel" Sequence="execute" />'
+    ) in source
+    assert (
+        '<CustomAction Id="LaunchMyNovel" '
+        'BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" '
+        'DllEntry="WixUnelevatedShellExec" Execute="immediate" Return="ignore" />'
+    ) in source
+    assert (
+        '<Custom Action="LaunchMyNovel" After="InstallFinalize">'
+        "NOT Installed AND UILevel &gt;= 3"
+        "</Custom>"
+    ) in source
+
+
+def test_windows_msi_build_uses_x64_architecture_and_wix_util_extension(
+    monkeypatch, tmp_path: Path
+) -> None:
+    executable = tmp_path / "MyNovel.exe"
+    executable.write_bytes(b"placeholder executable")
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], check: bool) -> None:
+        calls.append(command)
+        assert check is True
+
+    monkeypatch.setattr("mynovel.release_package.subprocess.run", fake_run)
+
+    artifact = _package_windows_msi(tmp_path, executable, "0.1.9")
+
+    assert artifact == tmp_path / "MyNovel-windows-x64.msi"
+    assert calls == [
+        [
+            "wix",
+            "build",
+            str(tmp_path / "MyNovel.wxs"),
+            "-arch",
+            "x64",
+            "-ext",
+            "WixToolset.Util.wixext",
+            "-o",
+            str(tmp_path / "MyNovel-windows-x64.msi"),
+        ]
+    ]
 
 
 def test_release_package_normalizes_github_tag_versions() -> None:

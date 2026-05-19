@@ -44,8 +44,10 @@ jobs:
       - name: Install free WiX toolset
         if: runner.os == 'Windows'
         run: |
-          dotnet tool install --tool-path .tools wix --version 5.0.2
-          "$PWD/.tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          dotnet tool install --tool-path .tool/wix wix --version 5.0.2
+          "$PWD/.tool/wix" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:PATH = "$PWD/.tool/wix;$env:PATH"
+          wix extension add WixToolset.Util.wixext/5.0.2
       - name: Build unsigned native installer
         run: pixi run python -m mynovel.release_package --version "${{ env.RELEASE_VERSION }}" --platform "${{ matrix.asset_suffix }}"
       - uses: actions/upload-artifact@v4
