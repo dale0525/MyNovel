@@ -163,6 +163,16 @@ def test_electron_main_process_and_builder_config_are_packaged_for_backend() -> 
     ):
         assert token in main_process
 
+    assert "try:\n" not in main_process
+    assert "try {\n    port = await findAvailablePort" in main_process
+    assert (
+        "  } catch (error) {\n"
+        "    await createStartupErrorWindow(error);\n"
+        "    return;\n"
+        "  }\n\n"
+        "  const window = new BrowserWindow"
+    ) in main_process
+
     assert builder["appId"] == "com.mynovel.app"
     assert builder["productName"] == "MyNovel"
     assert builder["artifactName"] == "MyNovel-${env.MYNOVEL_ASSET_SUFFIX}.${ext}"

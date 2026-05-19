@@ -16,14 +16,15 @@ let mainWindow: BrowserWindow | null = null;
 
 async function createMainWindow(): Promise<void> {
   const host = DEFAULT_BACKEND_HOST;
-  const port = await findAvailablePort(host, DEFAULT_BACKEND_PORT);
-  const executable =
-    process.env.MYNOVEL_BACKEND_EXECUTABLE !== undefined
-      ? process.env.MYNOVEL_BACKEND_EXECUTABLE
-      : resolveBackendExecutable(process.resourcesPath, process.platform);
-
-  backendProcess = startBackend({ executable, host, port });
+  let port: number;
   try {
+    port = await findAvailablePort(host, DEFAULT_BACKEND_PORT);
+    const executable =
+      process.env.MYNOVEL_BACKEND_EXECUTABLE !== undefined
+        ? process.env.MYNOVEL_BACKEND_EXECUTABLE
+        : resolveBackendExecutable(process.resourcesPath, process.platform);
+
+    backendProcess = startBackend({ executable, host, port });
     await waitForBackendHealth(createBackendUrl(host, port, "/health"));
   } catch (error) {
     await createStartupErrorWindow(error);
