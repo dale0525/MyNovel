@@ -44,11 +44,11 @@ def test_release_workflow_reserves_desktop_release_metadata_steps() -> None:
     commands = _workflow_run_commands(workflow)
 
     assert "pixi run pytest" in commands
-    assert any(command.startswith("pixi run pyinstaller") for command in commands)
     assert any(
-        command.startswith("pixi run python -m mynovel.release_package --version")
-        for command in commands
+        command.startswith("pixi run pyinstaller --name MyNovelBackend") for command in commands
     )
+    assert any("npm run electron:build" in command for command in commands)
+    assert any("write-metadata" in command for command in commands)
     assert workflow["on"]["push"]["branches"] == ["main"]
     assert "tags" not in workflow["on"]["push"]
 
@@ -105,15 +105,16 @@ def test_release_workflow_builds_macos_and_windows_without_linux() -> None:
     assert all("linux" not in entry["os"] for entry in matrix_entries)
 
 
-def test_release_workflow_pins_free_wix_toolset() -> None:
+def test_release_workflow_uses_electron_builder_instead_of_wix() -> None:
     workflow = yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8"))
     commands = _workflow_run_commands(workflow)
+    workflow_text = Path(".github/workflows/release.yml").read_text(encoding="utf-8").lower()
 
-    assert any(
-        "dotnet tool install --tool-path .tool/wix wix --version 5.0.2" in command
-        for command in commands
+    assert any("npm run electron:build" in command for command in commands)
+    assert "wix" not in workflow_text
+    assert "MyNovel-windows-x64.exe" in Path(".github/workflows/release.yml").read_text(
+        encoding="utf-8"
     )
-    assert any("wix extension add WixToolset.Util.wixext/5.0.2" in command for command in commands)
 
 
 def _workflow_run_commands(workflow: dict) -> list[str]:
