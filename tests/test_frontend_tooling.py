@@ -115,9 +115,7 @@ def test_frontend_tsconfig_separates_browser_and_node_projects() -> None:
     root = json.loads(Path("frontend/tsconfig.json").read_text(encoding="utf-8"))
     app = json.loads(Path("frontend/tsconfig.app.json").read_text(encoding="utf-8"))
     node = json.loads(Path("frontend/tsconfig.node.json").read_text(encoding="utf-8"))
-    electron = json.loads(
-        Path("frontend/tsconfig.electron.json").read_text(encoding="utf-8")
-    )
+    electron = json.loads(Path("frontend/tsconfig.electron.json").read_text(encoding="utf-8"))
 
     assert root["files"] == []
     assert root["references"] == [
@@ -147,9 +145,7 @@ def test_frontend_tsconfig_separates_browser_and_node_projects() -> None:
 
 def test_electron_main_process_and_builder_config_are_packaged_for_backend() -> None:
     main_process = Path("frontend/electron/main.ts").read_text(encoding="utf-8")
-    builder = yaml.safe_load(
-        Path("frontend/electron-builder.yml").read_text(encoding="utf-8")
-    )
+    builder = yaml.safe_load(Path("frontend/electron-builder.yml").read_text(encoding="utf-8"))
 
     for token in (
         'from "electron"',
@@ -175,7 +171,9 @@ def test_electron_main_process_and_builder_config_are_packaged_for_backend() -> 
     assert "try {\n    port = await findAvailablePort" in main_process
     assert 'backendProcess.once("error"' in main_process
     assert "Promise.race" in main_process
-    assert "await window.loadURL(createBackendUrl(host, port));\n  } catch (error) {" in main_process
+    assert (
+        "await window.loadURL(createBackendUrl(host, port));\n  } catch (error) {" in main_process
+    )
     assert (
         "  } catch (error) {\n"
         "    if (mainWindow !== null) {\n"
