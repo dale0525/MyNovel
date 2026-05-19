@@ -40,6 +40,7 @@ jobs:
       - run: pixi run ruff format --check src tests
       - run: pixi run mypy src
       - run: pixi run python -m mynovel.schema_check
+      - run: pixi run python -m mynovel.release_package write-version --version "${{ env.RELEASE_VERSION }}" --target src/mynovel/_release_version.txt
       - run: pixi run pyinstaller --name MyNovelBackend --onefile --collect-all mynovel --workpath build/pyinstaller --specpath build src/mynovel/desktop.py
       - name: Prepare Electron backend resource
         run: |
@@ -60,7 +61,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           MYNOVEL_ASSET_SUFFIX: ${{ matrix.asset_suffix }}
       - name: Write update metadata
-        run: pixi run python -m mynovel.release_package write-metadata --dist dist --artifact "dist/${{ matrix.installer_glob }}" --version "${{ env.RELEASE_VERSION }}" --platform "${{ matrix.asset_suffix }}"
+        run: pixi run python -m mynovel.release_package write-metadata --dist dist --artifact "dist/${{ matrix.installer_glob }}" --version "${{ env.RELEASE_VERSION }}" --platform "${{ matrix.asset_suffix }}" --download-base-url "${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}"
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.asset_suffix }}

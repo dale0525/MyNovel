@@ -33,6 +33,8 @@ def ensure_safe_update_url(raw_url: str, label: str) -> None:
     allowed_hosts = {allowed.strip().lower().rstrip(".") for allowed in _allowed_update_hosts()}
     if host not in allowed_hosts:
         raise ValueError(f"{label} host is not an allowed update host.")
+    if host in _TRUSTED_UPDATE_HOSTS:
+        return
     try:
         addresses = _resolve_update_host_addresses(host)
     except OSError as error:

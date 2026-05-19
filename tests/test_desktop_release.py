@@ -9,10 +9,12 @@ import yaml
 
 from mynovel.release_package import (
     _write_metadata,
+    write_release_version_file,
     main,
     normalize_release_version,
     sync_frontend_dist,
 )
+from mynovel.version import release_version_from_file
 
 
 def test_desktop_entrypoint_and_build_task_are_configured() -> None:
@@ -128,6 +130,8 @@ def test_release_workflow_builds_electron_desktop_artifact_and_update_metadata()
     assert any("write-metadata" in command for command in commands)
     assert "update-" in workflow_text
     assert "sha256" in workflow_text
+    assert "write-version" in workflow_text
+    assert "--download-base-url" in workflow_text
 
 
 def test_release_workflow_uploads_unsigned_native_installers_without_paid_signing() -> None:
@@ -172,9 +176,39 @@ def test_release_metadata_command_writes_existing_electron_artifact_metadata(
 
     assert update["version"] == "0.1.9"
     assert update["platform"] == "windows-x64"
-    assert update["url"] == "MyNovel-windows-x64.exe"
+    assert update["url"].endswith("/MyNovel-windows-x64.exe")
+    assert update["url"].startswith("https://")
     assert update["size_bytes"] == len(b"sample electron installer")
     assert checksum.endswith("  MyNovel-windows-x64.exe\n")
+
+
+def test_write_metadata_uses_absolute_release_asset_url(tmp_path: Path) -> None:
+    artifact = tmp_path / "MyNovel-macos-arm64.dmg"
+    artifact.write_bytes(b"installer")
+
+    manifest_path = _write_metadata(
+        tmp_path,
+        artifact,
+        "v0.2.0",
+        "macos-arm64",
+        download_base_url="https://github.com/dale0525/MyNovel/releases/download/v0.2.0",
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["version"] == "0.2.0"
+    assert (
+        manifest["url"]
+        == "https://github.com/dale0525/MyNovel/releases/download/v0.2.0/MyNovel-macos-arm64.dmg"
+    )
+
+
+def test_write_release_version_file_normalizes_runtime_version(tmp_path: Path) -> None:
+    version_path = tmp_path / "_release_version.txt"
+
+    write_release_version_file(version_path, "v0.2.0")
+
+    assert version_path.read_text(encoding="utf-8") == "0.2.0\n"
+    assert release_version_from_file(version_path, fallback="0.1.0") == "0.2.0"
 
 
 def test_release_metadata_checksum_uses_lf_on_windows_text_mode(

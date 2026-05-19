@@ -7,6 +7,8 @@ from mynovel.update import (
     UpdatePreflightError,
     backup_sqlite_database,
     check_for_update,
+    download_update_artifact,
+    fetch_update_manifest,
     prepare_update_install,
     preflight_update_install,
     stage_update_install,
@@ -44,6 +46,70 @@ def test_update_manifest_ignores_current_or_skipped_version() -> None:
 
     assert check_for_update("0.2.0", manifest).available is False
     assert check_for_update("0.1.0", manifest, skipped_version="0.2.0").available is False
+
+
+def test_fetch_update_manifest_follows_github_release_redirect() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if len(calls) == 1:
+            return httpx.Response(
+                302,
+                headers={
+                    "Location": "https://release-assets.githubusercontent.com/update-macos-arm64.json"
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "channel": "stable",
+                "version": "0.2.0",
+                "url": "https://github.com/dale0525/MyNovel/releases/download/v0.2.0/MyNovel.dmg",
+                "sha256": "abc123",
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        manifest = fetch_update_manifest(
+            "https://github.com/dale0525/MyNovel/releases/latest/download/update-macos-arm64.json",
+            client=client,
+        )
+
+    assert manifest.version == "0.2.0"
+    assert calls == [
+        "https://github.com/dale0525/MyNovel/releases/latest/download/update-macos-arm64.json",
+        "https://release-assets.githubusercontent.com/update-macos-arm64.json",
+    ]
+
+
+def test_download_update_artifact_follows_github_release_redirect(tmp_path) -> None:
+    payload = b"installer payload"
+    calls: list[str] = []
+    manifest = UpdateManifest(
+        channel="stable",
+        version="0.2.0",
+        url="https://github.com/dale0525/MyNovel/releases/download/v0.2.0/MyNovel.dmg",
+        sha256=sha256(payload).hexdigest(),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if len(calls) == 1:
+            return httpx.Response(
+                302,
+                headers={"Location": "https://release-assets.githubusercontent.com/MyNovel.dmg"},
+            )
+        return httpx.Response(200, content=payload)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        artifact = download_update_artifact(manifest, tmp_path / "downloads", client=client)
+
+    assert artifact.path.read_bytes() == payload
+    assert calls == [
+        "https://github.com/dale0525/MyNovel/releases/download/v0.2.0/MyNovel.dmg",
+        "https://release-assets.githubusercontent.com/MyNovel.dmg",
+    ]
 
 
 def test_verified_update_artifact_can_be_staged_with_database_backup(tmp_path) -> None:

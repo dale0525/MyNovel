@@ -99,8 +99,14 @@ def check_for_update(
     )
 
 
-def fetch_update_manifest(manifest_url: str) -> UpdateManifest:
-    response = httpx.get(manifest_url, timeout=30.0)
+def fetch_update_manifest(
+    manifest_url: str,
+    client: httpx.Client | None = None,
+) -> UpdateManifest:
+    if client is None:
+        response = httpx.get(manifest_url, timeout=30.0, follow_redirects=True)
+    else:
+        response = client.get(manifest_url, timeout=30.0, follow_redirects=True)
     response.raise_for_status()
     return UpdateManifest.model_validate(response.json())
 
@@ -169,9 +175,9 @@ def download_update_artifact(
     download_dir.mkdir(parents=True, exist_ok=True)
     target = download_dir / _artifact_filename(manifest.url, manifest.version)
     if client is None:
-        response = httpx.get(manifest.url, timeout=120.0)
+        response = httpx.get(manifest.url, timeout=120.0, follow_redirects=True)
     else:
-        response = client.get(manifest.url, timeout=120.0)
+        response = client.get(manifest.url, timeout=120.0, follow_redirects=True)
     response.raise_for_status()
     target.write_bytes(response.content)
     return verify_update_artifact(target, manifest)

@@ -1,3 +1,4 @@
+import json
 from http import HTTPStatus
 from pathlib import Path
 
@@ -168,6 +169,11 @@ def test_updates_metadata_route_returns_json(tmp_path: Path) -> None:
 
     assert response.status == HTTPStatus.OK
     assert response.body["currentVersion"]
+    assert response.body["platform"]
+    assert response.body["manifestUrl"].startswith(
+        "https://github.com/dale0525/MyNovel/releases/latest/download/update-"
+    )
+    assert response.body["manifestUrl"].endswith(".json")
 
 
 def test_update_check_returns_json_instead_of_html(tmp_path: Path, monkeypatch) -> None:
@@ -204,6 +210,43 @@ def test_update_check_returns_json_instead_of_html(tmp_path: Path, monkeypatch) 
     assert response.body["result"]["available"] is True
     assert response.body["result"]["version"] == "0.2.0"
     assert "<html" not in str(response.body).lower()
+
+
+def test_update_check_allows_trusted_github_hosts_behind_proxy_dns(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from mynovel import update_security
+
+    def fetch_manifest(manifest_url: str) -> UpdateManifest:
+        assert manifest_url.startswith("https://github.com/dale0525/MyNovel/releases/latest/")
+        return UpdateManifest(
+            channel="stable",
+            version="0.2.0",
+            url="https://github.com/dale0525/MyNovel/releases/download/v0.2.0/MyNovel.dmg",
+            sha256="abc123",
+        )
+
+    monkeypatch.setattr(update_security, "fetch_update_manifest", fetch_manifest, raising=False)
+    monkeypatch.setattr(
+        update_security,
+        "_resolve_update_host_addresses",
+        lambda _host: ["198.18.0.39"],
+    )
+
+    response = dispatch_api_post(
+        "/api/updates/check",
+        {
+            "manifestUrl": (
+                "https://github.com/dale0525/MyNovel/releases/latest/download/"
+                "update-macos-arm64.json"
+            )
+        },
+        tmp_path / "dev.sqlite",
+    )
+
+    assert response.status == HTTPStatus.OK
+    assert response.body["result"]["available"] is True
 
 
 def test_update_check_rejects_private_or_non_https_urls(tmp_path: Path) -> None:
@@ -326,6 +369,34 @@ def test_update_check_rejects_unsafe_artifact_url(tmp_path: Path, monkeypatch) -
 
     assert response.status == HTTPStatus.BAD_REQUEST
     assert response.body["error"]["code"] == "update_action_failed"
+
+
+def test_update_reveal_opens_staged_artifact_location(tmp_path: Path, monkeypatch) -> None:
+    from mynovel import api_updates
+
+    db_path = tmp_path / "dev.sqlite"
+    staged_dir = tmp_path / "updates" / "staged" / "0.2.0"
+    staged_dir.mkdir(parents=True)
+    artifact = staged_dir / "MyNovel.dmg"
+    artifact.write_bytes(b"installer")
+    plan = staged_dir / "install-plan.json"
+    plan.write_text(
+        json.dumps(
+            {
+                "artifact_path": str(artifact),
+                "db_backup_path": str(tmp_path / "updates" / "backups" / "dev.backup.sqlite"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    opened: list[Path] = []
+    monkeypatch.setattr(api_updates, "open_update_artifact_location", opened.append)
+
+    response = dispatch_api_post("/api/updates/reveal", {"planPath": str(plan)}, db_path)
+
+    assert response.status == HTTPStatus.OK
+    assert response.body == {"openedPath": str(staged_dir)}
+    assert opened == [staged_dir]
 
 
 def test_book_exports_are_available_under_api_download_routes(tmp_path: Path) -> None:

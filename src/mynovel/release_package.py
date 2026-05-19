@@ -11,6 +11,8 @@ from mynovel.db import SCHEMA_VERSION
 
 DEFAULT_FRONTEND_DIST = Path("frontend/dist")
 DEFAULT_PACKAGE_FRONTEND_DIST = Path("src/mynovel/frontend/dist")
+DEFAULT_RELEASE_REPOSITORY_URL = "https://github.com/dale0525/MyNovel"
+DEFAULT_RELEASE_VERSION_FILE = Path("src/mynovel/_release_version.txt")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -21,9 +23,14 @@ def main(argv: list[str] | None = None) -> None:
     if raw_args[:1] == ["write-metadata"]:
         _write_metadata_command(raw_args[1:])
         return
+    if raw_args[:1] == ["write-version"]:
+        _write_version_command(raw_args[1:])
+        return
 
     parser = argparse.ArgumentParser(description="Manage MyNovel release helper tasks.")
-    parser.add_argument("command", choices=["sync-frontend-dist", "write-metadata"])
+    parser.add_argument(
+        "command", choices=["sync-frontend-dist", "write-metadata", "write-version"]
+    )
     parser.parse_args(raw_args)
 
 
@@ -55,15 +62,46 @@ def _write_metadata_command(argv: list[str]) -> None:
     parser.add_argument("--artifact", type=Path, required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--platform", required=True)
+    parser.add_argument("--download-base-url")
     args = parser.parse_args(argv)
 
     version = normalize_release_version(args.version)
-    metadata = _write_metadata(args.dist, args.artifact, version, args.platform)
+    metadata = _write_metadata(
+        args.dist,
+        args.artifact,
+        version,
+        args.platform,
+        download_base_url=args.download_base_url,
+    )
     print(f"Wrote {metadata}")
 
 
-def _write_metadata(dist_dir: Path, artifact: Path, version: str, platform_name: str) -> Path:
+def _write_version_command(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(description="Write the runtime release version file.")
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--target", type=Path, default=DEFAULT_RELEASE_VERSION_FILE)
+    args = parser.parse_args(argv)
+
+    version_file = write_release_version_file(args.target, args.version)
+    print(f"Wrote {version_file}")
+
+
+def write_release_version_file(target: Path, version: str) -> Path:
     version = normalize_release_version(version)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(f"{version}\n", encoding="utf-8", newline="\n")
+    return target
+
+
+def _write_metadata(
+    dist_dir: Path,
+    artifact: Path,
+    version: str,
+    platform_name: str,
+    download_base_url: str | None = None,
+) -> Path:
+    version = normalize_release_version(version)
+    artifact_url = _release_asset_url(artifact.name, version, download_base_url)
     digest = sha256(artifact.read_bytes()).hexdigest()
     checksum_path = dist_dir / f"checksums-{platform_name}.sha256"
     checksum_path.write_text(
@@ -78,7 +116,7 @@ def _write_metadata(dist_dir: Path, artifact: Path, version: str, platform_name:
                 "channel": "stable",
                 "version": version,
                 "platform": platform_name,
-                "url": artifact.name,
+                "url": artifact_url,
                 "sha256": digest,
                 "size_bytes": artifact.stat().st_size,
                 "minimum_app_version": "0.1.0",
@@ -98,6 +136,15 @@ def _write_metadata(dist_dir: Path, artifact: Path, version: str, platform_name:
         newline="\n",
     )
     return manifest_path
+
+
+def _release_asset_url(
+    artifact_name: str,
+    version: str,
+    download_base_url: str | None = None,
+) -> str:
+    base_url = download_base_url or f"{DEFAULT_RELEASE_REPOSITORY_URL}/releases/download/v{version}"
+    return f"{base_url.rstrip('/')}/{artifact_name}"
 
 
 def normalize_release_version(version: str) -> str:

@@ -25,6 +25,7 @@ frontend/.vite/
 frontend/dist-electron/
 frontend/playwright-report/
 frontend/test-results/
+src/mynovel/_release_version.txt
 
 # Local application data
 .mynovel/

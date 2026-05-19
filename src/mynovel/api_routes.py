@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
 
-from mynovel import __version__
 from mynovel.api_errors import ApiResponse, api_error, invalid_json_response
 from mynovel.api_open_book import (
     accept_blueprint_json,
@@ -30,7 +29,12 @@ from mynovel.api_serializers import (
     style_asset_payload,
     trusted_state_payload,
 )
-from mynovel.api_updates import check_update_json, stage_update_json
+from mynovel.api_updates import (
+    check_update_json,
+    reveal_staged_update_json,
+    stage_update_json,
+    update_defaults_json,
+)
 from mynovel.book_abandonment import DeleteBookError, delete_book
 from mynovel.canon_proposal_server import (
     handle_create_canon_proposal_revision,
@@ -99,7 +103,7 @@ def dispatch_api_get(path: str, query: str, db_path: Path) -> ApiResponse:
         book_id, export_format = book_export
         return _export_book_json(db_path, book_id, export_format)
     if path == "/api/updates":
-        return ApiResponse(HTTPStatus.OK, {"currentVersion": __version__})
+        return update_defaults_json()
     book_quality_id = _parse_book_quality_api_path(path)
     if book_quality_id is not None:
         payload = quality_payload(db_path, book_quality_id)
@@ -152,6 +156,8 @@ def dispatch_api_post(path: str, body: dict[str, Any], db_path: Path) -> ApiResp
         return check_update_json(body)
     if path == "/api/updates/stage":
         return stage_update_json(db_path, body)
+    if path == "/api/updates/reveal":
+        return reveal_staged_update_json(db_path, body)
     state_lock_book_id = _parse_book_state_lock_api_path(path)
     if state_lock_book_id is not None:
         return _lock_book_state_json(db_path, state_lock_book_id)

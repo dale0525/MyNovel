@@ -148,8 +148,16 @@ test("quality page rejects malformed payloads", async () => {
 });
 
 test("updates page checks manifest and renders json result", async () => {
-  const fetchMock = vi.fn(async () =>
-    Response.json({
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({
+        currentVersion: "0.1.0",
+        platform: "macos-arm64",
+        manifestUrl: "https://github.com/dale0525/MyNovel/releases/latest/download/update-macos-arm64.json",
+      }),
+    )
+    .mockResolvedValueOnce(Response.json({
       result: {
         available: true,
         version: "0.2.0",
@@ -159,21 +167,24 @@ test("updates page checks manifest and renders json result", async () => {
         sha256: "abc123",
         url: "https://example.test/MyNovel.dmg",
       },
-    }),
-  );
+    }));
   vi.stubGlobal("fetch", fetchMock);
 
   render(<UpdatesPage />);
 
-  fireEvent.change(screen.getByLabelText("更新元数据地址"), {
-    target: { value: "https://example.test/update.json" },
-  });
+  await waitFor(() => expect(screen.getByText("当前版本 0.1.0")).toBeInTheDocument());
+  expect(screen.queryByLabelText("更新元数据地址")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/updates/check",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          manifestUrl: "https://github.com/dale0525/MyNovel/releases/latest/download/update-macos-arm64.json",
+        }),
+      }),
     ),
   );
   expect(screen.getByText("发现新版本 0.2.0")).toBeInTheDocument();
@@ -181,17 +192,91 @@ test("updates page checks manifest and renders json result", async () => {
 });
 
 test("updates page rejects malformed result payloads", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ result: { available: true } })));
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          currentVersion: "0.1.0",
+          platform: "windows-x64",
+          manifestUrl: "https://github.com/dale0525/MyNovel/releases/latest/download/update-windows-x64.json",
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ result: { available: true } })),
+  );
 
   render(<UpdatesPage />);
 
-  fireEvent.change(screen.getByLabelText("更新元数据地址"), {
-    target: { value: "https://example.test/update.json" },
-  });
+  await waitFor(() => expect(screen.getByText("当前版本 0.1.0")).toBeInTheDocument());
   fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
 
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("更新结果格式无效。"));
 });
+
+test("updates page stages an installer and opens its location", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({
+        currentVersion: "0.1.0",
+        platform: "macos-arm64",
+        manifestUrl: "https://github.com/dale0525/MyNovel/releases/latest/download/update-macos-arm64.json",
+      }),
+    )
+    .mockResolvedValueOnce(
+      Response.json({
+        result: updateResultPayload(),
+      }),
+    )
+    .mockResolvedValueOnce(
+      Response.json({
+        result: updateResultPayload(),
+        stagedInstall: {
+          planPath: "/Users/me/.mynovel/updates/staged/0.2.0/install-plan.json",
+          payload: {
+            artifact_path: "/Users/me/.mynovel/updates/staged/0.2.0/MyNovel.dmg",
+            db_backup_path: "/Users/me/.mynovel/updates/backups/desktop.backup.sqlite",
+          },
+        },
+      }),
+    )
+    .mockResolvedValueOnce(Response.json({ openedPath: "/Users/me/.mynovel/updates/staged/0.2.0" }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<UpdatesPage />);
+
+  await waitFor(() => expect(screen.getByText("当前版本 0.1.0")).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
+  await waitFor(() => expect(screen.getByText("发现新版本 0.2.0")).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "下载并准备安装" }));
+  await waitFor(() => expect(screen.getByText("更新已准备")).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "打开安装包位置" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/updates/reveal",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          planPath: "/Users/me/.mynovel/updates/staged/0.2.0/install-plan.json",
+        }),
+      }),
+    ),
+  );
+});
+
+function updateResultPayload() {
+  return {
+    available: true,
+    version: "0.2.0",
+    notes: "修复章节恢复。",
+    sizeLabel: "120.6 KB",
+    publishedAt: "2026-05-11T00:00:00Z",
+    sha256: "abc123",
+    url: "https://example.test/MyNovel.dmg",
+  };
+}
 
 function qualityPayload({ score = 73 }: { score?: number } = {}) {
   return {
