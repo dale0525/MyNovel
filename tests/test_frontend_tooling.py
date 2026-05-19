@@ -163,6 +163,14 @@ def test_electron_main_process_and_builder_config_are_packaged_for_backend() -> 
     ):
         assert token in main_process
 
+    assert "let startupPromise: Promise<void> | null = null;" in main_process
+    assert "if (startupPromise !== null) {" in main_process
+    assert "startupPromise = createMainWindow().finally(() => {" in main_process
+    assert "app.whenReady().then(() => {\n  startMainWindow();" in main_process
+
+    activate_handler = main_process[main_process.index('app.on("activate"') :]
+    assert "startMainWindow();" in activate_handler
+
     assert "try:\n" not in main_process
     assert "try {\n    port = await findAvailablePort" in main_process
     assert 'backendProcess.once("error"' in main_process
@@ -178,6 +186,19 @@ def test_electron_main_process_and_builder_config_are_packaged_for_backend() -> 
         "    return;\n"
         "  }\n"
     ) in main_process
+
+    startup_error_window = main_process[
+        main_process.index("async function createStartupErrorWindow") : main_process.index(
+            "app.whenReady"
+        )
+    ]
+    assert (
+        '  window.on("closed", () => {\n'
+        "    if (mainWindow === window) {\n"
+        "      mainWindow = null;\n"
+        "    }\n"
+        "  });\n"
+    ) in startup_error_window
 
     window_all_closed = main_process[
         main_process.index('app.on("window-all-closed"') : main_process.index(

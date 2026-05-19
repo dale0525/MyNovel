@@ -13,6 +13,18 @@ import {
 
 let backendProcess: BackendProcess | null = null;
 let mainWindow: BrowserWindow | null = null;
+let startupPromise: Promise<void> | null = null;
+
+function startMainWindow(): void {
+  if (startupPromise !== null) {
+    return;
+  }
+
+  startupPromise = createMainWindow().finally(() => {
+    startupPromise = null;
+  });
+  void startupPromise.catch(() => undefined);
+}
 
 async function createMainWindow(): Promise<void> {
   const host = DEFAULT_BACKEND_HOST;
@@ -82,13 +94,18 @@ async function createStartupErrorWindow(error: unknown): Promise<void> {
     },
   });
   mainWindow = window;
+  window.on("closed", () => {
+    if (mainWindow === window) {
+      mainWindow = null;
+    }
+  });
   await window.loadURL(
     `data:text/plain;charset=utf-8,${encodeURIComponent(`MyNovel could not start\n\n${message}`)}`,
   );
 }
 
 app.whenReady().then(() => {
-  void createMainWindow();
+  startMainWindow();
 });
 
 app.on("window-all-closed", () => {
@@ -106,6 +123,6 @@ app.on("before-quit", () => {
 
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    void createMainWindow();
+    startMainWindow();
   }
 });
