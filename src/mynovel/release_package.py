@@ -200,7 +200,7 @@ def _wix_source(executable: Path, version: str) -> str:
   <Package Name="MyNovel" Manufacturer="MyNovel" Version="{normalized_version}" UpgradeCode="8E99D341-7B02-4CB7-90E3-76BE6411B2F1">
     <MajorUpgrade DowngradeErrorMessage="A newer version of MyNovel is already installed." />
     <MediaTemplate EmbedCab="yes" />
-    <StandardDirectory Id="ProgramFilesFolder">
+    <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="MyNovel">
         <Component Id="MyNovelExe" Guid="*">
           <File Id="MyNovelExeFile" Source="{executable}" KeyPath="yes">

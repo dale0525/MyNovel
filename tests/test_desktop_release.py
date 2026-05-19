@@ -54,6 +54,41 @@ def test_desktop_script_invokes_main_when_executed_by_pyinstaller(
     assert calls == [("127.0.0.1", 9987, tmp_path / "desktop.sqlite")]
 
 
+def test_desktop_default_database_uses_user_writable_local_app_data(
+    monkeypatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, int, Path]] = []
+
+    def fake_run_server(host: str, port: int, db: Path) -> None:
+        calls.append((host, port, db))
+
+    monkeypatch.setattr("mynovel.dev_server.run_server", fake_run_server)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "desktop.py",
+            "--no-open",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "9988",
+            "--strict-port",
+        ],
+    )
+
+    runpy.run_path("src/mynovel/desktop.py", run_name="__main__")
+
+    assert calls == [
+        (
+            "127.0.0.1",
+            9988,
+            tmp_path / "LocalAppData" / "MyNovel" / "desktop.sqlite",
+        )
+    ]
+
+
 def test_preview_task_copies_assets_into_python_package() -> None:
     pixi = tomllib.loads(Path("pixi.toml").read_text(encoding="utf-8"))
 
@@ -130,6 +165,8 @@ def test_windows_installer_creates_shortcuts_and_launches_after_interactive_inst
         '<Custom Action="LaunchMyNovel" After="InstallFinalize" '
         'Condition="NOT Installed AND UILevel &gt;= 3" />'
     ) in source
+    assert '<StandardDirectory Id="ProgramFiles64Folder">' in source
+    assert '<StandardDirectory Id="ProgramFilesFolder">' not in source
 
 
 def test_windows_msi_build_uses_x64_architecture_and_wix_util_extension(

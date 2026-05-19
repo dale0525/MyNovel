@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import os
 import socket
 import webbrowser
 from pathlib import Path
 from threading import Timer
 
-from mynovel.dev_server import DEFAULT_DB_PATH, DEFAULT_HOST, DEFAULT_PORT, run_server
+from mynovel.dev_server import DEFAULT_HOST, DEFAULT_PORT, run_server
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="启动 MyNovel 桌面端本地应用。")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
+    parser.add_argument("--db", type=Path, default=default_desktop_db_path())
     parser.add_argument("--strict-port", action="store_true", help="只使用指定端口。")
     parser.add_argument("--no-open", action="store_true", help="启动后不自动打开窗口。")
     args = parser.parse_args(argv)
@@ -22,6 +23,13 @@ def main(argv: list[str] | None = None) -> None:
     if not args.no_open:
         Timer(0.8, _open_browser, args=(args.host, port)).start()
     run_server(args.host, port, args.db)
+
+
+def default_desktop_db_path() -> Path:
+    if os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        return base / "MyNovel" / "desktop.sqlite"
+    return Path.home() / ".mynovel" / "desktop.sqlite"
 
 
 def _available_port(host: str, start_port: int) -> int:
