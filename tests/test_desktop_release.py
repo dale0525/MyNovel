@@ -1,3 +1,4 @@
+import json
 import runpy
 import sys
 import tomllib
@@ -9,6 +10,7 @@ from mynovel.release_package import (
     _package_windows_msi,
     _wix_source,
     _write_metadata,
+    main,
     normalize_release_version,
     sync_frontend_dist,
 )
@@ -203,6 +205,36 @@ def test_windows_msi_build_uses_x64_architecture_and_wix_util_extension(
 def test_release_package_normalizes_github_tag_versions() -> None:
     assert normalize_release_version("v0.2.0") == "0.2.0"
     assert normalize_release_version("refs/tags/v1.0.0") == "1.0.0"
+
+
+def test_release_metadata_command_writes_existing_electron_artifact_metadata(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "MyNovel-windows-x64.exe"
+    artifact.write_bytes(b"sample electron installer")
+
+    main(
+        [
+            "write-metadata",
+            "--dist",
+            str(tmp_path),
+            "--artifact",
+            str(artifact),
+            "--version",
+            "v0.1.9",
+            "--platform",
+            "windows-x64",
+        ]
+    )
+
+    update = json.loads((tmp_path / "update-windows-x64.json").read_text(encoding="utf-8"))
+    checksum = (tmp_path / "checksums-windows-x64.sha256").read_text(encoding="utf-8")
+
+    assert update["version"] == "0.1.9"
+    assert update["platform"] == "windows-x64"
+    assert update["url"] == "MyNovel-windows-x64.exe"
+    assert update["size_bytes"] == len(b"sample electron installer")
+    assert checksum.endswith("  MyNovel-windows-x64.exe\n")
 
 
 def test_release_metadata_checksum_uses_lf_on_windows_text_mode(

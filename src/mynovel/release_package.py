@@ -21,6 +21,9 @@ def main(argv: list[str] | None = None) -> None:
     if raw_args[:1] == ["sync-frontend-dist"]:
         _sync_frontend_dist_command(raw_args[1:])
         return
+    if raw_args[:1] == ["write-metadata"]:
+        _write_metadata_command(raw_args[1:])
+        return
 
     parser = argparse.ArgumentParser(description="Create unsigned native MyNovel installer assets.")
     parser.add_argument("--dist", type=Path, default=Path("dist"))
@@ -65,6 +68,19 @@ def _sync_frontend_dist_command(argv: list[str]) -> None:
     args = parser.parse_args(argv)
     copied = sync_frontend_dist(args.source, args.target)
     print(f"Copied frontend dist to {copied}")
+
+
+def _write_metadata_command(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(description="Write release metadata for an installer asset.")
+    parser.add_argument("--dist", type=Path, default=Path("dist"))
+    parser.add_argument("--artifact", type=Path, required=True)
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--platform", required=True)
+    args = parser.parse_args(argv)
+
+    version = normalize_release_version(args.version)
+    metadata = _write_metadata(args.dist, args.artifact, version, args.platform)
+    print(f"Wrote {metadata}")
 
 
 def _package_macos_dmg(dist_dir: Path, executable: Path, platform_name: str) -> Path:
