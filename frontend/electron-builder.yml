@@ -1,0 +1,25 @@
+appId: com.mynovel.app
+productName: MyNovel
+artifactName: MyNovel-${env.MYNOVEL_ASSET_SUFFIX}.${ext}
+asar: true
+npmRebuild: false
+directories:
+  output: ../dist
+files: ["dist/**/*", "dist-electron/**/*", "package.json"]
+extraResources:
+  - from: ../dist/backend
+    to: backend
+    filter: ["MyNovelBackend*"]
+win:
+  target:
+    - { target: nsis, arch: ["x64"] }
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  runAfterFinish: true
+mac:
+  target: [{ target: dmg }]
+  category: public.app-category.productivity

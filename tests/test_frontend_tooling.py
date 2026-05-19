@@ -2,6 +2,8 @@ from pathlib import Path
 import json
 import tomllib
 
+import yaml
+
 
 def test_frontend_package_has_required_scripts() -> None:
     package = json.loads(Path("frontend/package.json").read_text(encoding="utf-8"))
@@ -141,3 +143,34 @@ def test_frontend_tsconfig_separates_browser_and_node_projects() -> None:
     assert electron["include"] == ["electron/**/*.ts"]
     electron_env = Path("frontend/electron/electron-env.d.ts")
     assert electron_env.read_text(encoding="utf-8") == "export {};\n"
+
+
+def test_electron_main_process_and_builder_config_are_packaged_for_backend() -> None:
+    main_process = Path("frontend/electron/main.ts").read_text(encoding="utf-8")
+    builder = yaml.safe_load(
+        Path("frontend/electron-builder.yml").read_text(encoding="utf-8")
+    )
+
+    for token in (
+        'from "electron"',
+        "BrowserWindow",
+        "startBackend",
+        "waitForBackendHealth",
+        "resolveBackendExecutable",
+        "stopBackend",
+        "nodeIntegration: false",
+        "contextIsolation: true",
+    ):
+        assert token in main_process
+
+    assert builder["appId"] == "com.mynovel.app"
+    assert builder["productName"] == "MyNovel"
+    assert builder["artifactName"] == "MyNovel-${env.MYNOVEL_ASSET_SUFFIX}.${ext}"
+    assert builder["directories"]["output"] == "../dist"
+    assert {"from": "../dist/backend", "to": "backend", "filter": ["MyNovelBackend*"]} in builder[
+        "extraResources"
+    ]
+    assert builder["win"]["target"] == [{"target": "nsis", "arch": ["x64"]}]
+    assert builder["nsis"]["createDesktopShortcut"] is True
+    assert builder["nsis"]["createStartMenuShortcut"] is True
+    assert builder["nsis"]["runAfterFinish"] is True
