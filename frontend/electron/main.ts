@@ -25,7 +25,15 @@ async function createMainWindow(): Promise<void> {
         : resolveBackendExecutable(process.resourcesPath, process.platform);
 
     backendProcess = startBackend({ executable, host, port });
-    await waitForBackendHealth(createBackendUrl(host, port, "/health"));
+    const backendStartError = new Promise<never>((_, reject) => {
+      if (backendProcess !== null) {
+        backendProcess.once("error", reject);
+      }
+    });
+    await Promise.race([
+      waitForBackendHealth(createBackendUrl(host, port, "/health")),
+      backendStartError,
+    ]);
 
     const window = new BrowserWindow({
       width: 1280,

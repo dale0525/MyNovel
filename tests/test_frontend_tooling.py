@@ -165,6 +165,8 @@ def test_electron_main_process_and_builder_config_are_packaged_for_backend() -> 
 
     assert "try:\n" not in main_process
     assert "try {\n    port = await findAvailablePort" in main_process
+    assert 'backendProcess.once("error"' in main_process
+    assert "Promise.race" in main_process
     assert "await window.loadURL(createBackendUrl(host, port));\n  } catch (error) {" in main_process
     assert (
         "  } catch (error) {\n"
