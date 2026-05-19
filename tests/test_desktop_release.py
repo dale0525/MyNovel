@@ -4,6 +4,7 @@ import sys
 import tomllib
 from pathlib import Path
 
+import pytest
 import yaml
 
 from mynovel.release_package import (
@@ -195,3 +196,19 @@ def test_release_metadata_checksum_uses_lf_on_windows_text_mode(
     checksum = (tmp_path / "checksums-windows-x64.sha256").read_bytes()
     assert checksum.endswith(b"MyNovel-windows-x64.exe\n")
     assert b"\r" not in checksum
+
+
+def test_release_package_removes_legacy_native_installer_packaging() -> None:
+    source = Path("src/mynovel/release_package.py").read_text(encoding="utf-8")
+    source_lower = source.lower()
+
+    assert "wix" not in source_lower
+    assert ".msi" not in source
+    assert "package_native_installer" not in source
+    assert "_package_windows_msi" not in source
+    assert "_wix_source" not in source
+
+
+def test_release_package_rejects_legacy_native_packaging_cli_args() -> None:
+    with pytest.raises(SystemExit):
+        main(["--version", "0.1.9", "--platform", "windows-x64"])
