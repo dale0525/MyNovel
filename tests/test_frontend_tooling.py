@@ -19,8 +19,8 @@ def test_frontend_package_has_required_scripts() -> None:
         "npm run build:electron-main && electron-builder --config electron-builder.yml"
     )
     assert package["scripts"]["electron:dev"] == "npm run build:electron-main && electron ."
-    assert "electron" in package["devDependencies"]
-    assert "electron-builder" in package["devDependencies"]
+    assert package["devDependencies"]["electron"] == "^35.0.0"
+    assert package["devDependencies"]["electron-builder"] == "^26.0.0"
 
 
 def test_pixi_exposes_frontend_tasks() -> None:
@@ -127,7 +127,16 @@ def test_frontend_tsconfig_separates_browser_and_node_projects() -> None:
     assert node["include"] == ["vite.config.ts", "tailwind.config.ts"]
     assert node["compilerOptions"]["types"] == ["node"]
     assert electron["extends"] == "./tsconfig.node.json"
+    assert electron["compilerOptions"]["module"] == "NodeNext"
+    assert electron["compilerOptions"]["moduleResolution"] == "NodeNext"
     assert electron["compilerOptions"]["outDir"] == "dist-electron"
     assert electron["compilerOptions"]["rootDir"] == "electron"
     assert electron["compilerOptions"]["noEmit"] is False
+    assert (
+        electron["compilerOptions"]["tsBuildInfoFile"]
+        == "./node_modules/.tmp/tsconfig.electron.tsbuildinfo"
+    )
+    assert electron["compilerOptions"]["types"] == ["node", "electron"]
     assert electron["include"] == ["electron/**/*.ts"]
+    electron_env = Path("frontend/electron/electron-env.d.ts")
+    assert electron_env.read_text(encoding="utf-8") == "export {};\n"
