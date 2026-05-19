@@ -127,9 +127,8 @@ def test_windows_installer_creates_shortcuts_and_launches_after_interactive_inst
         'DllEntry="WixUnelevatedShellExec" Execute="immediate" Return="ignore" />'
     ) in source
     assert (
-        '<Custom Action="LaunchMyNovel" After="InstallFinalize">'
-        "NOT Installed AND UILevel &gt;= 3"
-        "</Custom>"
+        '<Custom Action="LaunchMyNovel" After="InstallFinalize" '
+        'Condition="NOT Installed AND UILevel &gt;= 3" />'
     ) in source
 
 

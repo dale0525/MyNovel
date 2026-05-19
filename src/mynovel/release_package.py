@@ -215,7 +215,7 @@ def _wix_source(executable: Path, version: str) -> str:
     <SetProperty Id="WixUnelevatedShellExecTarget" Value="[#MyNovelExeFile]" Before="LaunchMyNovel" Sequence="execute" />
     <CustomAction Id="LaunchMyNovel" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixUnelevatedShellExec" Execute="immediate" Return="ignore" />
     <InstallExecuteSequence>
-      <Custom Action="LaunchMyNovel" After="InstallFinalize">NOT Installed AND UILevel &gt;= 3</Custom>
+      <Custom Action="LaunchMyNovel" After="InstallFinalize" Condition="NOT Installed AND UILevel &gt;= 3" />
     </InstallExecuteSequence>
     <Feature Id="DefaultFeature" Title="MyNovel" Level="1">
       <ComponentRef Id="MyNovelExe" />
