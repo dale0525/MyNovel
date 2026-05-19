@@ -267,6 +267,32 @@ test("saves word targets through the project settings form", async () => {
   expect(screen.getByText("目标字数已保存。")).toBeInTheDocument();
 });
 
+test("project settings can delete the current book", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(bookPayload()))
+    .mockResolvedValueOnce(Response.json({ redirectTo: "/" }));
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("confirm", vi.fn(() => true));
+  window.history.pushState(null, "", "/books/42/settings");
+
+  render(<BookWorkspacePage bookId={42} view="settings" />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "星港遗梦" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "删除书籍" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/books/42/delete",
+      expect.objectContaining({
+        method: "POST",
+        body: "{}",
+      }),
+    ),
+  );
+  expect(window.location.pathname).toBe("/");
+});
+
 test("generates volume outline through streaming api and refreshes volume chapters", async () => {
   const fetchMock = vi
     .fn()

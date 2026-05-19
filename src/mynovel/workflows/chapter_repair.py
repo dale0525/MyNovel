@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 from mynovel.domain.models import Chapter
 from mynovel.word_targets import count_chapter_words, parse_word_count
+from mynovel.workflows.audit_issues import audit_issue_resolved
 from mynovel.workflows.chapter_repair_non_word import (
     non_word_issue_recheck_detail,
     non_word_issue_repair_hint,
@@ -141,7 +142,7 @@ def recheck_repair_audit(
         if _is_word_count_issue(issue):
             if word_count_window is None:
                 continue
-            if in_window and issue.get("resolved"):
+            if in_window and audit_issue_resolved(issue):
                 continue
             if in_window:
                 issue["resolved"] = True
@@ -157,7 +158,7 @@ def recheck_repair_audit(
             direction = _word_count_direction(current_count, word_count_window)
             existing_direction = _word_count_issue_direction(issue)
             if (
-                not issue.get("resolved")
+                not audit_issue_resolved(issue)
                 and existing_direction == direction
                 and "自动复核" not in str(issue.get("detail") or "")
             ):
@@ -173,7 +174,7 @@ def recheck_repair_audit(
             )
             changed = True
             continue
-        if issue.get("resolved"):
+        if audit_issue_resolved(issue):
             continue
         if title in addressed:
             issue["resolved"] = True
@@ -407,7 +408,7 @@ def _needs_word_count_repair(chapter: Chapter, reviewer_note: str | None) -> boo
     audit_report = chapter.audit_report or {}
     texts = [str(reviewer_note or ""), *[str(item) for item in audit_report.get("suggestions", [])]]
     for issue in audit_report.get("issues", []):
-        if not isinstance(issue, dict) or issue.get("resolved"):
+        if not isinstance(issue, dict) or audit_issue_resolved(issue):
             continue
         texts.extend(
             str(issue.get(key) or "")
@@ -598,7 +599,7 @@ def _audit_issue_text(
     unresolved = [
         issue
         for issue in audit_report.get("issues", [])
-        if isinstance(issue, dict) and not issue.get("resolved")
+        if isinstance(issue, dict) and not audit_issue_resolved(issue)
     ]
     if not unresolved:
         lines.append("- 无未解决审计问题。")
@@ -646,7 +647,7 @@ def _audit_issue_text(
 def unresolved_audit_issue_titles(audit_report: dict[str, Any]) -> list[str]:
     titles: list[str] = []
     for issue in audit_report.get("issues", []):
-        if not isinstance(issue, dict) or issue.get("resolved"):
+        if not isinstance(issue, dict) or audit_issue_resolved(issue):
             continue
         title = str(issue.get("title") or "未命名问题").strip()
         if title:
@@ -827,4 +828,4 @@ def _word_count_window_distance(word_count: int, window: tuple[int, int]) -> int
 
 
 def _all_issues_resolved(issues: list[Any]) -> bool:
-    return all(not isinstance(issue, dict) or bool(issue.get("resolved")) for issue in issues)
+    return all(not isinstance(issue, dict) or audit_issue_resolved(issue) for issue in issues)

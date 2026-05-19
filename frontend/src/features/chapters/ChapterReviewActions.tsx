@@ -77,7 +77,7 @@ export function ChapterReviewActions({
   const runActionCopy = chapter.status === "needs_revision"
     ? { idle: "修改本章", busy: "修改中..." }
     : { idle: "生成本章", busy: "生成中..." };
-  const showRunAction = chapter.status === "planned";
+  const showRunAction = chapter.status === "planned" || chapter.status === "needs_revision";
   const repairButtonIdleLabel = hasUnresolvedIssue ? "一键让 AI 修正" : "修复";
 
   return (

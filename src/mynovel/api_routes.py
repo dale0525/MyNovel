@@ -30,6 +30,8 @@ from mynovel.api_serializers import (
     style_asset_payload,
     trusted_state_payload,
 )
+from mynovel.api_updates import check_update_json, stage_update_json
+from mynovel.book_abandonment import DeleteBookError, delete_book
 from mynovel.canon_proposal_server import (
     handle_create_canon_proposal_revision,
     stream_revise_and_apply_canon_proposal,
@@ -54,8 +56,6 @@ from mynovel.domain.repositories import (
     get_provider_config,
     list_chapters_for_book,
 )
-from mynovel.update import check_for_update, prepare_update_install
-from mynovel.update_security import fetch_safe_update_manifest
 from mynovel.workflows.canon_proposal import (
     CANON_PROPOSAL_COMPLETION_INSTRUCTION,
     apply_canon_proposal_revision,
@@ -142,13 +142,16 @@ def dispatch_api_post(path: str, body: dict[str, Any], db_path: Path) -> ApiResp
         return create_open_book_blueprint_json(db_path, body)
     if path == "/api/books/import":
         return _import_book_json(db_path, body)
+    delete_book_id = _parse_book_delete_api_path(path)
+    if delete_book_id is not None:
+        return _delete_book_json(db_path, delete_book_id)
     book_word_targets_id = _parse_book_word_targets_api_path(path)
     if book_word_targets_id is not None:
         return _update_book_word_targets_json(db_path, book_word_targets_id, body)
     if path == "/api/updates/check":
-        return _check_update_json(body)
+        return check_update_json(body)
     if path == "/api/updates/stage":
-        return _stage_update_json(db_path, body)
+        return stage_update_json(db_path, body)
     state_lock_book_id = _parse_book_state_lock_api_path(path)
     if state_lock_book_id is not None:
         return _lock_book_state_json(db_path, state_lock_book_id)
@@ -293,6 +296,16 @@ def _parse_book_export_api_path(path: str) -> tuple[int, str] | None:
 def _parse_book_word_targets_api_path(path: str) -> int | None:
     parts = path.strip("/").split("/")
     if len(parts) != 4 or parts[:2] != ["api", "books"] or parts[3] != "word-targets":
+        return None
+    try:
+        return int(parts[2])
+    except ValueError:
+        return 0
+
+
+def _parse_book_delete_api_path(path: str) -> int | None:
+    parts = path.strip("/").split("/")
+    if len(parts) != 4 or parts[:2] != ["api", "books"] or parts[3] != "delete":
         return None
     try:
         return int(parts[2])
@@ -627,6 +640,14 @@ def _import_book_json(db_path: Path, body: dict[str, Any]) -> ApiResponse:
     return ApiResponse(HTTPStatus.OK, payload)
 
 
+def _delete_book_json(db_path: Path, book_id: int) -> ApiResponse:
+    try:
+        delete_book(db_path, book_id)
+    except DeleteBookError as error:
+        return api_error(HTTPStatus.BAD_REQUEST, "book_delete_failed", str(error))
+    return ApiResponse(HTTPStatus.OK, {"redirectTo": "/"})
+
+
 def _update_book_word_targets_json(
     db_path: Path,
     book_id: int,
@@ -724,59 +745,6 @@ def _create_quality_snapshot_json(db_path: Path, book_id: int) -> ApiResponse:
 
 def _quality_action_error(error: ValueError) -> ApiResponse:
     return api_error(HTTPStatus.BAD_REQUEST, "quality_action_failed", str(error))
-
-
-def _check_update_json(body: dict[str, Any]) -> ApiResponse:
-    manifest_url = _optional_text(body, "manifestUrl", "manifest_url") or ""
-    try:
-        manifest = fetch_safe_update_manifest(manifest_url)
-        result = check_for_update(
-            __version__,
-            manifest,
-            skipped_version=_optional_text(body, "skippedVersion", "skipped_version"),
-        )
-    except Exception as error:  # noqa: BLE001
-        return api_error(HTTPStatus.BAD_REQUEST, "update_action_failed", str(error))
-    return ApiResponse(HTTPStatus.OK, {"result": _update_result_payload(result)})
-
-
-def _stage_update_json(db_path: Path, body: dict[str, Any]) -> ApiResponse:
-    manifest_url = _optional_text(body, "manifestUrl", "manifest_url") or ""
-    try:
-        manifest = fetch_safe_update_manifest(manifest_url)
-        result = check_for_update(__version__, manifest)
-        if not result.available:
-            return ApiResponse(HTTPStatus.OK, {"result": _update_result_payload(result)})
-        staged_install = prepare_update_install(
-            manifest,
-            db_path,
-            db_path.parent / "updates",
-            current_version=__version__,
-        )
-    except Exception as error:  # noqa: BLE001
-        return api_error(HTTPStatus.BAD_REQUEST, "update_action_failed", str(error))
-    return ApiResponse(
-        HTTPStatus.OK,
-        {
-            "result": _update_result_payload(result),
-            "stagedInstall": {
-                "planPath": str(staged_install.plan_path),
-                "payload": staged_install.payload,
-            },
-        },
-    )
-
-
-def _update_result_payload(result) -> dict[str, Any]:
-    return {
-        "available": result.available,
-        "version": result.version,
-        "url": result.url,
-        "sha256": result.sha256,
-        "notes": result.notes,
-        "publishedAt": result.published_at,
-        "sizeLabel": result.size_label,
-    }
 
 
 def _export_book_json(db_path: Path, book_id: int, export_format: str) -> ApiResponse:

@@ -2,17 +2,18 @@ import { useEffect, useState } from "react";
 import { ArrowRight, BookOpen, FilePlus2, FolderOpen, PenLine } from "lucide-react";
 
 import { getJson } from "@/lib/api";
-import type { BookPayload, BooksPayload } from "@/lib/types";
+import type { BookPayload, BooksPayload, OpenBookBlueprintSummaryPayload } from "@/lib/types";
 
 type WorkbenchState =
-  | { status: "loading"; books: BookPayload[]; error: null }
-  | { status: "ready"; books: BookPayload[]; error: null }
-  | { status: "error"; books: BookPayload[]; error: string };
+  | { status: "loading"; books: BookPayload[]; blueprints: OpenBookBlueprintSummaryPayload[]; error: null }
+  | { status: "ready"; books: BookPayload[]; blueprints: OpenBookBlueprintSummaryPayload[]; error: null }
+  | { status: "error"; books: BookPayload[]; blueprints: OpenBookBlueprintSummaryPayload[]; error: string };
 
 export function WorkbenchPage() {
   const [state, setState] = useState<WorkbenchState>({
     status: "loading",
     books: [],
+    blueprints: [],
     error: null,
   });
 
@@ -23,11 +24,12 @@ export function WorkbenchPage() {
         const parsed = parseBooksPayload(payload);
         if (!cancelled) {
           if (parsed) {
-            setState({ status: "ready", books: parsed.books, error: null });
+            setState({ status: "ready", books: parsed.books, blueprints: parsed.blueprints, error: null });
           } else {
             setState({
               status: "error",
               books: [],
+              blueprints: [],
               error: "作品列表格式无效。",
             });
           }
@@ -38,6 +40,7 @@ export function WorkbenchPage() {
           setState({
             status: "error",
             books: [],
+            blueprints: [],
             error: error instanceof Error ? error.message : "作品列表加载失败。",
           });
         }
@@ -83,7 +86,11 @@ export function WorkbenchPage() {
         </div>
       )}
 
-      {state.status === "ready" && state.books.length === 0 && <EmptyWorkbench />}
+      {state.status === "ready" && state.books.length === 0 && state.blueprints.length === 0 && <EmptyWorkbench />}
+
+      {state.status === "ready" && state.blueprints.length > 0 && (
+        <OpenBookBlueprintPanel blueprints={state.blueprints} />
+      )}
 
       {state.status === "ready" && state.books.length > 0 && (
         <div className="workbench-grid">
@@ -148,6 +155,49 @@ export function WorkbenchPage() {
   );
 }
 
+function OpenBookBlueprintPanel({ blueprints }: { blueprints: OpenBookBlueprintSummaryPayload[] }) {
+  return (
+    <section className="workbench-panel workbench-project-panel">
+      <div className="workbench-panel__header">
+        <div>
+          <p className="eyebrow">开书阶段</p>
+          <h2>继续开书</h2>
+        </div>
+        <a className="workbench-action-button" href={`/blueprints/${blueprints[0].id}`}>
+          继续最近蓝图
+        </a>
+      </div>
+      <ul className="recent-books">
+        {blueprints.map((blueprint) => (
+          <li key={blueprint.id}>
+            <a
+              aria-label={`继续开书《${blueprint.title}》`}
+              className="recent-book recent-book--link"
+              href={`/blueprints/${blueprint.id}`}
+            >
+              <span className="recent-book__icon" aria-hidden="true">
+                <FilePlus2 size={18} />
+              </span>
+              <span className="recent-book__body">
+                <h3>{blueprint.title}</h3>
+                <p>
+                  {blueprintStatusLabel(blueprint.status)} · 第 {blueprint.version} 版
+                </p>
+                <small>{blueprint.instruction || blueprint.idea}</small>
+              </span>
+              <span className="recent-book__status">
+                <PenLine aria-hidden="true" size={15} />
+                继续
+              </span>
+              <ArrowRight aria-hidden="true" size={18} />
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function EmptyWorkbench() {
   return (
     <div className="workbench-empty">
@@ -170,7 +220,14 @@ function parseBooksPayload(payload: unknown): BooksPayload | null {
   if (!payload.books.every(isBookPayload)) {
     return null;
   }
-  return { books: payload.books };
+  const blueprints = payload.blueprints;
+  if (blueprints !== undefined && !Array.isArray(blueprints)) {
+    return null;
+  }
+  if (Array.isArray(blueprints) && !blueprints.every(isBlueprintSummaryPayload)) {
+    return null;
+  }
+  return { books: payload.books, blueprints: Array.isArray(blueprints) ? blueprints : [] };
 }
 
 function isBookPayload(value: unknown): value is BookPayload {
@@ -187,12 +244,38 @@ function isBookPayload(value: unknown): value is BookPayload {
   );
 }
 
+function isBlueprintSummaryPayload(value: unknown): value is OpenBookBlueprintSummaryPayload {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.id === "number" &&
+    (typeof value.parentId === "number" || value.parentId === null) &&
+    typeof value.version === "number" &&
+    typeof value.status === "string" &&
+    typeof value.title === "string" &&
+    typeof value.idea === "string" &&
+    (typeof value.instruction === "string" || value.instruction === null) &&
+    (typeof value.createdAt === "string" || value.createdAt === null)
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
 
 function bookHref(book: BookPayload): string {
   return book.id === null ? "/" : `/books/${book.id}`;
+}
+
+function blueprintStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    pending: "蓝图排队中",
+    running: "蓝图生成中",
+    succeeded: "蓝图已生成",
+    failed: "蓝图生成失败",
+  };
+  return labels[status] ?? "蓝图处理中";
 }
 
 function statusLabel(status: string): string {

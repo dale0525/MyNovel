@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from "react";
-import { ArrowRight, FileText, ListChecks, Settings, ShieldCheck } from "lucide-react";
+import { ArrowRight, FileText, ListChecks, Settings, ShieldCheck, Trash2 } from "lucide-react";
 
 import { ProjectIdentityBar } from "@/components/guidance/GuidedPanels";
 import { ProjectChapterListView } from "@/features/books/ChapterListPanel";
@@ -28,7 +28,8 @@ type BookWorkspacePageProps = {
 
 type BookWorkspaceView = "overview" | "settings" | "state" | "volumes" | "chapters" | "quality";
 
-type WorkspaceAction = "run-batch" | "word-targets" | "volume-outline" | "volume-revision";
+type ProjectWorkspaceAction = "run-batch" | "word-targets" | "volume-outline" | "volume-revision";
+type WorkspaceAction = ProjectWorkspaceAction | "delete-book";
 
 type ActionRedirectResponse = {
   redirectTo: string;
@@ -58,7 +59,7 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [actionProgressLabel, setActionProgressLabel] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState<BatchProgressState | null>(null);
-  const [streamAction, setStreamAction] = useState<WorkspaceAction | null>(null);
+  const [streamAction, setStreamAction] = useState<ProjectWorkspaceAction | null>(null);
   const [streamSnippets, setStreamSnippets] = useState<string[]>([]);
   const [selectedVolumeKey, setSelectedVolumeKey] = useState<string | null>(null);
   const [targetWordCount, setTargetWordCount] = useState(120000);
@@ -194,12 +195,26 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
     });
   }
 
+  async function deleteCurrentBook() {
+    if (!window.confirm(`确定删除《${state.status === "ready" ? state.data.book.title : "这本书"}》？`)) {
+      return;
+    }
+    await runAction("delete-book", async () => {
+      const payload = await postJson<unknown>(`/api/books/${bookId}/delete`, {});
+      const response = parseActionRedirectResponse(payload);
+      if (!response) {
+        throw new Error("删除结果格式无效。");
+      }
+      navigateTo(response.redirectTo);
+    });
+  }
+
   async function runAction(action: WorkspaceAction, callback: () => Promise<void>) {
     setActionBusy(action);
     setActionError(null);
     setActionStatus(null);
     setActionProgressLabel(null);
-    setStreamAction(action);
+    setStreamAction(projectWorkspaceAction(action));
     setStreamSnippets([]);
     try {
       await callback();
@@ -336,6 +351,8 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
             targetWordCount={targetWordCount}
             updateExistingChapters={updateExistingChapters}
             onSubmit={saveWordTargets}
+            deleting={actionBusy === "delete-book"}
+            onDelete={deleteCurrentBook}
           />
         ) : null}
 
@@ -344,7 +361,7 @@ export function BookWorkspacePage({ bookId, chapterId, view = "overview" }: Book
         {activeView === "chapters" ? (
           chapterId === undefined ? (
             <ProjectChapterListView
-              actionBusy={actionBusy}
+              actionBusy={projectWorkspaceAction(actionBusy)}
               batchReady={batchReady}
               bookId={bookId}
               chapters={chapters}
@@ -500,6 +517,8 @@ function ProjectOverview({
 function ProjectSettingsView({
   actionBusy,
   chapterWordCount,
+  deleting,
+  onDelete,
   setChapterWordCount,
   setTargetWordCount,
   setUpdateExistingChapters,
@@ -509,6 +528,8 @@ function ProjectSettingsView({
 }: {
   actionBusy: WorkspaceAction | null;
   chapterWordCount: number;
+  deleting: boolean;
+  onDelete: () => Promise<void>;
   setChapterWordCount: (value: number) => void;
   setTargetWordCount: (value: number) => void;
   setUpdateExistingChapters: (value: boolean) => void;
@@ -552,6 +573,17 @@ function ProjectSettingsView({
           {actionBusy === "word-targets" ? "保存中..." : "保存目标字数"}
         </button>
       </form>
+      <div className="book-workspace-danger-zone">
+        <button
+          className="workbench-secondary-button workbench-secondary-button--danger"
+          disabled={actionBusy !== null}
+          type="button"
+          onClick={() => void onDelete()}
+        >
+          <Trash2 aria-hidden="true" size={16} />
+          {deleting ? "删除中..." : "删除书籍"}
+        </button>
+      </div>
     </section>
   );
 }
@@ -642,6 +674,10 @@ function projectScopedRedirect(bookId: number, redirectTo: string): string {
     return `/books/${bookId}/chapters/${chapterMatch[1]}`;
   }
   return redirectTo;
+}
+
+function projectWorkspaceAction(action: WorkspaceAction | null): ProjectWorkspaceAction | null {
+  return action === "delete-book" ? null : action;
 }
 
 function canBatchRunChapter(chapter: ChapterPayload): boolean {

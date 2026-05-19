@@ -329,6 +329,46 @@ def test_repair_chapter_prompt_includes_concise_book_boundaries(tmp_path) -> Non
     assert "不得改写已锁定设定，不得新增绕过人工审核的可信状态。" in prompt
 
 
+def test_repair_chapter_treats_string_false_resolved_as_unresolved(tmp_path) -> None:
+    engine = create_engine_for_path(tmp_path / "mynovel.sqlite")
+    create_db_and_tables(engine)
+    model = PromptCapturePatchModel(
+        {
+            "operations": [
+                {
+                    "op": "insert_after",
+                    "paragraph_id": 1,
+                    "text": "远处符号随即回应，逼迫她继续行动。",
+                    "addresses": ["结尾钩子偏弱"],
+                }
+            ]
+        }
+    )
+
+    with Session(engine) as session:
+        book = create_draft_book_from_blueprint(session, _blueprint(), selected_title="长夜图书馆")
+        chapter = _book_chapter(session, book.id, 1)
+        reviewed = run_chapter_pipeline(session, chapter.id)
+        reviewed.audit_report = {
+            "risk_level": "medium",
+            "issues": [{"severity": "medium", "title": "结尾钩子偏弱", "resolved": "false"}],
+            "suggestions": ["补强远处符号回应"],
+        }
+        session.add(reviewed)
+        session.commit()
+
+        repaired = repair_chapter_with_ai(
+            session,
+            reviewed.id,
+            model_client=model,
+            model_name="章节模型",
+            reviewer_note=None,
+        )
+
+    assert "结尾钩子偏弱" in model.prompts[0]
+    assert repaired.audit_report["issues"][0]["resolved"] is True
+
+
 class PromptCapturePatchModel:
     def __init__(self, response: dict) -> None:
         self.calls: list[tuple[str, str]] = []

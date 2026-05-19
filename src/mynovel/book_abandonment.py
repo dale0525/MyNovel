@@ -25,6 +25,10 @@ class AbandonBookError(ValueError):
     pass
 
 
+class DeleteBookError(ValueError):
+    pass
+
+
 def abandon_draft_book_from_form(db_path: Path, form: dict[str, str]) -> None:
     book_id = _parse_book_id(form.get("book_id"))
     engine = create_engine_for_path(db_path)
@@ -35,6 +39,20 @@ def abandon_draft_book_from_form(db_path: Path, form: dict[str, str]) -> None:
             raise AbandonBookError("Book not found.")
         if book.status != BookStatus.DRAFT:
             raise AbandonBookError("Only draft books can be abandoned from the canon gate.")
+        _delete_book_children(session, book_id)
+        session.delete(book)
+        session.commit()
+
+
+def delete_book(db_path: Path, book_id: int) -> None:
+    if book_id <= 0:
+        raise DeleteBookError("Book id is required.")
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        book = session.get(Book, book_id)
+        if book is None:
+            raise DeleteBookError("Book not found.")
         _delete_book_children(session, book_id)
         session.delete(book)
         session.commit()

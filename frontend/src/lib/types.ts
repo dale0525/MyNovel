@@ -13,8 +13,20 @@ export type BookPayload = {
   premise: string | null;
 };
 
+export type OpenBookBlueprintSummaryPayload = {
+  id: number;
+  parentId: number | null;
+  version: number;
+  status: "pending" | "running" | "succeeded" | "failed" | string;
+  title: string;
+  idea: string;
+  instruction: string | null;
+  createdAt: string | null;
+};
+
 export type BooksPayload = {
   books: BookPayload[];
+  blueprints: OpenBookBlueprintSummaryPayload[];
 };
 
 export type ChapterPayload = {

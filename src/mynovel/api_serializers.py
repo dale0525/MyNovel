@@ -9,6 +9,7 @@ from mynovel.blueprint_content import public_blueprint_content
 from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import (
     Book,
+    BlueprintAcceptance,
     Canon,
     CanonProposalRevision,
     CanonProposalRevisionStatus,
@@ -55,6 +56,9 @@ from mynovel.word_targets import (
 
 
 def app_bootstrap_payload(db_path: Path) -> dict[str, Any]:
+    from mynovel.workflows.chapter_recovery import recover_interrupted_chapter_jobs_once
+
+    recover_interrupted_chapter_jobs_once(db_path)
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
     with Session(engine) as session:
@@ -254,6 +258,19 @@ def blueprint_payload(blueprint: OpenBookBlueprint) -> dict[str, Any]:
     }
 
 
+def blueprint_summary_payload(blueprint: OpenBookBlueprint) -> dict[str, Any]:
+    return {
+        "id": blueprint.id,
+        "parentId": blueprint.parent_id,
+        "version": blueprint.version,
+        "status": blueprint.status.value,
+        "title": _blueprint_summary_title(blueprint),
+        "idea": blueprint.idea,
+        "instruction": blueprint.instruction,
+        "createdAt": _isoformat(blueprint.created_at),
+    }
+
+
 def books_payload(db_path: Path) -> dict[str, Any]:
     engine = create_engine_for_path(db_path)
     create_db_and_tables(engine)
@@ -265,7 +282,38 @@ def books_payload(db_path: Path) -> dict[str, Any]:
                 .limit(20)
             )
         )
-    return {"books": [book_payload(book) for book in books]}
+        blueprints = _recent_unaccepted_blueprints(session)
+    return {
+        "books": [book_payload(book) for book in books],
+        "blueprints": [blueprint_summary_payload(blueprint) for blueprint in blueprints],
+    }
+
+
+def _recent_unaccepted_blueprints(session: Session) -> list[OpenBookBlueprint]:
+    accepted_blueprint_ids = set(session.exec(select(BlueprintAcceptance.blueprint_id)))
+    blueprints = list(
+        session.exec(
+            select(OpenBookBlueprint).order_by(
+                cast(Any, OpenBookBlueprint.created_at).desc(),
+                cast(Any, OpenBookBlueprint.id).desc(),
+            )
+        )
+    )
+    return [blueprint for blueprint in blueprints if blueprint.id not in accepted_blueprint_ids][
+        :10
+    ]
+
+
+def _blueprint_summary_title(blueprint: OpenBookBlueprint) -> str:
+    title_options = blueprint.content.get("title_options")
+    if isinstance(title_options, list):
+        for option in title_options:
+            text = str(option).strip()
+            if text:
+                return text
+    title = blueprint.content.get("title")
+    text = str(title or "").strip()
+    return text or f"蓝图第 {blueprint.version} 版"
 
 
 def book_detail_payload(db_path: Path, book_id: int) -> dict[str, Any] | None:

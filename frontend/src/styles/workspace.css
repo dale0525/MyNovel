@@ -382,6 +382,23 @@
   justify-self: start;
 }
 
+.book-workspace-danger-zone {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 1rem;
+  border-top: 1px solid rgb(168 49 40 / 0.18);
+  padding-top: 1rem;
+}
+
+.workbench-secondary-button--danger {
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
+  border-color: rgb(168 49 40 / 0.3);
+  background: #fff2ed;
+  color: #7a231d;
+}
+
 .workspace-volume-list {
   display: grid;
   gap: 0.75rem;

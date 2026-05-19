@@ -420,7 +420,7 @@ function hasHighRiskAudit(chapter: ChapterDetailPayload): boolean {
     return true;
   }
   return auditReportIssues(chapter.auditReport).some(
-    (issue) => normalizedText(issue.severity) === "high" && issue.resolved !== true,
+    (issue) => normalizedText(issue.severity) === "high" && !auditIssueResolved(issue),
   );
 }
 
@@ -536,7 +536,7 @@ function auditIssueDisplay(issue: Record<string, unknown>, index: number): Norma
   return {
     key: wordCountIssue ? WORD_COUNT_ISSUE_KEY : normalizedText(title),
     title,
-    resolved: issue.resolved === true,
+    resolved: auditIssueResolved(issue),
     wordCountIssue,
   };
 }
@@ -760,6 +760,22 @@ function stringValue(value: unknown): string {
 
 function normalizedText(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function auditIssueResolved(issue: Record<string, unknown>): boolean {
+  const value = issue.resolved;
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value === 1;
+  }
+  if (typeof value === "string") {
+    return ["true", "1", "yes", "y", "resolved", "fixed", "已解决", "已修正", "已满足"].includes(
+      value.trim().toLowerCase(),
+    );
+  }
+  return false;
 }
 
 function chapterStatusLabel(status: string): string {

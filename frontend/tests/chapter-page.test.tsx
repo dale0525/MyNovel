@@ -771,6 +771,26 @@ test("run action enters running state from the action response", async () => {
   );
 });
 
+test("needs revision chapters can be regenerated from the review page", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(chapterPayload({ status: "needs_revision" })))
+    .mockResolvedValueOnce(streamResponse([{ type: "done", chapter: chapterPayload({ status: "awaiting_review" }) }]));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ChapterPage chapterId={12} />);
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "修改本章" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "修改本章" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chapters/12/run-stream",
+      expect.objectContaining({ method: "POST" }),
+    ),
+  );
+});
+
 test("approve button writes trusted state and moves to the next chapter workbench", async () => {
   window.history.pushState(null, "", "/books/42/chapters/12");
   const fetchMock = vi

@@ -16,6 +16,7 @@ from mynovel.domain.repositories import (
 )
 from mynovel.llm.openai_compatible import ChatRequest, OpenAICompatibleClient
 from mynovel.prompts.registry import load_prompt_by_id, render_prompt_messages
+from mynovel.workflows.audit_issues import audit_issue_resolved
 from mynovel.workflows.chapter_prompting import (
     build_audit_messages as _build_audit_messages,
     build_draft_messages as _build_draft_messages,
@@ -719,7 +720,7 @@ def _revise_text(draft_text: str, audit_report: dict) -> str:
     unresolved = [
         issue["title"]
         for issue in audit_report.get("issues", [])
-        if isinstance(issue, dict) and not issue.get("resolved")
+        if isinstance(issue, dict) and not audit_issue_resolved(issue)
     ]
     hook = "石门深处忽然亮起第二枚符号，像是在回应她掌心的热度。"
     if unresolved:
@@ -750,7 +751,7 @@ def _assert_review_gate_passed(chapter: Chapter, allow_major_changes: bool) -> N
         if not isinstance(issue, dict):
             continue
         severity = str(issue.get("severity", "")).lower()
-        if severity == "high" and not issue.get("resolved"):
+        if severity == "high" and not audit_issue_resolved(issue):
             raise ReviewGateError("高风险问题未解决，不能写入可信设定。")
     major_changes = _major_state_changes(chapter)
     if major_changes and not allow_major_changes:

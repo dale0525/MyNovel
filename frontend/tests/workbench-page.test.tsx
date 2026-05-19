@@ -59,6 +59,7 @@ test("recent books render title status premise and project CTAs", async () => {
             premise: "档案员追查被删掉的山城协议。",
           },
         ],
+        blueprints: [],
       }),
     ),
   );
@@ -73,4 +74,37 @@ test("recent books render title status premise and project CTAs", async () => {
   expect(screen.getByRole("heading", { name: "雾谷旧约" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "继续《星港遗梦》" })).toHaveAttribute("href", "/books/7");
   expect(screen.getByRole("link", { name: "继续《雾谷旧约》" })).toHaveAttribute("href", "/books/8");
+});
+
+test("open book blueprints render as resumable workbench items", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        books: [],
+        blueprints: [
+          {
+            id: 9,
+            parentId: null,
+            version: 2,
+            status: "succeeded",
+            title: "长夜档案",
+            idea: "一句灵感：失意档案员重建禁书图书馆",
+            instruction: "主角更主动",
+            createdAt: "2026-05-16T00:00:00+00:00",
+          },
+        ],
+      }),
+    ),
+  );
+
+  render(<WorkbenchPage />);
+
+  await waitFor(() => expect(screen.getByRole("heading", { name: "继续开书" })).toBeInTheDocument());
+  expect(screen.getByText("长夜档案")).toBeInTheDocument();
+  expect(screen.getByText("蓝图已生成 · 第 2 版")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "继续开书《长夜档案》" })).toHaveAttribute(
+    "href",
+    "/blueprints/9",
+  );
 });

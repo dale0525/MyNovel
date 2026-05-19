@@ -8,6 +8,7 @@ from sqlmodel import Session
 from mynovel.chapter_batch_payload import validate_chapter_batch_ids
 from mynovel.domain.models import BookStatus, Chapter, ChapterStatus, RunTrace
 from mynovel.domain.repositories import get_book, get_latest_canon, list_chapters_for_book
+from mynovel.workflows.audit_issues import audit_issue_resolved
 from mynovel.workflows.chapter_pipeline import ChapterModelClient, run_chapter_pipeline
 
 
@@ -109,7 +110,7 @@ def _has_high_risk_audit(audit_report: dict[str, Any]) -> bool:
         if not isinstance(issue, dict):
             continue
         severity = str(issue.get("severity", "")).lower()
-        if severity == "high" and not issue.get("resolved"):
+        if severity == "high" and not audit_issue_resolved(issue):
             return True
     return False
 

@@ -20,6 +20,7 @@ from mynovel.domain.repositories import (
     list_chapters_for_book,
     list_run_traces_for_book,
 )
+from mynovel.workflows.audit_issues import audit_issue_resolved
 
 
 def create_style_asset(
@@ -190,7 +191,7 @@ def _quality_metrics(chapters: list, traces: list) -> dict[str, Any]:
         chapter_is_high_risk = str(audit_report.get("risk_level", "")).lower() == "high"
         high_risk_issues = 0
         for issue in audit_report.get("issues", []):
-            if not isinstance(issue, dict) or issue.get("resolved"):
+            if not isinstance(issue, dict) or audit_issue_resolved(issue):
                 continue
             unresolved += 1
             if str(issue.get("severity", "")).lower() == "high":
