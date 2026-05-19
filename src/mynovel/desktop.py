@@ -26,8 +26,11 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def default_desktop_db_path() -> Path:
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        return Path(local_app_data) / "MyNovel" / "desktop.sqlite"
     if os.name == "nt":
-        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        base = Path.home() / "AppData" / "Local"
         return base / "MyNovel" / "desktop.sqlite"
     return Path.home() / ".mynovel" / "desktop.sqlite"
 
