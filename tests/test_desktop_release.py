@@ -187,11 +187,11 @@ def test_release_metadata_checksum_uses_lf_on_windows_text_mode(
         return original_write_text(self, data, *args, **kwargs)
 
     monkeypatch.setattr(Path, "write_text", windows_write_text)
-    artifact = tmp_path / "MyNovel-windows-x64.msi"
-    artifact.write_bytes(b"placeholder msi")
+    artifact = tmp_path / "MyNovel-windows-x64.exe"
+    artifact.write_bytes(b"placeholder exe")
 
     _write_metadata(tmp_path, artifact, "0.1.9", "windows-x64")
 
     checksum = (tmp_path / "checksums-windows-x64.sha256").read_bytes()
-    assert checksum.endswith(b"MyNovel-windows-x64.msi\n")
+    assert checksum.endswith(b"MyNovel-windows-x64.exe\n")
     assert b"\r" not in checksum
