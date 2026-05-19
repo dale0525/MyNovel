@@ -5,6 +5,7 @@ import tomllib
 
 def test_frontend_package_has_required_scripts() -> None:
     package = json.loads(Path("frontend/package.json").read_text(encoding="utf-8"))
+    assert package["main"] == "dist-electron/main.js"
     assert package["scripts"]["dev"] == "vite --host 127.0.0.1"
     assert package["scripts"]["build"] == "tsc -b && vite build"
     assert package["scripts"]["typecheck"] == "tsc -b --pretty false"
@@ -13,6 +14,13 @@ def test_frontend_package_has_required_scripts() -> None:
     assert package["scripts"]["e2e"] == (
         "PLAYWRIGHT_BROWSERS_PATH=.tool/ms-playwright playwright test"
     )
+    assert package["scripts"]["build:electron-main"] == "tsc -p tsconfig.electron.json"
+    assert package["scripts"]["electron:build"] == (
+        "npm run build:electron-main && electron-builder --config electron-builder.yml"
+    )
+    assert package["scripts"]["electron:dev"] == "npm run build:electron-main && electron ."
+    assert "electron" in package["devDependencies"]
+    assert "electron-builder" in package["devDependencies"]
 
 
 def test_pixi_exposes_frontend_tasks() -> None:
@@ -63,6 +71,7 @@ def test_frontend_config_files_support_tooling() -> None:
     eslint_config = Path("frontend/eslint.config.js").read_text(encoding="utf-8")
     assert "typescript-eslint" in eslint_config
     assert "eslint-plugin-react-hooks" in eslint_config
+    assert '"electron/**/*.ts"' in eslint_config
 
     postcss_config = Path("frontend/postcss.config.js").read_text(encoding="utf-8")
     assert "tailwindcss" in postcss_config
@@ -103,13 +112,22 @@ def test_frontend_tsconfig_separates_browser_and_node_projects() -> None:
     root = json.loads(Path("frontend/tsconfig.json").read_text(encoding="utf-8"))
     app = json.loads(Path("frontend/tsconfig.app.json").read_text(encoding="utf-8"))
     node = json.loads(Path("frontend/tsconfig.node.json").read_text(encoding="utf-8"))
+    electron = json.loads(
+        Path("frontend/tsconfig.electron.json").read_text(encoding="utf-8")
+    )
 
     assert root["files"] == []
     assert root["references"] == [
         {"path": "./tsconfig.app.json"},
         {"path": "./tsconfig.node.json"},
+        {"path": "./tsconfig.electron.json"},
     ]
     assert app["include"] == ["src"]
     assert app["compilerOptions"].get("types") != ["node"]
     assert node["include"] == ["vite.config.ts", "tailwind.config.ts"]
     assert node["compilerOptions"]["types"] == ["node"]
+    assert electron["extends"] == "./tsconfig.node.json"
+    assert electron["compilerOptions"]["outDir"] == "dist-electron"
+    assert electron["compilerOptions"]["rootDir"] == "electron"
+    assert electron["compilerOptions"]["noEmit"] is False
+    assert electron["include"] == ["electron/**/*.ts"]

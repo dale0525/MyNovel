@@ -3,13 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
+    "build:electron-main": "tsc -p tsconfig.electron.json",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
     "test": "vitest run --environment jsdom tests",
-    "e2e": "PLAYWRIGHT_BROWSERS_PATH=.tool/ms-playwright playwright test"
+    "e2e": "PLAYWRIGHT_BROWSERS_PATH=.tool/ms-playwright playwright test",
+    "electron:build": "npm run build:electron-main && electron-builder --config electron-builder.yml",
+    "electron:dev": "npm run build:electron-main && electron ."
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",
@@ -31,6 +35,8 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.20",
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0",
     "eslint": "^9.17.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "jsdom": "^25.0.1",

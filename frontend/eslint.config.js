@@ -13,7 +13,7 @@ export default tseslint.config(
   },
   ...tseslint.configs.recommended,
   {
-    files: ["src/**/*.{ts,tsx}", "*.config.ts"],
+    files: ["src/**/*.{ts,tsx}", "electron/**/*.ts", "*.config.ts"],
     languageOptions: {
       parserOptions: {
         ecmaFeatures: { jsx: true },
