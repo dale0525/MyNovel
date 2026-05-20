@@ -164,12 +164,16 @@ def test_batch_chapter_run_rejects_limit_payload(tmp_path: Path) -> None:
     assert "chapterIds" in response.body["error"]["message"]
 
 
-def test_updates_metadata_route_returns_json(tmp_path: Path) -> None:
+def test_updates_metadata_route_returns_json(tmp_path: Path, monkeypatch) -> None:
+    from mynovel import api_updates
+
+    monkeypatch.setattr(api_updates, "detect_update_platform", lambda: "macos-arm64")
+
     response = dispatch_api_get("/api/updates", "", tmp_path / "dev.sqlite")
 
     assert response.status == HTTPStatus.OK
     assert response.body["currentVersion"]
-    assert response.body["platform"]
+    assert response.body["platform"] == "macos-arm64"
     assert response.body["manifestUrl"].startswith(
         "https://github.com/dale0525/MyNovel/releases/latest/download/update-"
     )
