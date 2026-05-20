@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from mynovel.api_errors import ApiResponse, api_error
 from mynovel.api_serializers import blueprint_payload, is_provider_config_validated
@@ -17,7 +17,7 @@ from mynovel.blueprint_acceptance import (
 from mynovel.blueprint_jobs import reset_blueprint_for_retry, start_blueprint_job
 from mynovel.blueprint_revision import create_revision_blueprint_job, revision_notes_from_form
 from mynovel.db import create_db_and_tables, create_engine_for_path
-from mynovel.domain.models import BlueprintAcceptance, BlueprintStatus, Book
+from mynovel.domain.models import BlueprintAcceptance, BlueprintStatus, Book, OpenBookBlueprint
 from mynovel.domain.repositories import (
     get_book,
     get_open_book_blueprint,
@@ -81,6 +81,29 @@ def get_blueprint_json(db_path: Path, blueprint_id: int) -> ApiResponse:
         if blueprint is None:
             return _blueprint_not_found()
         return ApiResponse(HTTPStatus.OK, {"blueprint": blueprint_payload(blueprint)})
+
+
+def delete_blueprint_json(db_path: Path, blueprint_id: int) -> ApiResponse:
+    if blueprint_id <= 0:
+        return _blueprint_not_found()
+    with _blueprint_action_lock(blueprint_id):
+        engine = create_engine_for_path(db_path)
+        create_db_and_tables(engine)
+        with Session(engine) as session:
+            blueprint = get_open_book_blueprint(session, blueprint_id)
+            if blueprint is None:
+                return _blueprint_not_found()
+            blueprint_ids = _blueprint_tree_ids(session, blueprint_id)
+            if any(
+                session.get(BlueprintAcceptance, item_id) is not None for item_id in blueprint_ids
+            ):
+                return _invalid_blueprint_action("已进入正式项目的蓝图不能删除。")
+            for item_id in reversed(blueprint_ids):
+                item = get_open_book_blueprint(session, item_id)
+                if item is not None:
+                    session.delete(item)
+            session.commit()
+    return ApiResponse(HTTPStatus.OK, {"redirectTo": "/"})
 
 
 def retry_blueprint_json(db_path: Path, blueprint_id: int) -> ApiResponse:
@@ -257,6 +280,21 @@ def _accepted_book_id_in_session(session: Session, blueprint_id: int) -> int | N
     session.add(BlueprintAcceptance(blueprint_id=blueprint_id, book_id=raw_book_id))
     session.commit()
     return raw_book_id
+
+
+def _blueprint_tree_ids(session: Session, root_id: int) -> list[int]:
+    ids = [root_id]
+    index = 0
+    while index < len(ids):
+        current_id = ids[index]
+        index += 1
+        children = session.exec(
+            select(OpenBookBlueprint).where(OpenBookBlueprint.parent_id == current_id)
+        ).all()
+        for child in children:
+            if child.id is not None and child.id not in ids:
+                ids.append(child.id)
+    return ids
 
 
 def _blueprint_action_lock(blueprint_id: int) -> Lock:

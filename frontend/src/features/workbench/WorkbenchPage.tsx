@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, BookOpen, FilePlus2, FolderOpen, PenLine } from "lucide-react";
+import { ArrowRight, BookOpen, FilePlus2, FolderOpen, PenLine, Trash2 } from "lucide-react";
 
-import { getJson } from "@/lib/api";
+import { getJson, postJson } from "@/lib/api";
 import type { BookPayload, BooksPayload, OpenBookBlueprintSummaryPayload } from "@/lib/types";
 
 type WorkbenchState =
@@ -16,6 +16,7 @@ export function WorkbenchPage() {
     blueprints: [],
     error: null,
   });
+  const [deletingBlueprintId, setDeletingBlueprintId] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +51,29 @@ export function WorkbenchPage() {
       cancelled = true;
     };
   }, []);
+
+  async function deleteBlueprint(blueprint: OpenBookBlueprintSummaryPayload) {
+    if (!window.confirm(`确定删除开书蓝图《${blueprint.title}》？`)) {
+      return;
+    }
+    setDeletingBlueprintId(blueprint.id);
+    try {
+      await postJson<unknown>(`/api/blueprints/${blueprint.id}/delete`, {});
+      setState((current) => {
+        if (current.status !== "ready") {
+          return current;
+        }
+        return {
+          ...current,
+          blueprints: current.blueprints.filter((item) => item.id !== blueprint.id),
+        };
+      });
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "蓝图删除失败。");
+    } finally {
+      setDeletingBlueprintId(null);
+    }
+  }
 
   return (
     <section className="workbench-page workbench-page--home" aria-labelledby="workbench-title">
@@ -89,7 +113,11 @@ export function WorkbenchPage() {
       {state.status === "ready" && state.books.length === 0 && state.blueprints.length === 0 && <EmptyWorkbench />}
 
       {state.status === "ready" && state.blueprints.length > 0 && (
-        <OpenBookBlueprintPanel blueprints={state.blueprints} />
+        <OpenBookBlueprintPanel
+          blueprints={state.blueprints}
+          deletingBlueprintId={deletingBlueprintId}
+          onDelete={deleteBlueprint}
+        />
       )}
 
       {state.status === "ready" && state.books.length > 0 && (
@@ -155,7 +183,15 @@ export function WorkbenchPage() {
   );
 }
 
-function OpenBookBlueprintPanel({ blueprints }: { blueprints: OpenBookBlueprintSummaryPayload[] }) {
+function OpenBookBlueprintPanel({
+  blueprints,
+  deletingBlueprintId,
+  onDelete,
+}: {
+  blueprints: OpenBookBlueprintSummaryPayload[];
+  deletingBlueprintId: number | null;
+  onDelete: (blueprint: OpenBookBlueprintSummaryPayload) => void;
+}) {
   return (
     <section className="workbench-panel workbench-project-panel">
       <div className="workbench-panel__header">
@@ -170,27 +206,39 @@ function OpenBookBlueprintPanel({ blueprints }: { blueprints: OpenBookBlueprintS
       <ul className="recent-books">
         {blueprints.map((blueprint) => (
           <li key={blueprint.id}>
-            <a
-              aria-label={`继续开书《${blueprint.title}》`}
-              className="recent-book recent-book--link"
-              href={`/blueprints/${blueprint.id}`}
-            >
-              <span className="recent-book__icon" aria-hidden="true">
-                <FilePlus2 size={18} />
-              </span>
-              <span className="recent-book__body">
-                <h3>{blueprint.title}</h3>
-                <p>
-                  {blueprintStatusLabel(blueprint.status)} · 第 {blueprint.version} 版
-                </p>
-                <small>{blueprint.instruction || blueprint.idea}</small>
-              </span>
-              <span className="recent-book__status">
-                <PenLine aria-hidden="true" size={15} />
-                继续
-              </span>
-              <ArrowRight aria-hidden="true" size={18} />
-            </a>
+            <div className="recent-book-row">
+              <a
+                aria-label={`继续开书《${blueprint.title}》`}
+                className="recent-book recent-book--link"
+                href={`/blueprints/${blueprint.id}`}
+              >
+                <span className="recent-book__icon" aria-hidden="true">
+                  <FilePlus2 size={18} />
+                </span>
+                <span className="recent-book__body">
+                  <h3>{blueprint.title}</h3>
+                  <p>
+                    {blueprintStatusLabel(blueprint.status)} · 第 {blueprint.version} 版
+                  </p>
+                  <small>{blueprint.instruction || blueprint.idea}</small>
+                </span>
+                <span className="recent-book__status">
+                  <PenLine aria-hidden="true" size={15} />
+                  继续
+                </span>
+                <ArrowRight aria-hidden="true" size={18} />
+              </a>
+              <button
+                aria-label={`删除开书蓝图《${blueprint.title}》`}
+                className="recent-book-delete"
+                disabled={deletingBlueprintId === blueprint.id}
+                onClick={() => onDelete(blueprint)}
+                title={`删除开书蓝图《${blueprint.title}》`}
+                type="button"
+              >
+                <Trash2 aria-hidden="true" size={18} />
+              </button>
+            </div>
           </li>
         ))}
       </ul>

@@ -12,6 +12,7 @@ from mynovel.api_errors import ApiResponse, api_error, invalid_json_response
 from mynovel.api_open_book import (
     accept_blueprint_json,
     create_open_book_blueprint_json,
+    delete_blueprint_json,
     get_blueprint_json,
     retry_blueprint_json,
     revise_blueprint_json,
@@ -174,6 +175,8 @@ def dispatch_api_post(path: str, body: dict[str, Any], db_path: Path) -> ApiResp
             return revise_blueprint_json(db_path, blueprint_id, body)
         if action == "accept":
             return accept_blueprint_json(db_path, blueprint_id, body)
+        if action == "delete":
+            return delete_blueprint_json(db_path, blueprint_id)
     quality_action = _parse_book_quality_action_api_path(path)
     if quality_action is not None:
         book_id, action = quality_action

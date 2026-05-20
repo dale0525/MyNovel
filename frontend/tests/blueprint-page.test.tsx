@@ -42,6 +42,37 @@ test("renders running blueprint state and polls while in progress", async () => 
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
+test("running blueprint can be deleted from the waiting page", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path === "/api/blueprints/3") {
+      return Response.json({ blueprint: blueprintPayload({ status: "running" }) });
+    }
+    if (path === "/api/blueprints/3/delete" && init?.method === "POST") {
+      return Response.json({ redirectTo: "/" });
+    }
+    return Response.json({}, { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("confirm", vi.fn(() => true));
+
+  render(<BlueprintPage blueprintId={3} />);
+
+  await screen.findByRole("status");
+  fireEvent.click(screen.getByRole("button", { name: "删除当前蓝图" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/blueprints/3/delete",
+      expect.objectContaining({
+        body: JSON.stringify({}),
+        method: "POST",
+      }),
+    ),
+  );
+  await waitFor(() => expect(window.location.pathname).toBe("/"));
+});
+
 test("aborts in-flight blueprint fetch on unmount", () => {
   let signal: AbortSignal | undefined;
   vi.stubGlobal(

@@ -41,6 +41,7 @@ describe("Electron backend helpers", () => {
   test("starts backend with hidden child process options", () => {
     const child = {
       killed: false,
+      pid: 4242,
       kill: vi.fn(() => true),
       once: vi.fn(),
     } as unknown as BackendProcess;
@@ -51,13 +52,38 @@ describe("Electron backend helpers", () => {
       host: "127.0.0.1",
       port: 8765,
       spawnBackend,
+      platform: "darwin",
     });
 
     expect(started).toBe(child);
     expect(spawnBackend).toHaveBeenCalledWith(
       "MyNovelBackend.exe",
       ["--host", "127.0.0.1", "--port", "8765", "--strict-port", "--no-open"],
-      { stdio: "ignore", windowsHide: true },
+      { stdio: "ignore", windowsHide: true, detached: true },
+    );
+  });
+
+  test("keeps Windows backend attached because taskkill handles process trees", () => {
+    const child = {
+      killed: false,
+      pid: 4242,
+      kill: vi.fn(() => true),
+      once: vi.fn(),
+    } as unknown as BackendProcess;
+    const spawnBackend = vi.fn(() => child);
+
+    startBackend({
+      executable: "MyNovelBackend.exe",
+      host: "127.0.0.1",
+      port: 8765,
+      spawnBackend,
+      platform: "win32",
+    });
+
+    expect(spawnBackend).toHaveBeenCalledWith(
+      "MyNovelBackend.exe",
+      ["--host", "127.0.0.1", "--port", "8765", "--strict-port", "--no-open"],
+      { stdio: "ignore", windowsHide: true, detached: false },
     );
   });
 
@@ -126,14 +152,48 @@ describe("Electron backend helpers", () => {
     }
   });
 
-  test("stops a running backend process", () => {
+  test("stops a POSIX backend process group to clean up child servers", () => {
     const child = {
       killed: false,
+      pid: 4242,
       kill: vi.fn(() => true),
       once: vi.fn(),
     } as unknown as BackendProcess;
+    const killProcess = vi.fn();
 
-    stopBackend(child);
+    stopBackend(child, { platform: "darwin", killProcess });
+
+    expect(killProcess).toHaveBeenCalledWith(-4242, "SIGTERM");
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  test("stops a Windows backend process tree with taskkill", () => {
+    const child = {
+      killed: false,
+      pid: 4242,
+      kill: vi.fn(() => true),
+      once: vi.fn(),
+    } as unknown as BackendProcess;
+    const stopWindowsProcessTree = vi.fn();
+
+    stopBackend(child, { platform: "win32", stopWindowsProcessTree });
+
+    expect(stopWindowsProcessTree).toHaveBeenCalledWith(4242);
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  test("falls back to direct child termination when tree cleanup is unavailable", () => {
+    const child = {
+      killed: false,
+      pid: 4242,
+      kill: vi.fn(() => true),
+      once: vi.fn(),
+    } as unknown as BackendProcess;
+    const killProcess = vi.fn(() => {
+      throw new Error("missing process group");
+    });
+
+    stopBackend(child, { platform: "linux", killProcess });
 
     expect(child.kill).toHaveBeenCalledWith();
   });

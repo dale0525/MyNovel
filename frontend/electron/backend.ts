@@ -1,16 +1,29 @@
-import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import {
+  execFileSync,
+  spawn,
+  type ChildProcess,
+  type SpawnOptions,
+} from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 
 export const DEFAULT_BACKEND_HOST = "127.0.0.1";
 export const DEFAULT_BACKEND_PORT = 8765;
 
-export type BackendProcess = Pick<ChildProcess, "kill" | "killed" | "once">;
+export type BackendProcess = Pick<ChildProcess, "kill" | "killed" | "once" | "pid">;
 export type SpawnBackend = (
   executable: string,
   args: string[],
   options: SpawnOptions,
 ) => BackendProcess;
+export type KillProcess = (pid: number, signal?: NodeJS.Signals) => unknown;
+export type StopWindowsProcessTree = (pid: number) => unknown;
+
+export type StopBackendOptions = {
+  platform?: NodeJS.Platform;
+  killProcess?: KillProcess;
+  stopWindowsProcessTree?: StopWindowsProcessTree;
+};
 
 export function backendExecutableName(platform: NodeJS.Platform = process.platform): string {
   return platform === "win32" ? "MyNovelBackend.exe" : "MyNovelBackend";
@@ -25,6 +38,16 @@ export function resolveBackendExecutable(
 
 export function createBackendArgs(options: { host: string; port: number }): string[] {
   return ["--host", options.host, "--port", String(options.port), "--strict-port", "--no-open"];
+}
+
+export function createBackendSpawnOptions(
+  platform: NodeJS.Platform = process.platform,
+): SpawnOptions {
+  return {
+    stdio: "ignore",
+    windowsHide: true,
+    detached: platform !== "win32",
+  };
 }
 
 export function createBackendUrl(host: string, port: number, pathname = "/"): string {
@@ -50,12 +73,14 @@ export function startBackend(options: {
   host: string;
   port: number;
   spawnBackend?: SpawnBackend;
+  platform?: NodeJS.Platform;
 }): BackendProcess {
   const spawnBackend = options.spawnBackend !== undefined ? options.spawnBackend : spawn;
-  return spawnBackend(options.executable, createBackendArgs(options), {
-    stdio: "ignore",
-    windowsHide: true,
-  });
+  return spawnBackend(
+    options.executable,
+    createBackendArgs(options),
+    createBackendSpawnOptions(options.platform),
+  );
 }
 
 export async function waitForBackendHealth(
@@ -93,10 +118,47 @@ export async function waitForBackendHealth(
   throw new Error(`Backend did not become healthy at ${healthUrl}.`);
 }
 
-export function stopBackend(backend: BackendProcess | null): void {
-  if (backend && !backend.killed) {
-    backend.kill();
+export function stopBackend(
+  backend: BackendProcess | null,
+  options: StopBackendOptions = {},
+): void {
+  if (!backend || backend.killed) {
+    return;
   }
+
+  const pid = backend.pid;
+  if (typeof pid === "number" && Number.isInteger(pid) && pid > 0) {
+    const platform = options.platform !== undefined ? options.platform : process.platform;
+    if (platform === "win32") {
+      const stopWindowsProcessTree =
+        options.stopWindowsProcessTree !== undefined
+          ? options.stopWindowsProcessTree
+          : stopWindowsProcessTreeWithTaskkill;
+      try {
+        stopWindowsProcessTree(pid);
+        return;
+      } catch {
+        // Fall back to direct child termination below.
+      }
+    } else {
+      const killProcess = options.killProcess !== undefined ? options.killProcess : process.kill;
+      try {
+        killProcess(-pid, "SIGTERM");
+        return;
+      } catch {
+        // Fall back to direct child termination below.
+      }
+    }
+  }
+
+  backend.kill();
+}
+
+export function stopWindowsProcessTreeWithTaskkill(pid: number): void {
+  execFileSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
+    stdio: "ignore",
+    windowsHide: true,
+  });
 }
 
 function canListen(host: string, port: number): Promise<boolean> {

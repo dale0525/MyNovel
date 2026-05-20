@@ -148,8 +148,9 @@ def test_electron_main_process_and_builder_config_are_packaged_for_backend() -> 
     builder = yaml.safe_load(Path("frontend/electron-builder.yml").read_text(encoding="utf-8"))
 
     for token in (
-        'from "electron"',
+        'import { app, BrowserWindow, Menu } from "electron"',
         "BrowserWindow",
+        "Menu.setApplicationMenu(null);",
         "startBackend",
         "waitForBackendHealth",
         "resolveBackendExecutable",
@@ -162,7 +163,10 @@ def test_electron_main_process_and_builder_config_are_packaged_for_backend() -> 
     assert "let startupPromise: Promise<void> | null = null;" in main_process
     assert "if (startupPromise !== null) {" in main_process
     assert "startupPromise = createMainWindow().finally(() => {" in main_process
-    assert "app.whenReady().then(() => {\n  startMainWindow();" in main_process
+    assert (
+        "app.whenReady().then(() => {\n  Menu.setApplicationMenu(null);\n  startMainWindow();"
+        in main_process
+    )
 
     activate_handler = main_process[main_process.index('app.on("activate"') :]
     assert "startMainWindow();" in activate_handler

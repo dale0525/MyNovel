@@ -10,10 +10,12 @@ from mynovel.db import create_db_and_tables, create_engine_for_path
 from mynovel.domain.models import (
     Book,
     BookStatus,
+    BlueprintStatus,
     BlueprintAcceptance,
     Canon,
     CanonProposalRevision,
     Chapter,
+    OpenBookBlueprint,
 )
 from mynovel.domain.repositories import add_book
 
@@ -105,3 +107,26 @@ def test_delete_book_api_deletes_project_and_children(tmp_path: Path) -> None:
         assert session.get(Book, book_id) is None
         assert session.exec(select(Canon).where(Canon.book_id == book_id)).all() == []
         assert session.exec(select(Chapter).where(Chapter.book_id == book_id)).all() == []
+
+
+def test_delete_blueprint_api_deletes_running_open_book_project(tmp_path: Path) -> None:
+    db_path = tmp_path / "mynovel.sqlite"
+    engine = create_engine_for_path(db_path)
+    create_db_and_tables(engine)
+    with Session(engine) as session:
+        blueprint = OpenBookBlueprint(
+            idea="一句灵感：失意档案员重建禁书图书馆",
+            version=1,
+            status=BlueprintStatus.RUNNING,
+        )
+        session.add(blueprint)
+        session.commit()
+        session.refresh(blueprint)
+        blueprint_id = blueprint.id or 0
+
+    response = dispatch_api_post(f"/api/blueprints/{blueprint_id}/delete", {}, db_path)
+
+    assert response.status == HTTPStatus.OK
+    assert response.body == {"redirectTo": "/"}
+    with Session(engine) as session:
+        assert session.get(OpenBookBlueprint, blueprint_id) is None

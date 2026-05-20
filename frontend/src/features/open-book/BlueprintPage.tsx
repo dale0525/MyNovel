@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
 
 import { AiStreamFeedback } from "@/components/feedback/AiStreamFeedback";
 import { AiWaitingIndicator } from "@/components/feedback/AiWaitingIndicator";
@@ -134,6 +135,13 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
     }
   }
 
+  function deleteCurrentBlueprint() {
+    if (!window.confirm("确定删除当前开书蓝图？")) {
+      return;
+    }
+    void runAction("delete", `/api/blueprints/${blueprintId}/delete`, {});
+  }
+
   if (state.status === "loading") {
     return (
       <section className="workbench-page" aria-labelledby="blueprint-title">
@@ -169,13 +177,27 @@ export function BlueprintPage({ blueprintId }: { blueprintId: number }) {
   return (
     <section className="workbench-page blueprint-page" aria-labelledby="blueprint-title">
       <div className="workbench-hero">
-        <p className="eyebrow">蓝图第 {blueprint.version} 版</p>
-        <h1 id="blueprint-title">开书蓝图</h1>
-        {blueprintInProgress ? (
-          <AiWaitingIndicator detail={waitingDetail} label={waitingLabel} variant="hero" />
-        ) : (
-          <p className="lede">{statusText(blueprint.status)}</p>
-        )}
+        <div>
+          <p className="eyebrow">蓝图第 {blueprint.version} 版</p>
+          <h1 id="blueprint-title">开书蓝图</h1>
+          {blueprintInProgress ? (
+            <AiWaitingIndicator detail={waitingDetail} label={waitingLabel} variant="hero" />
+          ) : (
+            <p className="lede">{statusText(blueprint.status)}</p>
+          )}
+        </div>
+        <div className="blueprint-hero-actions">
+          <button
+            aria-label="删除当前蓝图"
+            className="blueprint-delete-button"
+            disabled={pendingAction !== null}
+            onClick={deleteCurrentBlueprint}
+            title="删除当前蓝图"
+            type="button"
+          >
+            <Trash2 aria-hidden="true" size={18} />
+          </button>
+        </div>
       </div>
 
       {actionError && (

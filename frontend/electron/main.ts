@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, Menu } from "electron";
 import {
   DEFAULT_BACKEND_HOST,
   DEFAULT_BACKEND_PORT,
@@ -105,6 +105,7 @@ async function createStartupErrorWindow(error: unknown): Promise<void> {
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   startMainWindow();
 });
 

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { WorkbenchPage } from "@/features/workbench/WorkbenchPage";
@@ -107,4 +107,49 @@ test("open book blueprints render as resumable workbench items", async () => {
     "href",
     "/blueprints/9",
   );
+});
+
+test("open book blueprints can be deleted from the workbench", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path === "/api/books") {
+      return Response.json({
+        books: [],
+        blueprints: [
+          {
+            id: 9,
+            parentId: null,
+            version: 1,
+            status: "running",
+            title: "长夜档案",
+            idea: "一句灵感：失意档案员重建禁书图书馆",
+            instruction: null,
+            createdAt: "2026-05-16T00:00:00+00:00",
+          },
+        ],
+      });
+    }
+    if (path === "/api/blueprints/9/delete" && init?.method === "POST") {
+      return Response.json({ redirectTo: "/" });
+    }
+    return Response.json({}, { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("confirm", vi.fn(() => true));
+
+  render(<WorkbenchPage />);
+
+  await screen.findByRole("heading", { name: "长夜档案" });
+  fireEvent.click(screen.getByRole("button", { name: "删除开书蓝图《长夜档案》" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/blueprints/9/delete",
+      expect.objectContaining({
+        body: JSON.stringify({}),
+        method: "POST",
+      }),
+    ),
+  );
+  await waitFor(() => expect(screen.queryByRole("heading", { name: "长夜档案" })).not.toBeInTheDocument());
 });
